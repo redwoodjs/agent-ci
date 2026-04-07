@@ -17,12 +17,7 @@ import {
   parseKeyValueFile,
   parsePathFile,
 } from "./commands.js";
-import {
-  type ExpressionContext,
-  interpolate,
-  evaluateCondition,
-  coerceToString,
-} from "./expressions.js";
+import { interpolate, evaluateCondition } from "./expressions.js";
 import type { Step, StepResult, StepOutputs, RunContext } from "./types.js";
 
 // ---------------------------------------------------------------------------

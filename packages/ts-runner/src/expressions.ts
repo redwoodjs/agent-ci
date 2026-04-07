@@ -58,6 +58,7 @@ enum TokenType {
   LBracket,
   RBracket,
   Comma,
+  Star,
   Eq,
   Neq,
   Lt,
@@ -168,6 +169,11 @@ function tokenize(input: string): Token[] {
     }
     if (ch === "!") {
       tokens.push({ type: TokenType.Not, value: ch, pos });
+      i++;
+      continue;
+    }
+    if (ch === "*") {
+      tokens.push({ type: TokenType.Star, value: ch, pos });
       i++;
       continue;
     }
@@ -392,8 +398,17 @@ class Parser {
       while (true) {
         if (this.peek().type === TokenType.Dot) {
           this.advance();
-          const prop = this.expect(TokenType.Ident);
-          pathParts.push(prop.value);
+          // Accept both identifiers and * (wildcard filter)
+          const next = this.peek();
+          if (next.type === TokenType.Ident) {
+            pathParts.push(this.advance().value);
+          } else if (next.type === TokenType.Star) {
+            pathParts.push(this.advance().value);
+          } else {
+            throw new Error(
+              `Expected identifier or * after '.' but got ${TokenType[next.type]} ("${next.value}") at position ${next.pos}`,
+            );
+          }
         } else if (this.peek().type === TokenType.LBracket) {
           this.advance();
           const index = this.parseOr();
@@ -408,12 +423,6 @@ class Parser {
       }
 
       return base;
-    }
-
-    // Negative number (unary minus)
-    if (t.type === TokenType.Number) {
-      this.advance();
-      return { kind: "literal", value: Number(t.value) };
     }
 
     throw new Error(`Unexpected token: ${TokenType[t.type]} ("${t.value}") at position ${t.pos}`);
@@ -832,6 +841,8 @@ export function interpolate(template: string, ctx: ExpressionContext): string {
  * Evaluate a condition expression (used for `if:` on steps and jobs).
  *
  * Returns a boolean. If the expression is empty, defaults to `success()`.
+ * If the expression can't be parsed, warns and returns true (run the step
+ * rather than silently skipping it).
  */
 export function evaluateCondition(expression: string, ctx: ExpressionContext): boolean {
   if (!expression.trim()) {
@@ -845,7 +856,14 @@ export function evaluateCondition(expression: string, ctx: ExpressionContext): b
     expr = wrapped[1];
   }
 
-  return coerceToBool(evaluate(expr, ctx));
+  try {
+    return coerceToBool(evaluate(expr, ctx));
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error(`[ts-runner] Warning: could not evaluate condition, defaulting to true: ${msg}`);
+    console.error(`[ts-runner]   expression: ${expr}`);
+    return true;
+  }
 }
 
 export { coerceToString, coerceToBool };

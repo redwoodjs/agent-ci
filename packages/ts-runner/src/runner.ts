@@ -5,13 +5,14 @@
  * and runs jobs in dependency order.
  */
 
+import { execSync } from "child_process";
 import path from "path";
 
-import type { ExpressionContext } from "./expressions.js";
-import { evaluateCondition, interpolate } from "./expressions.js";
-import { runJob, type JobRunnerOptions } from "./job-runner.js";
+import type { ExpressionContext, ExpressionValue } from "./expressions.js";
+import { evaluateCondition } from "./expressions.js";
+import { runJob } from "./job-runner.js";
 import { parseWorkflowFile } from "./workflow-parser.js";
-import type { Job, JobResult, WorkflowResult, RunContext } from "./types.js";
+import type { Job, JobResult, WorkflowResult } from "./types.js";
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -28,6 +29,8 @@ export interface RunWorkflowOptions {
   env?: Record<string, string>;
   /** Workflow dispatch inputs. */
   inputs?: Record<string, string>;
+  /** Ignore job-level if: conditions — run all jobs unconditionally. */
+  force?: boolean;
   /** Callback for step output lines. */
   onOutput?: (line: string) => void;
   /** Callback when a job starts. */
@@ -52,8 +55,8 @@ export async function runWorkflow(opts: RunWorkflowOptions): Promise<WorkflowRes
   const startTime = Date.now();
   const workflow = parseWorkflowFile(opts.workflowPath);
 
-  // Build base expression context
-  const baseCtx = buildBaseContext(opts);
+  // Build base expression context using workflow triggers
+  const baseCtx = buildBaseContext(opts, workflow.on);
 
   // Apply workflow-level env
   if (workflow.env) {
@@ -89,8 +92,8 @@ export async function runWorkflow(opts: RunWorkflowOptions): Promise<WorkflowRes
           steps: {},
         };
 
-        // Evaluate job-level `if:`
-        if (job.if) {
+        // Evaluate job-level `if:` (skipped when --force)
+        if (job.if && !opts.force) {
           const shouldRun = evaluateCondition(job.if, jobCtx);
           if (!shouldRun) {
             const skipped: JobResult = {
@@ -180,7 +183,6 @@ export async function runWorkflow(opts: RunWorkflowOptions): Promise<WorkflowRes
  * etc.
  */
 function topoSort(jobs: Job[]): Job[][] {
-  const jobMap = new Map(jobs.map((j) => [j.id, j]));
   const waves: Job[][] = [];
   const placed = new Set<string>();
 
@@ -220,24 +222,29 @@ function topoSort(jobs: Job[]): Job[][] {
 // Context builder
 // ---------------------------------------------------------------------------
 
-function buildBaseContext(opts: RunWorkflowOptions): ExpressionContext {
-  const repoName = path.basename(opts.workspace);
+function buildBaseContext(opts: RunWorkflowOptions, triggers: string[]): ExpressionContext {
+  const git = getGitInfo(opts.workspace);
+
+  // Pick the most specific trigger as the event name
+  const eventName = pickEventName(triggers);
+  const event = buildEventStub(eventName, git);
 
   return {
     github: {
       action: "",
-      actor: "local",
-      event_name: "push",
-      event: {},
+      actor: git.actor,
+      event_name: eventName,
+      event,
       job: "",
-      ref: "refs/heads/main",
-      ref_name: "main",
-      repository: `local/${repoName}`,
+      ref: git.ref,
+      ref_name: git.branch,
+      repository: git.repository,
       run_id: "1",
       run_number: "1",
-      sha: "0000000000000000000000000000000000000000",
-      head_sha: "0000000000000000000000000000000000000000",
-      head_ref: "main",
+      sha: git.sha,
+      head_sha: git.sha,
+      head_ref: git.branch,
+      base_ref: git.defaultBranch,
       workspace: opts.workspace,
       server_url: "https://github.com",
       api_url: "https://api.github.com",
@@ -260,4 +267,145 @@ function buildBaseContext(opts: RunWorkflowOptions): ExpressionContext {
     inputs: opts.inputs ?? {},
     workspace: opts.workspace,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Git info
+// ---------------------------------------------------------------------------
+
+interface GitInfo {
+  sha: string;
+  branch: string;
+  ref: string;
+  defaultBranch: string;
+  repository: string;
+  actor: string;
+}
+
+function git(cwd: string, args: string): string {
+  try {
+    return execSync(`git ${args}`, {
+      cwd,
+      encoding: "utf8",
+      stdio: ["pipe", "pipe", "pipe"],
+    }).trim();
+  } catch {
+    return "";
+  }
+}
+
+function getGitInfo(workspace: string): GitInfo {
+  const sha = git(workspace, "rev-parse HEAD") || "0000000000000000000000000000000000000000";
+  const branch = git(workspace, "rev-parse --abbrev-ref HEAD") || "main";
+  const ref = branch === "HEAD" ? `refs/heads/main` : `refs/heads/${branch}`;
+
+  // Try to extract owner/repo from the remote URL
+  const remoteUrl = git(workspace, "remote get-url origin");
+  const repository = parseRepoFromRemote(remoteUrl) || `local/${path.basename(workspace)}`;
+
+  // Default branch: try to infer from remote HEAD
+  const defaultBranch =
+    git(workspace, "rev-parse --abbrev-ref origin/HEAD").replace("origin/", "") || "main";
+
+  // Git user as actor
+  const actor = git(workspace, "config user.name") || "local";
+
+  return { sha, branch, ref, defaultBranch, repository, actor };
+}
+
+function parseRepoFromRemote(url: string): string | undefined {
+  // SSH: git@github.com:owner/repo.git
+  const sshMatch = url.match(/:([^/]+\/[^/]+?)(?:\.git)?$/);
+  if (sshMatch) {
+    return sshMatch[1];
+  }
+  // HTTPS: https://github.com/owner/repo.git
+  const httpsMatch = url.match(/github\.com\/([^/]+\/[^/]+?)(?:\.git)?$/);
+  if (httpsMatch) {
+    return httpsMatch[1];
+  }
+  return undefined;
+}
+
+// ---------------------------------------------------------------------------
+// Event stubs
+// ---------------------------------------------------------------------------
+
+/**
+ * Pick the most meaningful event name from the workflow triggers.
+ * Prefer PR-related triggers over push, since they carry richer context.
+ */
+function pickEventName(triggers: string[]): string {
+  if (triggers.includes("pull_request_target")) {
+    return "pull_request";
+  }
+  if (triggers.includes("pull_request")) {
+    return "pull_request";
+  }
+  if (triggers.includes("push")) {
+    return "push";
+  }
+  if (triggers.includes("workflow_dispatch")) {
+    return "workflow_dispatch";
+  }
+  return triggers[0] ?? "push";
+}
+
+/**
+ * Build a realistic github.event stub based on the trigger type.
+ * The goal is to make common `if:` conditions pass when running locally.
+ */
+function buildEventStub(eventName: string, git: GitInfo): Record<string, ExpressionValue> {
+  switch (eventName) {
+    case "pull_request":
+      return {
+        action: "synchronize",
+        number: 1,
+        pull_request: {
+          number: 1,
+          draft: false,
+          merged: false,
+          state: "open",
+          author_association: "OWNER",
+          labels: [],
+          title: `Local run from ${git.branch}`,
+          head: {
+            sha: git.sha,
+            ref: git.branch,
+          },
+          base: {
+            sha: git.sha,
+            ref: git.defaultBranch,
+          },
+          user: {
+            login: git.actor,
+          },
+        },
+      };
+
+    case "push":
+      return {
+        ref: git.ref,
+        before: "0000000000000000000000000000000000000000",
+        after: git.sha,
+        created: false,
+        deleted: false,
+        forced: false,
+        head_commit: {
+          id: git.sha,
+          message: "local run",
+        },
+        pusher: {
+          name: git.actor,
+        },
+      };
+
+    case "workflow_dispatch":
+      return {
+        inputs: {},
+      };
+
+    default:
+      return {};
+  }
 }

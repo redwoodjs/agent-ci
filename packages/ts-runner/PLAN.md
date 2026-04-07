@@ -83,12 +83,23 @@ Execute `uses:` steps that reference JavaScript actions (e.g. `actions/checkout@
   - `actions/setup-node` → check if node is already available, skip if version matches
   - `actions/cache` → no-op (persistent filesystem makes caching less relevant)
 
+- [ ] **Service containers** — Docker-based `services:` support. Steps run on host, services run in Docker.
+  - Parse `services:` from workflow YAML (already in workflow-parser.ts)
+  - Create Docker containers via dockerode with port mappings published to host
+  - Wait for health (HEALTHCHECK or running state, 60s timeout)
+  - Inject service connection info into step env (host=localhost, ports from mapping)
+  - Cleanup: force-remove containers after all steps complete (or on error)
+  - Orphan cleanup: prune stale `ts-runner-svc-*` containers on startup
+  - New file: `service-containers.ts`
+
 ### Test targets
 
 - Run a workflow with `uses: actions/checkout@v4` + `run: ls` and verify the workspace is intact
 - Run a workflow with a simple JS action that sets outputs
 - Verify INPUT\_\* env var mapping
 - Verify pre/post script execution order
+- Start a Postgres service, run a step that connects to `localhost:5432`
+- Verify service cleanup after job completion and after job failure
 
 ---
 
@@ -178,10 +189,11 @@ packages/ts-runner/src/
 ├── step-executor.ts      # Runs individual steps (script, action)
 ├── job-runner.ts         # Runs all steps in a job, propagates context
 ├── runner.ts             # Top-level orchestrator (toposort, matrix, job scheduling)
-├── action-resolver.ts    # [Phase 2] Download and cache action tarballs
-├── action-executor.ts    # [Phase 2] Run JS/composite actions
-├── expressions.test.ts   # 47 unit tests
-└── runner.test.ts        # 10 integration tests
+├── action-resolver.ts       # [Phase 2] Download and cache action tarballs
+├── action-executor.ts       # [Phase 2] Run JS/composite actions
+├── service-containers.ts    # [Phase 2] Docker service container lifecycle
+├── expressions.test.ts      # 47 unit tests
+└── runner.test.ts           # 10 integration tests
 ```
 
 ---
@@ -190,7 +202,7 @@ packages/ts-runner/src/
 
 1. **Own expression evaluator, not borrowed.** The `actions/languageservices` parser is designed for IDE tooling (hover, completion), not runtime evaluation. Our evaluator is 380 lines, purpose-built, and fully tested. If edge cases emerge, we fix them directly.
 
-2. **No Docker dependency at all.** Steps run in the host process's environment (or Agent OS VM). This means no `services:`, no `container:`, no Docker actions. These are documented as unsupported with clear error messages.
+2. **Docker for services only, not for steps.** Steps run on the host (or Agent OS VM). Service containers (`services:`) use Docker because databases and caches need real isolation. Step execution does not. `container:` and Docker actions remain unsupported.
 
 3. **Compatible output format.** `StepResult` and `JobResult` produce the same outputs/env/path mutations as the official runner. A workflow that works with the official runner should produce identical results with ts-runner (for supported step types).
 

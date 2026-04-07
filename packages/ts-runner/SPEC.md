@@ -97,7 +97,7 @@ Follows GitHub's rules:
 | `jobs.<id>.continue-on-error`              | Parsed    | Stored on the Job type but not enforced at job level                        |
 | `jobs.<id>.runs-on`                        | Ignored   | Steps run on the host (or Agent OS VM), not in a container                  |
 | `jobs.<id>.container`                      | No        | No Docker support                                                           |
-| `jobs.<id>.services`                       | No        | No Docker support                                                           |
+| `jobs.<id>.services`                       | Planned   | Docker service containers (Phase 2). See Service Containers section below.  |
 | `jobs.<id>.concurrency`                    | No        | No concurrency group support                                                |
 | `jobs.<id>.permissions`                    | No        | No GITHUB_TOKEN permission scoping                                          |
 | `jobs.<id>.environment`                    | No        | No deployment environment support                                           |
@@ -208,6 +208,72 @@ Values are coerced to strings. The `matrix.*` context is populated for each comb
 
 ---
 
+## Service Containers
+
+Service containers (`services:`) run via Docker. Steps themselves still run
+on the host — only the backing services (databases, caches, etc.) are
+containerized.
+
+### How it works
+
+| Aspect            | Behavior                                                                                          |
+| ----------------- | ------------------------------------------------------------------------------------------------- |
+| Container runtime | Docker (via dockerode). Docker daemon must be running.                                            |
+| Lifecycle         | Started before the first step, stopped and removed after the last step.                           |
+| Networking        | Containers publish ports to the host. Steps reach services via `localhost:<port>`.                |
+| Health checks     | If the image defines a HEALTHCHECK, wait up to 60s for healthy. Otherwise wait for running state. |
+| Port mapping      | `services.<id>.ports` entries like `5432:5432` are mapped to host ports.                          |
+| Environment       | `services.<id>.env` passed as container env vars.                                                 |
+| Options           | `services.<id>.options` parsed for `--health-cmd`, `--health-interval`, etc.                      |
+| Cleanup           | Best-effort: containers force-removed, network deleted. Orphan cleanup on next run.               |
+
+### Divergence from GitHub Actions
+
+In GitHub Actions, the runner container and service containers share a Docker
+network. Steps access services by their service name as a hostname (e.g.
+`postgres` resolves to the service container's IP).
+
+In ts-runner, steps run on the host, so services are accessed via
+`localhost:<port>`. This means:
+
+- Port mappings are **required** — without them, steps can't reach the service.
+- Service hostnames don't resolve — use `localhost` or `127.0.0.1` instead.
+- Workflows that use `services.<name>` as a hostname in env vars (e.g.
+  `DB_HOST: postgres`) need adjustment to use `localhost`.
+
+### What's supported
+
+| Feature                       | Supported | Notes                                                              |
+| ----------------------------- | --------- | ------------------------------------------------------------------ |
+| `services.<id>.image`         | Yes       | Pulled if not present locally                                      |
+| `services.<id>.env`           | Yes       | Passed to container                                                |
+| `services.<id>.ports`         | Yes       | Published to host (`hostPort:containerPort`)                       |
+| `services.<id>.options`       | Yes       | Parsed for health check flags                                      |
+| `services.<id>.volumes`       | No        | Bind mounts not supported                                          |
+| `services.<id>.credentials`   | No        | Private registry auth not supported                                |
+| Service-to-service networking | No        | Each service is independent; they can't talk to each other by name |
+
+### Example
+
+```yaml
+services:
+  postgres:
+    image: postgres:16
+    env:
+      POSTGRES_PASSWORD: test
+    ports:
+      - 5432:5432
+    options: >-
+      --health-cmd pg_isready
+      --health-interval 10s
+      --health-timeout 5s
+      --health-retries 5
+```
+
+Steps access it as `localhost:5432`, not `postgres:5432`.
+
+---
+
 ## Known Divergences from Official Runner
 
 1. **No `GITHUB_*` env vars by default.** The official runner exports ~30 env vars. ts-runner only sets `CI`, `GITHUB_ACTIONS`, `GITHUB_WORKSPACE`, and the file command paths. Other values are available through `${{ }}` but not as direct env vars. This means `echo $GITHUB_SHA` won't work but `echo ${{ github.sha }}` will.
@@ -230,9 +296,8 @@ Values are coerced to strings. The `matrix.*` context is populated for each comb
 
 | Feature                                                           | Reason                                                        |
 | ----------------------------------------------------------------- | ------------------------------------------------------------- |
-| Docker actions (`runs.using: docker`)                             | Entire point is to eliminate Docker                           |
-| `container:` directive                                            | Same                                                          |
-| `services:` directive                                             | Same (could be added as host processes in a future version)   |
+| Docker actions (`runs.using: docker`)                             | Entire point is to eliminate Docker for step execution        |
+| `container:` directive                                            | Same — steps run on the host                                  |
 | Runner groups / labels                                            | No runner registration; steps run locally                     |
 | Reusable workflows (`uses: org/repo/.github/workflows/x.yml@ref`) | Would require downloading and parsing external workflow files |
 | OIDC token generation                                             | No identity provider                                          |

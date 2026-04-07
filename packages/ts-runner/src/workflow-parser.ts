@@ -6,7 +6,6 @@
  */
 
 import fs from "fs";
-import crypto from "crypto";
 import { parse as parseYaml } from "yaml";
 
 import type { Workflow, Job, Step, ScriptStep, ActionStep } from "./types.js";
@@ -42,9 +41,26 @@ export function parseWorkflowYaml(content: string, sourcePath?: string): Workflo
 
   return {
     name: yaml.name ?? sourcePath ?? "workflow",
+    on: parseTriggers(yaml.on),
     jobs,
     env: yaml.env ? normalizeEnv(yaml.env) : undefined,
   };
+}
+
+/**
+ * Extract trigger event names from the `on:` key.
+ */
+function parseTriggers(raw: unknown): string[] {
+  if (typeof raw === "string") {
+    return [raw];
+  }
+  if (Array.isArray(raw)) {
+    return raw.map(String);
+  }
+  if (raw && typeof raw === "object") {
+    return Object.keys(raw);
+  }
+  return ["push"];
 }
 
 function parseJob(id: string, raw: any): Job {

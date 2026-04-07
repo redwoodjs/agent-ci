@@ -16,6 +16,9 @@
     "url": "https://github.com/redwoodjs/agent-ci.git",
     "directory": "packages/ts-runner"
   },
+  "bin": {
+    "ts-runner": "./dist/cli.js"
+  },
   "files": [
     "dist"
   ],
@@ -30,6 +33,7 @@
   "scripts": {
     "build": "tsgo",
     "typecheck": "tsgo",
+    "ts-runner": "tsx src/cli.ts",
     "test": "vitest run"
   },
   "dependencies": {
@@ -37,6 +41,7 @@
   },
   "devDependencies": {
     "@types/node": "^22.10.2",
+    "tsx": "^4.21.0",
     "vitest": "^4.0.18"
   },
   "engines": {

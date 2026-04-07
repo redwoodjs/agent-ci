@@ -11,6 +11,8 @@ import type { Annotation } from "./commands.js";
 
 export interface Workflow {
   name: string;
+  /** Trigger event names from the `on:` key (e.g. "push", "pull_request"). */
+  on: string[];
   jobs: Job[];
   env?: Record<string, string>;
 }

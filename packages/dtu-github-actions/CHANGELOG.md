@@ -1,5 +1,20 @@
 # dtu-github-actions
 
+## 0.7.1
+
+### Patch Changes
+
+- 17ef340: Fix --all hanging on single-job workflows due to cross-workflow job stealing.
+
+  Pin `job.runnerName = containerName` before the DTU seed call so every job goes to the runner-specific pool. Move container and ephemeral DTU cleanup into a `finally` block to ensure cleanup even on mid-run errors. Set `process.setMaxListeners(0)` to suppress EventEmitter warnings when running many parallel jobs.
+
+- 336fb98: Fix: treat runner that never contacted DTU as a failure instead of success. When `isBooting` is still true after the container exits (meaning no timeline entries were received), the job is now correctly reported as failed regardless of exit code.
+- cc73a1f: Fix race condition in concurrent log directory allocation by using atomic mkdirSync.
+- be5cacd: Fix handleWorkflow catch block swallowing errors by re-throwing instead of returning empty array
+- 5fadfee: Remove stopped agent-ci containers before pruning networks to prevent address pool exhaustion.
+- 1e9d7ca: Support `pull_request_target` in workflow relevance check, applying the same branch and paths filter logic as `pull_request`. Fix Docker container name collisions when running multiple workflows concurrently via `--all` by pre-allocating unique run numbers per workflow.
+- 73f6bf0: Propagate job-level env into DTU Variables store and add AGENT_CI_LOCAL to Docker container env.
+
 ## 0.7.0
 
 ### Minor Changes

@@ -359,6 +359,16 @@ async function runWorkflows(options: {
     }, 80);
   }
 
+  // Top-level signal handler: exit the process after per-job handlers have
+  // cleaned up their containers. All listeners fire synchronously in
+  // registration order, so we defer the exit to let per-job handlers
+  // (registered later in local-job.ts) run first.
+  const exitOnSignal = () => {
+    setTimeout(() => process.exit(1), 0);
+  };
+  process.on("SIGINT", exitOnSignal);
+  process.on("SIGTERM", exitOnSignal);
+
   try {
     const allResults: JobResult[] = [];
 
@@ -454,6 +464,8 @@ async function runWorkflows(options: {
     store.complete(allResults.some((r) => !r.succeeded) ? "failed" : "completed");
     return allResults;
   } finally {
+    process.removeListener("SIGINT", exitOnSignal);
+    process.removeListener("SIGTERM", exitOnSignal);
     if (renderInterval) {
       clearInterval(renderInterval);
     }

@@ -91,5 +91,55 @@ describe("Logger utilities", () => {
       const second = createLogContext("agent-ci");
       expect(second.num).toBe(first.num + 1);
     });
+
+    it("skips over a directory that already exists (race condition)", async () => {
+      const { setWorkingDirectory } = await import("./working-directory.js");
+      const { createLogContext } = await import("./logger.js");
+      setWorkingDirectory(tmpDir);
+
+      // Pre-create runs/agent-ci-1 to simulate another process winning the race
+      fs.mkdirSync(path.join(tmpDir, "runs", "agent-ci-1"), { recursive: true });
+
+      const ctx = createLogContext("agent-ci");
+      // Should have skipped 1 and landed on 2
+      expect(ctx.num).toBe(2);
+      expect(ctx.name).toBe("agent-ci-2");
+      expect(fs.existsSync(ctx.runDir)).toBe(true);
+    });
+
+    it("handles multiple consecutive collisions", async () => {
+      const { setWorkingDirectory } = await import("./working-directory.js");
+      const { createLogContext } = await import("./logger.js");
+      setWorkingDirectory(tmpDir);
+
+      // Pre-create 1, 2, and 3 to simulate several concurrent processes
+      fs.mkdirSync(path.join(tmpDir, "runs", "agent-ci-1"), { recursive: true });
+      fs.mkdirSync(path.join(tmpDir, "runs", "agent-ci-2"), { recursive: true });
+      fs.mkdirSync(path.join(tmpDir, "runs", "agent-ci-3"), { recursive: true });
+
+      const ctx = createLogContext("agent-ci");
+      expect(ctx.num).toBe(4);
+      expect(ctx.name).toBe("agent-ci-4");
+      expect(fs.existsSync(ctx.runDir)).toBe(true);
+    });
+
+    it("concurrent calls each get a unique directory", async () => {
+      const { setWorkingDirectory } = await import("./working-directory.js");
+      const { createLogContext } = await import("./logger.js");
+      setWorkingDirectory(tmpDir);
+
+      // Call createLogContext many times synchronously — each should get a unique dir
+      const results = Array.from({ length: 10 }, () => createLogContext("agent-ci"));
+
+      const names = results.map((r) => r.name);
+      const uniqueNames = new Set(names);
+      expect(uniqueNames.size).toBe(10);
+
+      // All directories should exist
+      for (const r of results) {
+        expect(fs.existsSync(r.runDir)).toBe(true);
+        expect(fs.existsSync(r.logDir)).toBe(true);
+      }
+    });
   });
 });

@@ -230,6 +230,24 @@ export function resolveJobOutputs(
   return result;
 }
 
+// ─── Job success determination ────────────────────────────────────────────────
+
+/**
+ * Determine whether a job succeeded based on container exit state and
+ * whether the runner ever contacted the DTU.
+ *
+ * `isBooting` stays `true` when the runner never sent any timeline entries —
+ * it started but couldn't reach the DTU or crashed before executing any steps.
+ * That must be treated as a failure regardless of exit code.
+ */
+export function isJobSuccessful(opts: {
+  lastFailedStep: string | null;
+  containerExitCode: number;
+  isBooting: boolean;
+}): boolean {
+  return opts.lastFailedStep === null && opts.containerExitCode === 0 && !opts.isBooting;
+}
+
 // ─── Job result builder ───────────────────────────────────────────────────────
 
 export interface BuildJobResultOpts {

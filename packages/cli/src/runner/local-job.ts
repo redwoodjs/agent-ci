@@ -31,7 +31,7 @@ import {
   resolveDockerApiUrl,
   resolveDockerExtraHosts,
 } from "../docker/container-config.js";
-import { buildJobResult } from "./result-builder.js";
+import { buildJobResult, isJobSuccessful } from "./result-builder.js";
 import { wrapJobSteps, appendOutputCaptureStep } from "./step-wrapper.js";
 import { syncWorkspaceForRetry } from "./sync.js";
 
@@ -825,7 +825,7 @@ export async function executeLocalJob(
     }
     const containerExitCode = waitResult.StatusCode;
 
-    const jobSucceeded = lastFailedStep === null && containerExitCode === 0;
+    const jobSucceeded = isJobSuccessful({ lastFailedStep, containerExitCode, isBooting });
 
     // Update store with final exit code on failure
     if (!jobSucceeded) {

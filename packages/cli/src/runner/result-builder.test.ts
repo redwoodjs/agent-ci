@@ -151,6 +151,40 @@ describe("extractFailureDetails", () => {
   });
 });
 
+// ── isJobSuccessful ──────────────────────────────────────────────────────────
+
+describe("isJobSuccessful", () => {
+  it("succeeds when no failed step, exit code 0, and not booting", async () => {
+    const { isJobSuccessful } = await import("./result-builder.js");
+    expect(isJobSuccessful({ lastFailedStep: null, containerExitCode: 0, isBooting: false })).toBe(
+      true,
+    );
+  });
+
+  it("fails when a step failed", async () => {
+    const { isJobSuccessful } = await import("./result-builder.js");
+    expect(
+      isJobSuccessful({ lastFailedStep: "Build", containerExitCode: 0, isBooting: false }),
+    ).toBe(false);
+  });
+
+  it("fails when container exit code is non-zero", async () => {
+    const { isJobSuccessful } = await import("./result-builder.js");
+    expect(isJobSuccessful({ lastFailedStep: null, containerExitCode: 1, isBooting: false })).toBe(
+      false,
+    );
+  });
+
+  it("fails when runner never contacted DTU (isBooting=true)", async () => {
+    const { isJobSuccessful } = await import("./result-builder.js");
+    // This is the bug from #102: container exits 0 with no failed steps,
+    // but the runner never sent any timeline entries (isBooting stayed true).
+    expect(isJobSuccessful({ lastFailedStep: null, containerExitCode: 0, isBooting: true })).toBe(
+      false,
+    );
+  });
+});
+
 // ── buildJobResult ────────────────────────────────────────────────────────────
 
 describe("buildJobResult", () => {

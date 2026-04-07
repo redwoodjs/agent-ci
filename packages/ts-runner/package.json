@@ -1,0 +1,45 @@
+{
+  "name": "@redwoodjs/ts-runner",
+  "version": "0.7.0",
+  "description": "TypeScript GitHub Actions step runner — no Docker, no .NET binary.",
+  "keywords": [
+    "ci",
+    "github-actions",
+    "local-runner",
+    "runner",
+    "typescript"
+  ],
+  "license": "FSL-1.1-MIT",
+  "author": "",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/redwoodjs/agent-ci.git",
+    "directory": "packages/ts-runner"
+  },
+  "files": [
+    "dist"
+  ],
+  "type": "module",
+  "main": "./dist/index.js",
+  "exports": {
+    ".": "./dist/index.js"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsgo",
+    "typecheck": "tsgo",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "yaml": "^2.8.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "vitest": "^4.0.18"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

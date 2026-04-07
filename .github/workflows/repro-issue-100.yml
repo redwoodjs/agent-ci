@@ -17,6 +17,8 @@ jobs:
           node-version: 22
           cache: "pnpm"
       - run: pnpm install
+      - name: Pull runner image
+        run: docker pull ghcr.io/actions/actions-runner:latest
 
       # Run agent-ci against retry-proof.yml with networking fixes disabled,
       # simulating the pre-fix behavior where host.docker.internal was used

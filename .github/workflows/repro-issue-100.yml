@@ -1,0 +1,58 @@
+name: "Repro: issue 100"
+
+on: [workflow_dispatch]
+
+jobs:
+  repro:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.30.1
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: "pnpm"
+      - run: pnpm install
+
+      # Run agent-ci against retry-proof.yml with networking fixes disabled,
+      # simulating the pre-fix behavior where host.docker.internal was used
+      # without ExtraHosts mapping.
+      - name: "Repro: agent-ci with broken networking (issue #100)"
+        env:
+          AGENT_CI_DTU_HOST: "host.docker.internal"
+          AGENT_CI_DOCKER_DISABLE_DEFAULT_EXTRA_HOSTS: "1"
+        run: |
+          set +e
+          output=$(pnpm agent-ci-dev run -w .github/workflows/retry-proof.yml 2>&1)
+          exit_code=$?
+          set -e
+          echo "$output"
+          echo "---"
+          echo "Exit code: $exit_code"
+          if [ "$exit_code" -ne 0 ]; then
+            echo "✅ Reproduced issue #100: runner container failed to reach DTU"
+          else
+            echo "❌ Did NOT reproduce: workflow passed (exit $exit_code)"
+            exit 1
+          fi
+
+      # Now run the same thing with fixes enabled (default behavior)
+      - name: "Control: agent-ci with working networking"
+        run: |
+          set +e
+          output=$(pnpm agent-ci-dev run -w .github/workflows/retry-proof.yml 2>&1)
+          exit_code=$?
+          set -e
+          echo "$output"
+          echo "---"
+          echo "Exit code: $exit_code"
+          if [ "$exit_code" -eq 0 ]; then
+            echo "✅ Control passed: networking fixes work correctly"
+          else
+            echo "❌ Control failed unexpectedly (exit $exit_code)"
+            exit 1
+          fi

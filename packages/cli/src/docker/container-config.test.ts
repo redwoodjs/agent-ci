@@ -23,6 +23,7 @@ describe("buildContainerEnv", () => {
 
     expect(env).toContain("RUNNER_NAME=runner-1");
     expect(env).toContain("GITHUB_REPOSITORY=org/repo");
+    expect(env).toContain("AGENT_CI_LOCAL=true");
     expect(env).toContain("AGENT_CI_HEAD_SHA=abc123");
     expect(env).toContain("FORCE_COLOR=1");
     // Should NOT include root-mode vars for standard container

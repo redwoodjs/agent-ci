@@ -215,11 +215,15 @@ export function createJobResponse(
     "build.repository.uri": { Value: `https://github.com/${repoFullName}`, IsSecret: false },
   };
 
-  // Merge all step-level env: vars into the job Variables.
+  // Merge job-level env: into Variables first, then step-level env: (step wins on conflict).
   // The runner exports every Variable as a process env var for all steps, so this is the
-  // reliable mechanism to get DB_HOST=mysql, DB_PORT=3306 etc. into the step subprocess.
-  // (Step-scoped env would require full template compilation; job-level Variables are sufficient
-  //  for DB credentials / CI flags that are consistent across steps.)
+  // reliable mechanism to get AGENT_CI_LOCAL, DB_HOST, DB_PORT etc. into the step subprocess
+  // and into the runner's expression engine (${{ env.AGENT_CI_LOCAL }}).
+  if (payload.env && typeof payload.env === "object") {
+    for (const [key, val] of Object.entries(payload.env)) {
+      Variables[key] = { Value: String(val), IsSecret: false };
+    }
+  }
   for (const step of payload.steps || []) {
     if (step.Env && typeof step.Env === "object") {
       for (const [key, val] of Object.entries(step.Env)) {
@@ -259,14 +263,15 @@ export function createJobResponse(
     };
   }
 
-  // Collect env vars from all steps (job-level env context seen by the runner's expression engine).
-  // Step-level `env:` blocks in the workflow YAML need to be exposed via ContextData.env so the
-  // runner can evaluate them. We merge all step envs — slightly broader than per-step scoping but
-  // correct for typical use (DB_HOST, DB_PORT, CI flags etc.).
-  const mergedStepEnv: Record<string, string> = {};
+  // Collect env vars from job-level and all steps (seen by the runner's expression engine).
+  // Job-level env is applied first, then step-level env wins on conflict.
+  const mergedEnv: Record<string, string> = {};
+  if (payload.env && typeof payload.env === "object") {
+    Object.assign(mergedEnv, payload.env);
+  }
   for (const step of payload.steps || []) {
     if (step.Env) {
-      Object.assign(mergedStepEnv, step.Env);
+      Object.assign(mergedEnv, step.Env);
     }
   }
 
@@ -276,9 +281,9 @@ export function createJobResponse(
     needs: { t: 2, d: [] }, // Empty needs context
     strategy: { t: 2, d: [] }, // Empty strategy context
     matrix: { t: 2, d: [] }, // Empty matrix context
-    // env context: merged from all step-level env: blocks so the runner's expression engine
-    // can substitute ${{ env.DB_HOST }} etc. during step execution.
-    ...(Object.keys(mergedStepEnv).length > 0 ? { env: toContextData(mergedStepEnv) } : {}),
+    // env context: merged from job-level + step-level env: blocks so the runner's expression
+    // engine can substitute ${{ env.AGENT_CI_LOCAL }}, ${{ env.DB_HOST }} etc.
+    ...(Object.keys(mergedEnv).length > 0 ? { env: toContextData(mergedEnv) } : {}),
   };
 
   const generatedJobId = crypto.randomUUID();
@@ -352,7 +357,7 @@ export function createJobResponse(
     // The runner evaluates each MappingToken and merges into Global.EnvironmentVariables (last wins),
     // which then populates ExpressionValues["env"] → subprocess env vars.
     EnvironmentVariables:
-      Object.keys(mergedStepEnv).length > 0 ? [toTemplateTokenMapping(mergedStepEnv)] : [],
+      Object.keys(mergedEnv).length > 0 ? [toTemplateTokenMapping(mergedEnv)] : [],
   };
 
   return {

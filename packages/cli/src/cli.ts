@@ -279,6 +279,10 @@ async function runWorkflows(options: {
 }): Promise<JobResult[]> {
   const { workflowPaths, sha, pauseOnFailure, noMatrix = false } = options;
 
+  // Suppress EventEmitter MaxListenersExceeded warnings when running many
+  // parallel jobs (each job adds SIGINT/SIGTERM listeners).
+  process.setMaxListeners(0);
+
   // Create the run state store — single source of truth for all progress
   const runId = `run-${Date.now()}`;
   const storeFilePath = path.join(getWorkingDirectory(), "runs", runId, "run-state.json");

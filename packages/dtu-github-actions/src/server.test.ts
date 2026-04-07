@@ -543,6 +543,62 @@ describe("Artifact v4 upload/download", () => {
     expect(new Date(res.body.lockedUntil).getTime()).toBeGreaterThan(Date.now());
   });
 
+  it("should let runner B steal runner A's job when seeded WITHOUT runnerName (generic pool bug)", async () => {
+    // REPRODUCTION for issue #103:
+    // When local-job.ts seeds a job without setting runnerName, the job lands
+    // in the generic state.jobs pool. If another runner (from a different
+    // concurrent workflow) polls before runner A, it steals the job — causing
+    // runner A to hang forever waiting for a job that will never arrive.
+
+    const runnerA = "agent-ci-repro-A";
+    const runnerB = "agent-ci-repro-B";
+
+    // Register both runners
+    await request("POST", "/_dtu/start-runner", {
+      runnerName: runnerA,
+      logDir: "/tmp/agent-ci-repro-A-logs",
+      timelineDir: "/tmp/agent-ci-repro-A-logs",
+    });
+    await request("POST", "/_dtu/start-runner", {
+      runnerName: runnerB,
+      logDir: "/tmp/agent-ci-repro-B-logs",
+      timelineDir: "/tmp/agent-ci-repro-B-logs",
+    });
+
+    // Seed a job intended for runner A, but WITHOUT runnerName (the bug).
+    // This goes into the generic state.jobs pool.
+    await request("POST", "/_dtu/seed", {
+      id: 4001,
+      name: "job-intended-for-A",
+      // BUG: no runnerName — job lands in generic pool
+    });
+
+    // Runner B creates a session and polls — it shouldn't get A's job,
+    // but because the job is in the generic pool, B steals it.
+    const sessionB = await request("POST", "/_apis/distributedtask/pools/1/sessions", {
+      agent: { name: runnerB },
+    });
+    const pollB = await request(
+      "GET",
+      `/_apis/distributedtask/pools/1/messages?sessionId=${sessionB.body.sessionId}`,
+    );
+
+    // BUG CONFIRMED: runner B stole the job from the generic pool
+    expect(pollB.status).toBe(200);
+    const bodyB = JSON.parse(pollB.body.Body);
+    expect(bodyB.JobDisplayName).toBe("job-intended-for-A");
+
+    // Now runner A creates a session and polls — the job is gone
+    await request("POST", "/_apis/distributedtask/pools/1/sessions", {
+      agent: { name: runnerA },
+    });
+
+    // Runner A's poll will hang (long-poll timeout) because its job was stolen.
+    // We verify by checking state: no jobs remain for A.
+    const aHasJob = state.runnerJobs.has(runnerA) || state.jobs.size > 0;
+    expect(aHasJob).toBe(false); // A's job is gone — it will hang forever
+  }, 10_000);
+
   it("should handle job request finish (PATCH with result + finishTime)", async () => {
     const finishTime = new Date().toISOString();
     const res = await request("PATCH", "/_apis/distributedtask/jobrequests", {

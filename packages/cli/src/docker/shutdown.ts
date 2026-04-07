@@ -45,14 +45,34 @@ export function killRunnerContainers(runnerName: string): void {
 
 /**
  * Remove orphaned Docker resources left behind by previous runs:
- *   1. `agent-ci-net-*` networks with no connected containers
- *   2. Dangling volumes (anonymous volumes from service containers like MySQL)
+ *   1. Stopped `agent-ci-*` containers (runners + sidecars)
+ *   2. `agent-ci-net-*` networks with no connected containers
+ *   3. Dangling volumes (anonymous volumes from service containers like MySQL)
+ *
+ * Stopped containers must be removed first so their network references are
+ * released, allowing the network prune in step 2 to reclaim address pool capacity.
  *
  * Call this proactively before creating new resources to prevent Docker from
  * exhausting its address pool ("all predefined address pools have been fully subnetted").
  */
 export function pruneOrphanedDockerResources(): void {
-  // 1. Remove orphaned agent-ci-net-* networks
+  // 1. Remove stopped agent-ci-* containers (runners + sidecars) so their
+  //    network references are released before we try to prune networks.
+  try {
+    const stoppedIds = execSync(
+      `docker ps -aq --filter "name=agent-ci-" --filter "status=exited"`,
+      { encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] },
+    ).trim();
+    if (stoppedIds) {
+      execSync(`docker rm -f ${stoppedIds.split("\n").join(" ")}`, {
+        stdio: ["pipe", "pipe", "pipe"],
+      });
+    }
+  } catch {
+    // Docker not reachable or no stopped containers — skip
+  }
+
+  // 2. Remove orphaned agent-ci-net-* networks
   try {
     const nets = execSync(`docker network ls -q --filter "name=agent-ci-net-"`, {
       encoding: "utf8",
@@ -75,7 +95,7 @@ export function pruneOrphanedDockerResources(): void {
     // Docker not reachable — skip
   }
 
-  // 2. Remove dangling volumes (anonymous volumes from service containers)
+  // 3. Remove dangling volumes (anonymous volumes from service containers)
   try {
     execSync(`docker volume prune -f`, {
       stdio: ["pipe", "pipe", "pipe"],

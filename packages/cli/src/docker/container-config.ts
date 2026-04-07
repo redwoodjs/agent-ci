@@ -56,6 +56,7 @@ export function buildContainerEnv(opts: ContainerEnvOpts): string[] {
     `GITHUB_API_URL=${dockerApiUrl}`,
     `GITHUB_SERVER_URL=${repoUrl}`,
     `GITHUB_REPOSITORY=${githubRepo}`,
+    `AGENT_CI_LOCAL=true`,
     `AGENT_CI_LOCAL_SYNC=true`,
     `AGENT_CI_HEAD_SHA=${headSha || "HEAD"}`,
     `AGENT_CI_DTU_HOST=${dtuHost}`,

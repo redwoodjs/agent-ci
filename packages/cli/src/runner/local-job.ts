@@ -31,7 +31,7 @@ import {
   resolveDockerApiUrl,
   resolveDockerExtraHosts,
 } from "../docker/container-config.js";
-import { buildJobResult } from "./result-builder.js";
+import { buildJobResult, isJobSuccessful } from "./result-builder.js";
 import { wrapJobSteps, appendOutputCaptureStep } from "./step-wrapper.js";
 import { syncWorkspaceForRetry } from "./sync.js";
 
@@ -825,10 +825,7 @@ export async function executeLocalJob(
     }
     const containerExitCode = waitResult.StatusCode;
 
-    // isBooting stays true if the runner never sent any timeline entries — it
-    // started but couldn't reach the DTU or crashed before executing any steps.
-    // Treat that as a failure regardless of the container exit code.
-    const jobSucceeded = lastFailedStep === null && containerExitCode === 0 && !isBooting;
+    const jobSucceeded = isJobSuccessful({ lastFailedStep, containerExitCode, isBooting });
 
     // Update store with final exit code on failure
     if (!jobSucceeded) {

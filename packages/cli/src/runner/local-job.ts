@@ -205,6 +205,9 @@ export async function executeLocalJob(
   const debugStream = fs.createWriteStream(debugLogPath);
 
   // Signal handler: ensure cleanup runs even when killed.
+  // Do NOT call process.exit() here — multiple jobs register handlers concurrently,
+  // and an early exit would prevent other jobs' handlers from cleaning up their containers.
+  // killRunnerContainers already handles the runner, its svc-* sidecars, and the network.
   const signalCleanup = () => {
     killRunnerContainers(containerName);
     for (const d of [dirs.containerWorkDir, dirs.shimsDir, dirs.signalsDir, dirs.diagDir]) {
@@ -212,10 +215,9 @@ export async function executeLocalJob(
         fs.rmSync(d, { recursive: true, force: true });
       } catch {}
     }
-    process.exit(1);
   };
-  process.once("SIGINT", signalCleanup);
-  process.once("SIGTERM", signalCleanup);
+  process.on("SIGINT", signalCleanup);
+  process.on("SIGTERM", signalCleanup);
 
   // Hoisted for cleanup in `finally` — assigned inside the try block.
   let container: Docker.Container | null = null;

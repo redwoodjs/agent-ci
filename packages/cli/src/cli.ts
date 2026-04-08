@@ -513,7 +513,7 @@ async function handleWorkflow(options: {
     const [owner, name] = githubRepo.split("/");
 
     const template = await getWorkflowTemplate(workflowPath);
-    const jobs = template.jobs.filter((j) => j.type === "job");
+    const jobs = (template.jobs ?? []).filter((j) => j.type === "job");
 
     if (jobs.length === 0) {
       debugCli(`[Agent CI] No jobs found in workflow: ${path.basename(workflowPath)}`);

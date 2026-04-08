@@ -359,7 +359,7 @@ export async function parseWorkflowSteps(
   // Derive repoPath from filePath (.../repoPath/.github/workflows/foo.yml → repoPath)
   const repoPath = path.dirname(path.dirname(path.dirname(filePath)));
   // Find the job by ID or Name
-  const job = template.jobs.find((j) => {
+  const job = (template.jobs ?? []).find((j) => {
     if (j.type !== "job") {
       return false;
     }

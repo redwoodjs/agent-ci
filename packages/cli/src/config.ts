@@ -31,7 +31,7 @@ function deriveGithubRepo(): string {
   const remoteUrl = getFirstRemoteUrl(process.cwd());
   if (remoteUrl) {
     // Handles both SSH (git@github.com:owner/repo.git) and HTTPS URLs
-    const match = remoteUrl.match(/[/:]([^/]+\/[^/]+?)(?:\.git)?$/);
+    const match = remoteUrl.match(/[/:]([^/]+\/[^/]+?)(?:\.git)?\/?$/);
     if (match) {
       return match[1];
     }

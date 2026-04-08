@@ -919,7 +919,7 @@ function resolveRepoInfo(repoRoot: string) {
   let githubRepo = config.GITHUB_REPO;
   const remoteUrl = getFirstRemoteUrl(repoRoot);
   if (remoteUrl) {
-    const match = remoteUrl.match(/[:/]([^/]+\/[^/]+?)(?:\.git)?$/);
+    const match = remoteUrl.match(/[/:]([^/]+\/[^/]+?)(?:\.git)?\/?$/);
     if (match) {
       githubRepo = match[1];
     }

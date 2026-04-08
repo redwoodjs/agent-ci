@@ -5,20 +5,20 @@ import { PROJECT_ROOT } from "./output/working-directory.js";
 
 /**
  * Get the URL of the first git remote, preferring 'origin'.
- * Uses `git config` for clean output (no parsing of tab-delimited text).
+ * Uses `git remote get-url` which is scoped to the repo (unlike `git config`
+ * which can leak values from global/system config on CI runners).
  */
 export function getFirstRemoteUrl(cwd: string): string | null {
   const exec = (cmd: string) =>
     execSync(cmd, { cwd, encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] }).trim();
   try {
-    // Try origin first (most common)
-    return exec("git config --get remote.origin.url") || null;
+    return exec("git remote get-url origin") || null;
   } catch {
     // origin doesn't exist — fall back to the first listed remote
     try {
       const firstName = exec("git remote").split("\n")[0];
       if (firstName) {
-        return exec(`git config --get remote.${firstName}.url`) || null;
+        return exec(`git remote get-url ${firstName}`) || null;
       }
     } catch {}
   }

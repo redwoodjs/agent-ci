@@ -175,7 +175,7 @@ export async function executeLocalJob(
   // to scope virtualCachePatterns to only the relevant PM.
   const dirs = createRunDirectories({
     runDir,
-    githubRepo: job.githubRepo,
+    githubRepo: job.githubRepo!,
     workflowPath: job.workflowPath,
   });
   debugRunner(`Detected package manager: ${dirs.detectedPM ?? "none (mounting all PM caches)"}`);

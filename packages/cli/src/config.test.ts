@@ -3,7 +3,7 @@ import fs from "fs";
 import os from "os";
 import path from "path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { getFirstRemoteUrl, parseRepoSlug } from "./config.js";
+import { getFirstRemoteUrl, parseRepoSlug, resolveRepoSlug } from "./config.js";
 
 describe("parseRepoSlug", () => {
   it.each([
@@ -78,5 +78,59 @@ describe("getFirstRemoteUrl", () => {
     } finally {
       fs.rmSync(nonGitDir, { recursive: true, force: true });
     }
+  });
+});
+
+describe("resolveRepoSlug", () => {
+  let tmpDir: string;
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "config-test-"));
+    execSync("git init", { cwd: tmpDir, stdio: "pipe" });
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("detects owner/repo from remote URL", () => {
+    execSync("git remote add origin https://github.com/acme/widgets.git", {
+      cwd: tmpDir,
+      stdio: "pipe",
+    });
+    expect(resolveRepoSlug(tmpDir)).toBe("acme/widgets");
+  });
+
+  it("detects owner/repo from SSH remote", () => {
+    execSync("git remote add origin git@github.com:acme/widgets.git", {
+      cwd: tmpDir,
+      stdio: "pipe",
+    });
+    expect(resolveRepoSlug(tmpDir)).toBe("acme/widgets");
+  });
+
+  it("returns default fallback when no remotes exist", () => {
+    expect(resolveRepoSlug(tmpDir)).toBe("unknown/unknown");
+  });
+
+  it("returns custom fallback when no remotes exist", () => {
+    expect(resolveRepoSlug(tmpDir, "org/fallback")).toBe("org/fallback");
+  });
+
+  it("returns fallback for non-git directory", () => {
+    const nonGitDir = fs.mkdtempSync(path.join(os.tmpdir(), "no-git-"));
+    try {
+      expect(resolveRepoSlug(nonGitDir, "org/fallback")).toBe("org/fallback");
+    } finally {
+      fs.rmSync(nonGitDir, { recursive: true, force: true });
+    }
+  });
+
+  it("uses non-origin remote when origin is absent", () => {
+    execSync("git remote add upstream https://github.com/acme/upstream.git", {
+      cwd: tmpDir,
+      stdio: "pipe",
+    });
+    expect(resolveRepoSlug(tmpDir)).toBe("acme/upstream");
   });
 });

@@ -49,19 +49,20 @@ export function parseRepoSlug(remoteUrl: string): string | null {
   return match ? match[1] : null;
 }
 
-function deriveGithubRepo(): string {
-  const remoteUrl = getFirstRemoteUrl(process.cwd());
+/**
+ * Detect `owner/repo` from the git remote in the given directory.
+ * Falls back to `fallback` (default "unknown/unknown") when detection fails.
+ */
+export function resolveRepoSlug(cwd: string, fallback = "unknown/unknown"): string {
+  const remoteUrl = getFirstRemoteUrl(cwd);
   if (remoteUrl) {
-    const slug = parseRepoSlug(remoteUrl);
-    if (slug) {
-      return slug;
-    }
+    return parseRepoSlug(remoteUrl) ?? fallback;
   }
-  return "unknown/unknown";
+  return fallback;
 }
 
 export const config = {
-  GITHUB_REPO: process.env.GITHUB_REPO || deriveGithubRepo(),
+  GITHUB_REPO: process.env.GITHUB_REPO || resolveRepoSlug(process.cwd()),
   GITHUB_API_URL: process.env.GITHUB_API_URL || "http://localhost:8910",
 };
 

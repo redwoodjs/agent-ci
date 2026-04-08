@@ -2,7 +2,7 @@
 import { execSync } from "child_process";
 import path from "path";
 import fs from "fs";
-import { config, getFirstRemoteUrl, loadMachineSecrets, parseRepoSlug } from "./config.js";
+import { config, loadMachineSecrets, resolveRepoSlug } from "./config.js";
 import { getNextLogNum } from "./output/logger.js";
 import {
   setWorkingDirectory,
@@ -386,7 +386,7 @@ async function runWorkflows(options: {
       // Multiple workflows (--all mode)
       // Determine warm-cache status from the first workflow's repo root
       const firstRepoRoot = resolveRepoRootFromWorkflow(workflowPaths[0]);
-      const repoSlug = resolveRepoInfo(firstRepoRoot).replace("/", "-");
+      const repoSlug = resolveRepoSlug(firstRepoRoot, config.GITHUB_REPO).replace("/", "-");
       let lockfileHash = "no-lockfile";
       try {
         lockfileHash = computeLockfileHash(firstRepoRoot);
@@ -509,7 +509,7 @@ async function handleWorkflow(options: {
     const { headSha, shaRef } = sha
       ? resolveHeadSha(repoRoot, sha)
       : { headSha: undefined, shaRef: undefined };
-    const githubRepo = resolveRepoInfo(repoRoot);
+    const githubRepo = resolveRepoSlug(repoRoot, config.GITHUB_REPO);
     const [owner, name] = githubRepo.split("/");
 
     const template = await getWorkflowTemplate(workflowPath);
@@ -913,20 +913,6 @@ function resolveRepoRootFromWorkflow(workflowPath: string): string {
     repoRoot = path.dirname(repoRoot);
   }
   return repoRoot === "/" ? resolveRepoRoot() : repoRoot;
-}
-
-function resolveRepoInfo(repoRoot: string) {
-  let githubRepo = config.GITHUB_REPO;
-  const remoteUrl = getFirstRemoteUrl(repoRoot);
-  if (remoteUrl) {
-    const slug = parseRepoSlug(remoteUrl);
-    if (slug) {
-      githubRepo = slug;
-    }
-  } else {
-    debugCli("Could not detect any git remote, using config default.");
-  }
-  return githubRepo;
 }
 
 function resolveHeadSha(repoRoot: string, sha: string) {

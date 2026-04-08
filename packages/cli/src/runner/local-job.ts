@@ -37,13 +37,12 @@ import { syncWorkspaceForRetry } from "./sync.js";
 
 // ─── Docker setup ─────────────────────────────────────────────────────────────
 
-const dockerHost = process.env.DOCKER_HOST || "unix:///var/run/docker.sock";
-const dockerSocketPath = dockerHost.startsWith("unix://")
-  ? dockerHost.replace("unix://", "")
-  : undefined;
-const dockerConfig = dockerSocketPath
-  ? { socketPath: dockerSocketPath }
-  : { host: dockerHost, protocol: "ssh" as const };
+import { resolveDockerSocket } from "../docker/docker-socket.js";
+
+const resolvedSocket = resolveDockerSocket();
+const dockerConfig = resolvedSocket.socketPath
+  ? { socketPath: resolvedSocket.socketPath }
+  : { host: resolvedSocket.uri, protocol: "ssh" as const };
 
 const docker = new Docker(dockerConfig);
 
@@ -498,7 +497,7 @@ export async function executeLocalJob(
       warmModulesDir: dirs.warmModulesDir,
       hostRunnerDir,
       useDirectContainer,
-      dockerSocketPath,
+      dockerSocketPath: resolvedSocket.socketPath || undefined,
     });
 
     const containerCmd = buildContainerCmd({

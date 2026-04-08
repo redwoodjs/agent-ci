@@ -67,7 +67,7 @@ describe("buildContainerBinds", () => {
     });
 
     expect(binds).toContain("/tmp/work:/home/runner/_work");
-    expect(binds).toContain("/var/run/docker.sock:/var/run/docker.sock");
+    expect(binds).toContain("/var/run/docker.sock:/var/run/docker.sock"); // default when dockerSocketPath is not set
     expect(binds).toContain("/tmp/shims:/tmp/agent-ci-shims");
     expect(binds).toContain("/tmp/warm:/tmp/warm-modules");
     expect(binds).toContain("/tmp/pnpm:/home/runner/_work/.pnpm-store");
@@ -113,6 +113,24 @@ describe("buildContainerBinds", () => {
     expect(binds).toContain("/tmp/npm:/home/runner/.npm");
     expect(binds.some((b) => b.includes(".pnpm-store"))).toBe(false);
     expect(binds.some((b) => b.includes(".bun"))).toBe(false);
+  });
+
+  it("uses resolved dockerSocketPath for bind mount when provided", async () => {
+    const { buildContainerBinds } = await import("./container-config.js");
+    const binds = buildContainerBinds({
+      hostWorkDir: "/tmp/work",
+      shimsDir: "/tmp/shims",
+      diagDir: "/tmp/diag",
+      toolCacheDir: "/tmp/toolcache",
+      playwrightCacheDir: "/tmp/playwright",
+      warmModulesDir: "/tmp/warm",
+      hostRunnerDir: "/tmp/runner",
+      useDirectContainer: false,
+      dockerSocketPath: "/Users/test/.orbstack/run/docker.sock",
+    });
+
+    expect(binds).toContain("/Users/test/.orbstack/run/docker.sock:/var/run/docker.sock");
+    expect(binds).not.toContain("/var/run/docker.sock:/var/run/docker.sock");
   });
 
   it("includes runner bind mount for direct container", async () => {

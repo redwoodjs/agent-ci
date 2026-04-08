@@ -6,7 +6,7 @@ import { Terminal as TerminalIcon, Star as StarIcon, Quote as QuoteIcon } from "
 
 export const Home = () => {
   return (
-    <div className="min-h-screen relative overflow-hidden selection:bg-[#528b76] selection:text-[#f2f7f4]">
+    <div className="min-h-screen relative overflow-clip selection:bg-[#528b76] selection:text-[#f2f7f4]">
       {/* CRT Effects */}
       <div className="crt-flicker pointer-events-none" />
       <div className="scanline pointer-events-none" />
@@ -162,7 +162,8 @@ export const Home = () => {
               <div className="h-px bg-[#2b483e] flex-1"></div>
             </div>
 
-            <div className="overflow-x-auto">
+            {/* Desktop: table, Mobile: stacked cards */}
+            <div className="hidden md:block overflow-x-auto">
               <table className="w-full text-left border-collapse">
                 <thead>
                   <tr className="border-b border-[#34594c] bg-[#12211c]">
@@ -219,6 +220,62 @@ export const Home = () => {
                   </tr>
                 </tbody>
               </table>
+            </div>
+
+            {/* Mobile: stacked cards per feature */}
+            <div className="md:hidden space-y-4">
+              {[
+                {
+                  feature: "Runner binary",
+                  ga: "Official",
+                  others: "Custom re-implementation",
+                  aci: "Official",
+                },
+                {
+                  feature: "API layer",
+                  ga: "GitHub.com",
+                  others: "Compatibility shim",
+                  aci: "Full local emulation",
+                },
+                {
+                  feature: "Cache round-trip",
+                  ga: "Network (~seconds)",
+                  others: "Varies",
+                  aci: "~0 ms (bind-mount)",
+                },
+                {
+                  feature: "On failure",
+                  ga: "Start over",
+                  others: "Start over",
+                  aci: "Pause \u2192 fix \u2192 retry step",
+                },
+                {
+                  feature: "Container state",
+                  ga: "Destroyed",
+                  others: "Destroyed",
+                  aci: "Kept alive",
+                },
+              ].map((row) => (
+                <div key={row.feature} className="border border-[#2b483e] rounded-sm overflow-clip">
+                  <div className="bg-[#12211c] px-4 py-2 font-mono text-xs text-[#71a792] uppercase tracking-wider">
+                    {row.feature}
+                  </div>
+                  <div className="divide-y divide-[#243c34]">
+                    <div className="px-4 py-3 flex justify-between text-sm">
+                      <span className="text-[#71a792]">GitHub Actions</span>
+                      <span className="text-[#9bc5b3]">{row.ga}</span>
+                    </div>
+                    <div className="px-4 py-3 flex justify-between text-sm">
+                      <span className="text-[#71a792]">Other runners</span>
+                      <span className="text-[#9bc5b3]">{row.others}</span>
+                    </div>
+                    <div className="px-4 py-3 flex justify-between text-sm bg-[#161b18] border-t border-[#3f6f5e]">
+                      <span className="text-[#528b76] font-bold">Agent CI</span>
+                      <span className="text-[#e0eee5] font-bold">{row.aci}</span>
+                    </div>
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
 
@@ -369,78 +426,72 @@ export const Home = () => {
             </div>
           </div>
 
-          {/* Quick Start & AI Agent Integration */}
-          <div id="quick-start" className="grid lg:grid-cols-2 gap-12 mb-24">
-            <div>
-              <div className="flex items-center gap-4 mb-8">
-                <h2 className="text-3xl font-bold text-[#e0eee5] font-serif">Quick Start</h2>
-                <CopyAgentInstructions />
-                <div className="h-px bg-[#2b483e] flex-1"></div>
+          {/* Quick Start */}
+          <div id="quick-start" className="mb-24">
+            <div className="flex items-center gap-4 mb-8">
+              <h2 className="text-3xl font-bold text-[#e0eee5] font-serif">Quick Start</h2>
+              <CopyAgentInstructions />
+              <div className="h-px bg-[#2b483e] flex-1"></div>
+            </div>
+
+            <div className="space-y-6 mb-16">
+              <div>
+                <h4 className="font-mono text-sm text-[#71a792] uppercase tracking-wider mb-2">
+                  1. Install
+                </h4>
+                <Terminal
+                  code="npm install -D @redwoodjs/agent-ci"
+                  language="bash"
+                  title="Terminal"
+                />
               </div>
 
-              <div className="space-y-6">
-                <div>
-                  <h4 className="font-mono text-sm text-[#71a792] uppercase tracking-wider mb-2">
-                    1. Install
-                  </h4>
-                  <Terminal
-                    code="npm install -D @redwoodjs/agent-ci"
-                    language="bash"
-                    title="Terminal"
-                  />
-                </div>
+              <div>
+                <h4 className="font-mono text-sm text-[#71a792] uppercase tracking-wider mb-2">
+                  2. Run
+                </h4>
+                <Terminal
+                  code={`# Run a specific workflow\nnpx agent-ci run --workflow .github/workflows/ci.yml\n\n# Run all relevant workflows for current branch\nnpx agent-ci run --all`}
+                  language="bash"
+                  title="Terminal"
+                />
+              </div>
 
-                <div>
-                  <h4 className="font-mono text-sm text-[#71a792] uppercase tracking-wider mb-2">
-                    2. Run
-                  </h4>
-                  <Terminal
-                    code={`# Run a specific workflow\nnpx agent-ci run --workflow .github/workflows/ci.yml\n\n# Run all relevant workflows for current branch\nnpx agent-ci run --all`}
-                    language="bash"
-                    title="Terminal"
-                  />
-                </div>
-
-                <div>
-                  <h4 className="font-mono text-sm text-[#71a792] uppercase tracking-wider mb-2">
-                    3. Retry
-                  </h4>
-                  <Terminal
-                    code="npx agent-ci retry --name <runner-name>"
-                    language="bash"
-                    title="Terminal"
-                  />
-                </div>
+              <div>
+                <h4 className="font-mono text-sm text-[#71a792] uppercase tracking-wider mb-2">
+                  3. Retry
+                </h4>
+                <Terminal
+                  code="npx agent-ci retry --name <runner-name>"
+                  language="bash"
+                  title="Terminal"
+                />
               </div>
             </div>
 
-            <div>
-              <div className="flex items-center gap-4 mb-8">
-                <h2 className="text-3xl font-bold text-[#e0eee5] font-serif">
-                  AI Agent Integration
-                </h2>
-                <div className="h-px bg-[#2b483e] flex-1"></div>
-              </div>
-
-              <p className="text-[#9bc5b3] mb-6 leading-relaxed">
-                Agent CI is designed for AI-agent-driven development loops. Add this snippet to your
-                project's{" "}
-                <code className="bg-[#161b18] border border-[#2b483e] px-1.5 py-0.5 rounded text-[#c2ddd0] font-mono text-sm">
-                  CLAUDE.md
-                </code>{" "}
-                or{" "}
-                <code className="bg-[#161b18] border border-[#2b483e] px-1.5 py-0.5 rounded text-[#c2ddd0] font-mono text-sm">
-                  AGENTS.md
-                </code>
-                :
-              </p>
-
-              <Terminal
-                title="AGENTS.md"
-                language="markdown"
-                code={`## agent-ci\n\n- Use \`npx @redwoodjs/agent-ci run --quiet --all\` to run CI locally\n- When a step fails, the run pauses automatically. Use \`npx @redwoodjs/agent-ci retry --name <runner>\` to retry after fixing the failure\n- Do NOT push to trigger remote CI when agent-ci can run it locally — it's instant and free\n- CI was green before you started. Any failure is caused by your changes — do not assume pre-existing failures\n- Use \`--no-matrix\` to collapse matrix jobs into a single run when you don't need full matrix coverage`}
-              />
+            <div className="flex items-center gap-4 mb-8">
+              <h2 className="text-3xl font-bold text-[#e0eee5] font-serif">AI Agent Integration</h2>
+              <div className="h-px bg-[#2b483e] flex-1"></div>
             </div>
+
+            <p className="text-[#9bc5b3] mb-6 leading-relaxed">
+              Agent CI is designed for AI-agent-driven development loops. Add this snippet to your
+              project's{" "}
+              <code className="bg-[#161b18] border border-[#2b483e] px-1.5 py-0.5 rounded text-[#c2ddd0] font-mono text-sm">
+                CLAUDE.md
+              </code>{" "}
+              or{" "}
+              <code className="bg-[#161b18] border border-[#2b483e] px-1.5 py-0.5 rounded text-[#c2ddd0] font-mono text-sm">
+                AGENTS.md
+              </code>
+              :
+            </p>
+
+            <Terminal
+              title="AGENTS.md"
+              language="markdown"
+              code={`## agent-ci\n\n- Use \`npx @redwoodjs/agent-ci run --quiet --all\` to run CI locally\n- When a step fails, the run pauses automatically. Use \`npx @redwoodjs/agent-ci retry --name <runner>\` to retry after fixing the failure\n- Do NOT push to trigger remote CI when agent-ci can run it locally — it's instant and free\n- CI was green before you started. Any failure is caused by your changes — do not assume pre-existing failures\n- Use \`--no-matrix\` to collapse matrix jobs into a single run when you don't need full matrix coverage`}
+            />
           </div>
         </main>
 

@@ -15,7 +15,7 @@ export function Panel({ children, className, title, glow = false }: PanelProps) 
   return (
     <div
       className={cn(
-        "relative bg-[#161b18] border border-[#2b483e] rounded-sm overflow-hidden",
+        "relative bg-[#161b18] border border-[#2b483e] rounded-sm overflow-clip",
         glow && "shadow-[0_0_15px_rgba(82,139,118,0.15)] border-[#3f6f5e]",
         className,
       )}

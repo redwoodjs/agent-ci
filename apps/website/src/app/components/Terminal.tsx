@@ -26,7 +26,7 @@ export function Terminal({ code, language = "bash", className, title }: Terminal
   return (
     <div
       className={cn(
-        "rounded-md overflow-hidden border border-[#34594c] bg-[#0d110f] shadow-lg",
+        "min-w-0 rounded-md overflow-clip border border-[#34594c] bg-[#0d110f] shadow-lg",
         className,
       )}
     >
@@ -43,7 +43,7 @@ export function Terminal({ code, language = "bash", className, title }: Terminal
           {copied ? <Check size={14} /> : <Copy size={14} />}
         </button>
       </div>
-      <div className="p-4 overflow-x-auto">
+      <div className="p-4 overflow-x-auto" style={{ WebkitOverflowScrolling: "touch" }}>
         <pre className="font-mono text-sm text-[#e0eee5] leading-relaxed">
           <code>{code}</code>
         </pre>

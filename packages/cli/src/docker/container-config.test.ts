@@ -353,6 +353,37 @@ describe("resolveDockerExtraHosts", () => {
   });
 });
 
+// ── dockerSocketPath bind-mount ───────────────────────────────────────────────
+
+describe("buildContainerBinds with dockerSocketPath", () => {
+  const baseOpts = {
+    hostWorkDir: "/tmp/work",
+    shimsDir: "/tmp/shims",
+    diagDir: "/tmp/diag",
+    toolCacheDir: "/tmp/toolcache",
+    playwrightCacheDir: "/tmp/playwright",
+    warmModulesDir: "/tmp/warm",
+    hostRunnerDir: "/tmp/runner",
+    useDirectContainer: false,
+  };
+
+  it("uses default /var/run/docker.sock when no dockerSocketPath is provided", async () => {
+    const { buildContainerBinds } = await import("./container-config.js");
+    const binds = buildContainerBinds(baseOpts);
+    expect(binds).toContain("/var/run/docker.sock:/var/run/docker.sock");
+  });
+
+  it("uses custom host socket path from dockerSocketPath", async () => {
+    const { buildContainerBinds } = await import("./container-config.js");
+    const binds = buildContainerBinds({
+      ...baseOpts,
+      dockerSocketPath: "/Users/foo/.docker/run/docker.sock",
+    });
+    expect(binds).toContain("/Users/foo/.docker/run/docker.sock:/var/run/docker.sock");
+    expect(binds).not.toContain("/var/run/docker.sock:/var/run/docker.sock");
+  });
+});
+
 // ── signalsDir bind-mount ─────────────────────────────────────────────────────
 
 describe("buildContainerBinds with signalsDir", () => {

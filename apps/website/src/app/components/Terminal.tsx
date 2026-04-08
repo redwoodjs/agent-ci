@@ -26,7 +26,7 @@ export function Terminal({ code, language = "bash", className, title }: Terminal
   return (
     <div
       className={cn(
-        "rounded-md overflow-hidden border border-[#34594c] bg-[#0d110f] shadow-lg",
+        "min-w-0 rounded-md overflow-clip border border-[#34594c] bg-[#0d110f] shadow-lg",
         className,
       )}
     >

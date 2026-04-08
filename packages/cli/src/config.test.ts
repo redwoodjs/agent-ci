@@ -3,7 +3,7 @@ import fs from "fs";
 import os from "os";
 import path from "path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { getFirstRemoteUrl, parseRepoSlug, resolveRepoSlug } from "./config.js";
+import { config, getFirstRemoteUrl, parseRepoSlug, resolveRepoSlug } from "./config.js";
 
 describe("parseRepoSlug", () => {
   it.each([
@@ -132,5 +132,52 @@ describe("resolveRepoSlug", () => {
       stdio: "pipe",
     });
     expect(resolveRepoSlug(tmpDir)).toBe("acme/upstream");
+  });
+});
+
+describe("GITHUB_REPO env var override priority", () => {
+  let tmpDir: string;
+  let savedRepo: string | undefined;
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "config-test-"));
+    execSync("git init", { cwd: tmpDir, stdio: "pipe" });
+    savedRepo = config.GITHUB_REPO;
+  });
+
+  afterEach(() => {
+    config.GITHUB_REPO = savedRepo;
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("env var overrides auto-detection", () => {
+    execSync("git remote add origin https://github.com/detected/repo.git", {
+      cwd: tmpDir,
+      stdio: "pipe",
+    });
+    config.GITHUB_REPO = "override/from-env";
+
+    // Replicate cli.ts priority: env var ?? auto-detect
+    const result = config.GITHUB_REPO ?? resolveRepoSlug(tmpDir);
+    expect(result).toBe("override/from-env");
+  });
+
+  it("auto-detects when env var is not set", () => {
+    execSync("git remote add origin https://github.com/detected/repo.git", {
+      cwd: tmpDir,
+      stdio: "pipe",
+    });
+    config.GITHUB_REPO = undefined;
+
+    const result = config.GITHUB_REPO ?? resolveRepoSlug(tmpDir);
+    expect(result).toBe("detected/repo");
+  });
+
+  it("throws when neither env var nor remote is available", () => {
+    config.GITHUB_REPO = undefined;
+
+    expect(() => {
+      return config.GITHUB_REPO ?? resolveRepoSlug(tmpDir);
+    }).toThrow(/Could not detect GitHub repository/);
   });
 });

@@ -162,7 +162,8 @@ export const Home = () => {
               <div className="h-px bg-[#2b483e] flex-1"></div>
             </div>
 
-            <div className="overflow-x-auto">
+            {/* Desktop: table, Mobile: stacked cards */}
+            <div className="hidden md:block overflow-x-auto">
               <table className="w-full text-left border-collapse">
                 <thead>
                   <tr className="border-b border-[#34594c] bg-[#12211c]">
@@ -219,6 +220,62 @@ export const Home = () => {
                   </tr>
                 </tbody>
               </table>
+            </div>
+
+            {/* Mobile: stacked cards per feature */}
+            <div className="md:hidden space-y-4">
+              {[
+                {
+                  feature: "Runner binary",
+                  ga: "Official",
+                  others: "Custom re-implementation",
+                  aci: "Official",
+                },
+                {
+                  feature: "API layer",
+                  ga: "GitHub.com",
+                  others: "Compatibility shim",
+                  aci: "Full local emulation",
+                },
+                {
+                  feature: "Cache round-trip",
+                  ga: "Network (~seconds)",
+                  others: "Varies",
+                  aci: "~0 ms (bind-mount)",
+                },
+                {
+                  feature: "On failure",
+                  ga: "Start over",
+                  others: "Start over",
+                  aci: "Pause \u2192 fix \u2192 retry step",
+                },
+                {
+                  feature: "Container state",
+                  ga: "Destroyed",
+                  others: "Destroyed",
+                  aci: "Kept alive",
+                },
+              ].map((row) => (
+                <div key={row.feature} className="border border-[#2b483e] rounded-sm overflow-clip">
+                  <div className="bg-[#12211c] px-4 py-2 font-mono text-xs text-[#71a792] uppercase tracking-wider">
+                    {row.feature}
+                  </div>
+                  <div className="divide-y divide-[#243c34]">
+                    <div className="px-4 py-3 flex justify-between text-sm">
+                      <span className="text-[#71a792]">GitHub Actions</span>
+                      <span className="text-[#9bc5b3]">{row.ga}</span>
+                    </div>
+                    <div className="px-4 py-3 flex justify-between text-sm">
+                      <span className="text-[#71a792]">Other runners</span>
+                      <span className="text-[#9bc5b3]">{row.others}</span>
+                    </div>
+                    <div className="px-4 py-3 flex justify-between text-sm bg-[#161b18] border-t border-[#3f6f5e]">
+                      <span className="text-[#528b76] font-bold">Agent CI</span>
+                      <span className="text-[#e0eee5] font-bold">{row.aci}</span>
+                    </div>
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
 

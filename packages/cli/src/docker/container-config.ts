@@ -102,7 +102,7 @@ export function buildContainerBinds(opts: ContainerBindsOpts): string[] {
     // When using a custom container, bind-mount the extracted runner
     ...(useDirectContainer ? [`${h(hostRunnerDir)}:/home/runner`] : []),
     `${h(hostWorkDir)}:/home/runner/_work`,
-    `${h(dockerSocketPath)}:/var/run/docker.sock`,
+    `${dockerSocketPath}:/var/run/docker.sock`,
     `${h(shimsDir)}:/tmp/agent-ci-shims`,
     // Pause-on-failure IPC: signal files (paused, retry, abort)
     ...(signalsDir ? [`${h(signalsDir)}:/tmp/agent-ci-signals`] : []),

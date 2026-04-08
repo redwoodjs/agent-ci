@@ -1,0 +1,106 @@
+name: Simple Smoke Test
+
+on: push
+
+env:
+  GLOBAL_VAR: "from-workflow"
+
+jobs:
+  basics:
+    name: Basic Steps
+    runs-on: ubuntu-latest
+    outputs:
+      greeting: ${{ steps.set-output.outputs.greeting }}
+      matrix_result: ${{ steps.set-output.outputs.matrix_result }}
+    steps:
+      - name: Hello world
+        run: echo "Hello from ts-runner!"
+
+      - name: Multi-line script
+        run: |
+          echo "Line 1"
+          echo "Line 2"
+          echo "Line 3"
+
+      - name: Global env is available
+        run: |
+          if [ "$GLOBAL_VAR" = "from-workflow" ]; then
+            echo "GLOBAL_VAR is correct: $GLOBAL_VAR"
+          else
+            echo "GLOBAL_VAR is wrong: $GLOBAL_VAR" && exit 1
+          fi
+
+      - name: Step-level env
+        env:
+          STEP_VAR: "step-value"
+          COMBINED: "${{ env.GLOBAL_VAR }}-extended"
+        run: |
+          [ "$STEP_VAR" = "step-value" ] || (echo "STEP_VAR failed" && exit 1)
+          [ "$COMBINED" = "from-workflow-extended" ] || (echo "COMBINED failed: $COMBINED" && exit 1)
+          echo "Step env vars OK"
+
+      - name: Set outputs via GITHUB_OUTPUT
+        id: set-output
+        run: |
+          echo "greeting=hello world" >> "$GITHUB_OUTPUT"
+          echo "matrix_result=42" >> "$GITHUB_OUTPUT"
+
+      - name: Read step outputs
+        run: |
+          GREETING="${{ steps.set-output.outputs.greeting }}"
+          [ "$GREETING" = "hello world" ] || (echo "Expected 'hello world', got '$GREETING'" && exit 1)
+          echo "Step output OK: $GREETING"
+
+      - name: Set env via GITHUB_ENV
+        run: |
+          echo "DYNAMIC_VAR=set-by-previous-step" >> "$GITHUB_ENV"
+
+      - name: Read cross-step env
+        run: |
+          [ "$DYNAMIC_VAR" = "set-by-previous-step" ] || (echo "GITHUB_ENV propagation failed: '$DYNAMIC_VAR'" && exit 1)
+          echo "GITHUB_ENV OK"
+
+      - name: Expressions work
+        run: |
+          echo "Actor: ${{ github.actor }}"
+          echo "Ref: ${{ github.ref_name }}"
+          echo "Contains: ${{ contains('hello world', 'world') }}"
+          echo "Format: ${{ format('result={0}', 'ok') }}"
+
+  conditions:
+    name: Condition Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: This runs
+        run: echo "I always run (default success() condition)"
+
+      - name: This fails
+        id: fail-step
+        continue-on-error: true
+        run: exit 1
+
+      - name: Runs on failure
+        if: failure()
+        run: echo "Previous step failed, this runs because of if:failure()"
+
+      - name: Always runs
+        if: always()
+        run: echo "This runs regardless"
+
+      - name: Skipped by condition
+        if: github.ref_name == 'nonexistent-branch'
+        run: echo "This should be skipped"
+
+  downstream:
+    name: Downstream Job
+    needs: basics
+    runs-on: ubuntu-latest
+    steps:
+      - name: Read cross-job outputs
+        run: |
+          GREETING="${{ needs.basics.outputs.greeting }}"
+          [ "$GREETING" = "hello world" ] || (echo "Cross-job output failed: '$GREETING'" && exit 1)
+          echo "Cross-job output OK: $GREETING"
+
+      - name: Success
+        run: echo "All checks passed!"

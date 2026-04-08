@@ -27,13 +27,21 @@ export function getFirstRemoteUrl(cwd: string): string | null {
   return null;
 }
 
+/**
+ * Extract `owner/repo` from a git remote URL.
+ * Handles HTTPS, SSH (git@), and ssh:// URLs, with or without `.git` suffix.
+ */
+export function parseRepoSlug(remoteUrl: string): string | null {
+  const match = remoteUrl.match(/[/:]([^/]+\/[^/]+?)(?:\.git)?\/?$/);
+  return match ? match[1] : null;
+}
+
 function deriveGithubRepo(): string {
   const remoteUrl = getFirstRemoteUrl(process.cwd());
   if (remoteUrl) {
-    // Handles both SSH (git@github.com:owner/repo.git) and HTTPS URLs
-    const match = remoteUrl.match(/[/:]([^/]+\/[^/]+?)(?:\.git)?\/?$/);
-    if (match) {
-      return match[1];
+    const slug = parseRepoSlug(remoteUrl);
+    if (slug) {
+      return slug;
     }
   }
   return "unknown/unknown";

@@ -37,15 +37,28 @@ import { syncWorkspaceForRetry } from "./sync.js";
 
 // ─── Docker setup ─────────────────────────────────────────────────────────────
 
-const dockerHost = process.env.DOCKER_HOST || "unix:///var/run/docker.sock";
-const dockerSocketPath = dockerHost.startsWith("unix://")
-  ? dockerHost.replace("unix://", "")
-  : undefined;
-const dockerConfig = dockerSocketPath
-  ? { socketPath: dockerSocketPath }
-  : { host: dockerHost, protocol: "ssh" as const };
+import { resolveDockerSocket, type DockerSocket } from "../docker/docker-socket.js";
 
-const docker = new Docker(dockerConfig);
+let _resolvedSocket: DockerSocket | null = null;
+let _docker: Docker | null = null;
+
+function getDockerSocket(): DockerSocket {
+  if (!_resolvedSocket) {
+    _resolvedSocket = resolveDockerSocket();
+  }
+  return _resolvedSocket;
+}
+
+function getDocker(): Docker {
+  if (!_docker) {
+    const socket = getDockerSocket();
+    const config = socket.socketPath
+      ? { socketPath: socket.socketPath }
+      : { host: socket.uri, protocol: "ssh" as const };
+    _docker = new Docker(config);
+  }
+  return _docker;
+}
 
 const IMAGE = "ghcr.io/actions/actions-runner:latest";
 
@@ -115,7 +128,7 @@ export async function executeLocalJob(
 
   // ── Pre-flight: verify Docker is reachable ────────────────────────────────
   try {
-    await docker.ping();
+    await getDocker().ping();
   } catch (err: any) {
     const isSocket = err?.code === "ECONNREFUSED" || err?.code === "ENOENT";
     const hint = isSocket
@@ -312,7 +325,7 @@ export async function executeLocalJob(
 
     // Pre-cleanup: remove any stale container with the same name
     try {
-      const stale = docker.getContainer(containerName);
+      const stale = getDocker().getContainer(containerName);
       await stale.remove({ force: true });
     } catch {
       // Ignore - container doesn't exist
@@ -322,7 +335,7 @@ export async function executeLocalJob(
     if (job.services && job.services.length > 0) {
       const svcStart = Date.now();
       debugRunner(`Starting ${job.services.length} service container(s)...`);
-      serviceCtx = await startServiceContainers(docker, job.services, containerName, (line) =>
+      serviceCtx = await startServiceContainers(getDocker(), job.services, containerName, (line) =>
         debugRunner(line),
       );
       bt("service-containers", svcStart);
@@ -346,7 +359,7 @@ export async function executeLocalJob(
       } catch {
         debugRunner(`Extracting runner binary to host (one-time)...`);
         const tmpName = `agent-ci-seed-runner-${Date.now()}`;
-        const seedContainer = await docker.createContainer({
+        const seedContainer = await getDocker().createContainer({
           Image: IMAGE,
           name: tmpName,
           Cmd: ["true"],
@@ -380,7 +393,7 @@ export async function executeLocalJob(
     if (useDirectContainer) {
       debugRunner(`Pulling ${containerImage}...`);
       await new Promise<void>((resolve, reject) => {
-        docker.pull(containerImage, (err: Error | null, stream: NodeJS.ReadableStream) => {
+        getDocker().pull(containerImage, (err: Error | null, stream: NodeJS.ReadableStream) => {
           if (err) {
             return reject(err);
           }
@@ -411,7 +424,7 @@ export async function executeLocalJob(
             });
           };
 
-          docker.modem.followProgress(
+          getDocker().modem.followProgress(
             stream,
             (err: Error | null) => {
               if (err) {
@@ -498,7 +511,7 @@ export async function executeLocalJob(
       warmModulesDir: dirs.warmModulesDir,
       hostRunnerDir,
       useDirectContainer,
-      dockerSocketPath,
+      dockerSocketPath: getDockerSocket().socketPath || undefined,
     });
 
     const containerCmd = buildContainerCmd({
@@ -512,7 +525,7 @@ export async function executeLocalJob(
     const extraHosts = resolveDockerExtraHosts(dtuHost);
 
     t0 = Date.now();
-    container = await docker.createContainer({
+    container = await getDocker().createContainer({
       Image: containerImage,
       name: containerName,
       Env: containerEnv,
@@ -882,7 +895,7 @@ export async function executeLocalJob(
       /* already removed */
     }
     if (serviceCtx) {
-      await cleanupServiceContainers(docker, serviceCtx, (line) => debugRunner(line));
+      await cleanupServiceContainers(getDocker(), serviceCtx, (line) => debugRunner(line));
     }
     if (fs.existsSync(dirs.shimsDir)) {
       fs.rmSync(dirs.shimsDir, { recursive: true, force: true });

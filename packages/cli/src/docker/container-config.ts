@@ -22,6 +22,7 @@ export interface ContainerBindsOpts {
   warmModulesDir: string;
   hostRunnerDir: string;
   useDirectContainer: boolean;
+  /** Host-side Docker socket path (resolved by resolveDockerSocket). */
   dockerSocketPath?: string;
 }
 

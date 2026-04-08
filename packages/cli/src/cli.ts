@@ -510,7 +510,7 @@ async function handleWorkflow(options: {
     const { headSha, shaRef } = sha
       ? resolveHeadSha(repoRoot, sha)
       : { headSha: undefined, shaRef: undefined };
-    const githubRepo = resolveRepoSlug(repoRoot, config.GITHUB_REPO);
+    const githubRepo = config.GITHUB_REPO ?? resolveRepoSlug(repoRoot);
     config.GITHUB_REPO = githubRepo;
     const [owner, name] = githubRepo.split("/");
 

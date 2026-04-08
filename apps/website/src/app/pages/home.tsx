@@ -6,7 +6,7 @@ import { Terminal as TerminalIcon, Star as StarIcon, Quote as QuoteIcon } from "
 
 export const Home = () => {
   return (
-    <div className="min-h-screen relative overflow-hidden selection:bg-[#528b76] selection:text-[#f2f7f4]">
+    <div className="min-h-screen relative overflow-clip selection:bg-[#528b76] selection:text-[#f2f7f4]">
       {/* CRT Effects */}
       <div className="crt-flicker pointer-events-none" />
       <div className="scanline pointer-events-none" />

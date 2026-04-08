@@ -5,7 +5,7 @@ export function Blog() {
   const posts = allPosts.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
   return (
-    <div className="min-h-screen relative overflow-hidden selection:bg-[#528b76] selection:text-[#f2f7f4]">
+    <div className="min-h-screen relative overflow-clip selection:bg-[#528b76] selection:text-[#f2f7f4]">
       <div className="crt-flicker pointer-events-none" />
       <div className="scanline pointer-events-none" />
       <div className="absolute inset-0 bg-[linear-gradient(rgba(43,72,62,0.1)_1px,transparent_1px),linear-gradient(90deg,rgba(43,72,62,0.1)_1px,transparent_1px)] bg-[size:40px_40px] [mask-image:radial-gradient(ellipse_80%_80%_at_50%_50%,#000_20%,transparent_100%)] pointer-events-none" />

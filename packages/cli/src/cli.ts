@@ -2,7 +2,7 @@
 import { execSync } from "child_process";
 import path from "path";
 import fs from "fs";
-import { config, loadMachineSecrets } from "./config.js";
+import { config, getFirstRemoteUrl, loadMachineSecrets } from "./config.js";
 import { getNextLogNum } from "./output/logger.js";
 import {
   setWorkingDirectory,
@@ -917,14 +917,14 @@ function resolveRepoRootFromWorkflow(workflowPath: string): string {
 
 function resolveRepoInfo(repoRoot: string) {
   let githubRepo = config.GITHUB_REPO;
-  try {
-    const remoteUrl = execSync("git remote get-url origin", { cwd: repoRoot }).toString().trim();
-    const match = remoteUrl.match(/[:/]([^/]+\/[^/]+)\.git$/);
+  const remoteUrl = getFirstRemoteUrl(repoRoot);
+  if (remoteUrl) {
+    const match = remoteUrl.match(/[:/]([^/]+\/[^/]+?)(?:\.git)?$/);
     if (match) {
       githubRepo = match[1];
     }
-  } catch {
-    debugCli("Could not detect remote 'origin', using config default.");
+  } else {
+    debugCli("Could not detect any git remote, using config default.");
   }
   return githubRepo;
 }

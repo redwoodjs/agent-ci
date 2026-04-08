@@ -4,22 +4,37 @@ import path from "path";
 import { PROJECT_ROOT } from "./output/working-directory.js";
 
 /**
- * Derive `owner/repo` from the git remote URL.
- * Falls back to "unknown/unknown" if detection fails.
+ * Get the URL of the first git remote, preferring 'origin'.
+ * Suppresses stderr so git errors don't leak to the terminal.
  */
-function deriveGithubRepo(): string {
+export function getFirstRemoteUrl(cwd: string): string | null {
+  const execOpts = {
+    cwd,
+    encoding: "utf-8" as const,
+    stdio: ["pipe", "pipe", "pipe"] as ["pipe", "pipe", "pipe"],
+  };
   try {
-    const remoteUrl = execSync("git remote get-url origin", {
-      cwd: PROJECT_ROOT,
-      encoding: "utf-8",
-    }).trim();
+    return execSync("git remote get-url origin", execOpts).trim();
+  } catch {
+    // 'origin' doesn't exist — fall back to the first available remote
+    try {
+      const firstRemote = execSync("git remote", execOpts).trim().split("\n")[0];
+      if (firstRemote) {
+        return execSync(`git remote get-url ${firstRemote}`, execOpts).trim();
+      }
+    } catch {}
+  }
+  return null;
+}
+
+function deriveGithubRepo(): string {
+  const remoteUrl = getFirstRemoteUrl(process.cwd());
+  if (remoteUrl) {
     // Handles both SSH (git@github.com:owner/repo.git) and HTTPS URLs
     const match = remoteUrl.match(/[/:]([^/]+\/[^/]+?)(?:\.git)?$/);
     if (match) {
       return match[1];
     }
-  } catch {
-    // git not available or no remote configured
   }
   return "unknown/unknown";
 }

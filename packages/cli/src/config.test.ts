@@ -109,18 +109,18 @@ describe("resolveRepoSlug", () => {
     expect(resolveRepoSlug(tmpDir)).toBe("acme/widgets");
   });
 
-  it("returns default fallback when no remotes exist", () => {
-    expect(resolveRepoSlug(tmpDir)).toBe("unknown/unknown");
+  it("throws when no remotes exist and no fallback given", () => {
+    expect(() => resolveRepoSlug(tmpDir)).toThrow(/Could not detect GitHub repository/);
   });
 
-  it("returns custom fallback when no remotes exist", () => {
+  it("returns fallback when no remotes exist", () => {
     expect(resolveRepoSlug(tmpDir, "org/fallback")).toBe("org/fallback");
   });
 
-  it("returns fallback for non-git directory", () => {
+  it("throws for non-git directory without fallback", () => {
     const nonGitDir = fs.mkdtempSync(path.join(os.tmpdir(), "no-git-"));
     try {
-      expect(resolveRepoSlug(nonGitDir, "org/fallback")).toBe("org/fallback");
+      expect(() => resolveRepoSlug(nonGitDir)).toThrow(/Could not detect GitHub repository/);
     } finally {
       fs.rmSync(nonGitDir, { recursive: true, force: true });
     }

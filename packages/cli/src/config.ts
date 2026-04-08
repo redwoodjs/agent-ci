@@ -51,18 +51,27 @@ export function parseRepoSlug(remoteUrl: string): string | null {
 
 /**
  * Detect `owner/repo` from the git remote in the given directory.
- * Falls back to `fallback` (default "unknown/unknown") when detection fails.
+ * Throws if detection fails and no fallback is provided.
  */
-export function resolveRepoSlug(cwd: string, fallback = "unknown/unknown"): string {
+export function resolveRepoSlug(cwd: string, fallback?: string): string {
   const remoteUrl = getFirstRemoteUrl(cwd);
   if (remoteUrl) {
-    return parseRepoSlug(remoteUrl) ?? fallback;
+    const slug = parseRepoSlug(remoteUrl);
+    if (slug) {
+      return slug;
+    }
   }
-  return fallback;
+  if (fallback !== undefined) {
+    return fallback;
+  }
+  throw new Error(
+    `Could not detect GitHub repository from git remotes in ${cwd}. ` +
+      `Set the GITHUB_REPO environment variable (e.g. GITHUB_REPO=owner/repo).`,
+  );
 }
 
 export const config = {
-  GITHUB_REPO: process.env.GITHUB_REPO || "unknown/unknown",
+  GITHUB_REPO: process.env.GITHUB_REPO,
   GITHUB_API_URL: process.env.GITHUB_API_URL || "http://localhost:8910",
 };
 

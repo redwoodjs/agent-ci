@@ -1,7 +1,6 @@
 import { execSync } from "child_process";
 import { copyWorkspace } from "../output/cleanup.js";
 import { findRepoRoot } from "./metadata.js";
-import { config } from "../config.js";
 
 // ─── Workspace preparation ────────────────────────────────────────────────────
 
@@ -43,7 +42,9 @@ export function prepareWorkspace(opts: PrepareWorkspaceOpts): void {
     copyWorkspace(repoRoot, workspaceDir);
   }
 
-  initFakeGitRepo(workspaceDir, githubRepo || config.GITHUB_REPO);
+  if (githubRepo) {
+    initFakeGitRepo(workspaceDir, githubRepo);
+  }
 }
 
 // ─── Fake git init ────────────────────────────────────────────────────────────

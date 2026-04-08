@@ -377,7 +377,7 @@ export const Home = () => {
               <div className="h-px bg-[#2b483e] flex-1"></div>
             </div>
 
-            <div className="grid md:grid-cols-3 gap-6 mb-16">
+            <div className="space-y-6 mb-16">
               <div>
                 <h4 className="font-mono text-sm text-[#71a792] uppercase tracking-wider mb-2">
                   1. Install

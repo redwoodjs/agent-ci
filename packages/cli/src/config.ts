@@ -62,7 +62,7 @@ export function resolveRepoSlug(cwd: string, fallback = "unknown/unknown"): stri
 }
 
 export const config = {
-  GITHUB_REPO: process.env.GITHUB_REPO || resolveRepoSlug(process.cwd()),
+  GITHUB_REPO: process.env.GITHUB_REPO || "unknown/unknown",
   GITHUB_API_URL: process.env.GITHUB_API_URL || "http://localhost:8910",
 };
 

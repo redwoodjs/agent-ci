@@ -4,40 +4,25 @@ import path from "path";
 import { PROJECT_ROOT } from "./output/working-directory.js";
 
 /**
- * Get the fetch URL of the first git remote, preferring 'origin'.
- * Uses a single `git remote -v` call to avoid multiple process spawns.
+ * Get the URL of the first git remote, preferring 'origin'.
+ * Uses `git config` for clean output (no parsing of tab-delimited text).
  */
 export function getFirstRemoteUrl(cwd: string): string | null {
+  const exec = (cmd: string) =>
+    execSync(cmd, { cwd, encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] }).trim();
   try {
-    const output = execSync("git remote -v", {
-      cwd,
-      encoding: "utf-8",
-      stdio: ["pipe", "pipe", "pipe"],
-    }).trim();
-    if (!output) {
-      return null;
-    }
-
-    // Each line: "<name>\t<url> (fetch|push)"
-    const lines = output.split("\n");
-    let firstFetchUrl: string | null = null;
-    for (const line of lines) {
-      if (!line.endsWith("(fetch)")) {
-        continue;
-      }
-      const url = line.split("\t")[1]?.replace(/ \(fetch\)$/, "");
-      if (!url) {
-        continue;
-      }
-      if (line.startsWith("origin\t")) {
-        return url;
-      }
-      firstFetchUrl ??= url;
-    }
-    return firstFetchUrl;
+    // Try origin first (most common)
+    return exec("git config --get remote.origin.url") || null;
   } catch {
-    return null;
+    // origin doesn't exist — fall back to the first listed remote
+    try {
+      const firstName = exec("git remote").split("\n")[0];
+      if (firstName) {
+        return exec(`git config --get remote.${firstName}.url`) || null;
+      }
+    } catch {}
   }
+  return null;
 }
 
 /**

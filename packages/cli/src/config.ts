@@ -4,28 +4,62 @@ import path from "path";
 import { PROJECT_ROOT } from "./output/working-directory.js";
 
 /**
- * Derive `owner/repo` from the git remote URL.
- * Falls back to "unknown/unknown" if detection fails.
+ * Get the URL of the first git remote, preferring 'origin'.
+ * Uses `git remote get-url` which is scoped to the repo (unlike `git config`
+ * which can leak values from global/system config on CI runners).
  */
-function deriveGithubRepo(): string {
+export function getFirstRemoteUrl(cwd: string): string | null {
+  const exec = (cmd: string) =>
+    execSync(cmd, { cwd, encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] }).trim();
   try {
-    const remoteUrl = execSync("git remote get-url origin", {
-      cwd: PROJECT_ROOT,
-      encoding: "utf-8",
-    }).trim();
-    // Handles both SSH (git@github.com:owner/repo.git) and HTTPS URLs
-    const match = remoteUrl.match(/[/:]([^/]+\/[^/]+?)(?:\.git)?$/);
-    if (match) {
-      return match[1];
-    }
+    return exec("git remote get-url origin") || null;
   } catch {
-    // git not available or no remote configured
+    // origin doesn't exist — fall back to the first listed remote
+    try {
+      const firstName = exec("git remote").split("\n")[0];
+      if (firstName) {
+        return exec(`git remote get-url ${firstName}`) || null;
+      }
+    } catch {}
   }
-  return "unknown/unknown";
+  return null;
 }
 
-export const config = {
-  GITHUB_REPO: process.env.GITHUB_REPO || deriveGithubRepo(),
+/**
+ * Extract `owner/repo` from a git remote URL.
+ * Handles HTTPS, SSH (git@), and ssh:// URLs, with or without `.git` suffix.
+ */
+export function parseRepoSlug(remoteUrl: string): string | null {
+  const match = remoteUrl.match(/[/:]([^/]+\/[^/]+?)(?:\.git)?\/?$/);
+  return match ? match[1] : null;
+}
+
+/**
+ * Detect `owner/repo` from the git remote in the given directory.
+ * Throws if detection fails and no fallback is provided.
+ */
+export function resolveRepoSlug(cwd: string, fallback?: string): string {
+  const remoteUrl = getFirstRemoteUrl(cwd);
+  if (remoteUrl) {
+    const slug = parseRepoSlug(remoteUrl);
+    if (slug) {
+      return slug;
+    }
+  }
+  if (fallback !== undefined) {
+    return fallback;
+  }
+  throw new Error(
+    `Could not detect GitHub repository from git remotes in ${cwd}. ` +
+      `Set the GITHUB_REPO environment variable (e.g. GITHUB_REPO=owner/repo).`,
+  );
+}
+
+export const config: {
+  GITHUB_REPO: string | undefined;
+  GITHUB_API_URL: string;
+} = {
+  GITHUB_REPO: process.env.GITHUB_REPO,
   GITHUB_API_URL: process.env.GITHUB_API_URL || "http://localhost:8910",
 };
 

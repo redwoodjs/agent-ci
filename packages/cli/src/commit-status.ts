@@ -29,7 +29,7 @@ export function postCommitStatus(results: JobResult[], sha?: string): void {
   }
 
   const repo = config.GITHUB_REPO;
-  if (repo === "unknown/unknown") {
+  if (!repo) {
     return;
   }
 

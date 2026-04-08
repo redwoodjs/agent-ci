@@ -178,7 +178,7 @@ export async function executeLocalJob(
   // to scope virtualCachePatterns to only the relevant PM.
   const dirs = createRunDirectories({
     runDir,
-    githubRepo: job.githubRepo,
+    githubRepo: job.githubRepo!,
     workflowPath: job.workflowPath,
   });
   debugRunner(`Detected package manager: ${dirs.detectedPM ?? "none (mounting all PM caches)"}`);
@@ -303,7 +303,7 @@ export async function executeLocalJob(
     const parsedDockerApiUrl = new URL(dockerApiUrl);
     const dtuPort =
       parsedDockerApiUrl.port || (parsedDockerApiUrl.protocol === "https:" ? "443" : "80");
-    const githubRepo = job.githubRepo || config.GITHUB_REPO;
+    const githubRepo = job.githubRepo!;
     const repoUrl = `${dockerApiUrl}/${githubRepo}`;
 
     debugRunner(`Spawning container ${containerName}...`);

@@ -3,7 +3,6 @@ import fs from "fs";
 import { getWorkingDirectory } from "../output/working-directory.js";
 import { computeLockfileHash, detectPackageManager, repairWarmCache } from "../output/cleanup.js";
 import type { PackageManager } from "../output/cleanup.js";
-import { config } from "../config.js";
 import { findRepoRoot } from "./metadata.js";
 import { debugRunner } from "../output/debug.js";
 
@@ -27,7 +26,7 @@ export interface RunDirectories {
 
 export interface CreateRunDirectoriesOpts {
   runDir: string;
-  githubRepo?: string;
+  githubRepo: string;
   workflowPath?: string;
 }
 
@@ -50,7 +49,7 @@ export function createRunDirectories(opts: CreateRunDirectoriesOpts): RunDirecto
   const diagDir = path.resolve(runDir, "diag");
 
   // Shared caches
-  const repoSlug = (githubRepo || config.GITHUB_REPO).replace("/", "-");
+  const repoSlug = githubRepo.replace("/", "-");
   const toolCacheDir = path.resolve(workDir, "cache", "toolcache");
   const playwrightCacheDir = path.resolve(workDir, "cache", "playwright", repoSlug);
 
@@ -87,7 +86,7 @@ export function createRunDirectories(opts: CreateRunDirectoriesOpts): RunDirecto
   const warmModulesDir = path.resolve(workDir, "cache", "warm-modules", repoSlug, lockfileHash);
 
   // Workspace path
-  const repoName = (githubRepo || config.GITHUB_REPO).split("/").pop() || "repo";
+  const repoName = githubRepo.split("/").pop() || "repo";
   const workspaceDir = path.resolve(containerWorkDir, repoName, repoName);
 
   // Create all directories

@@ -386,7 +386,8 @@ async function runWorkflows(options: {
       // Multiple workflows (--all mode)
       // Determine warm-cache status from the first workflow's repo root
       const firstRepoRoot = resolveRepoRootFromWorkflow(workflowPaths[0]);
-      const repoSlug = resolveRepoSlug(firstRepoRoot, config.GITHUB_REPO).replace("/", "-");
+      config.GITHUB_REPO ??= resolveRepoSlug(firstRepoRoot);
+      const repoSlug = config.GITHUB_REPO.replace("/", "-");
       let lockfileHash = "no-lockfile";
       try {
         lockfileHash = computeLockfileHash(firstRepoRoot);
@@ -510,6 +511,7 @@ async function handleWorkflow(options: {
       ? resolveHeadSha(repoRoot, sha)
       : { headSha: undefined, shaRef: undefined };
     const githubRepo = resolveRepoSlug(repoRoot, config.GITHUB_REPO);
+    config.GITHUB_REPO = githubRepo;
     const [owner, name] = githubRepo.split("/");
 
     const template = await getWorkflowTemplate(workflowPath);

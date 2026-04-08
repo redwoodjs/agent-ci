@@ -55,7 +55,10 @@ export function resolveRepoSlug(cwd: string, fallback?: string): string {
   );
 }
 
-export const config = {
+export const config: {
+  GITHUB_REPO: string | undefined;
+  GITHUB_API_URL: string;
+} = {
   GITHUB_REPO: process.env.GITHUB_REPO,
   GITHUB_API_URL: process.env.GITHUB_API_URL || "http://localhost:8910",
 };

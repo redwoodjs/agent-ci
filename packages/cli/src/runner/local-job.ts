@@ -52,12 +52,24 @@ function getDockerSocket(): DockerSocket {
 function getDocker(): Docker {
   if (!_docker) {
     const socket = getDockerSocket();
-    const config = socket.socketPath
-      ? { socketPath: socket.socketPath }
-      : { host: socket.uri, protocol: "ssh" as const };
-    _docker = new Docker(config);
+    if (socket.socketPath) {
+      _docker = new Docker({ socketPath: socket.socketPath });
+    } else if (socket.uri.startsWith("ssh://")) {
+      _docker = new Docker({ host: socket.uri, protocol: "ssh" as const });
+    } else {
+      // Let dockerode/docker-modem parse non-unix, non-ssh DOCKER_HOST values
+      // from the environment. This preserves tcp:// support without changing the
+      // existing unix:// or ssh:// behavior.
+      _docker = new Docker();
+    }
   }
   return _docker;
+}
+
+export function __test_createDockerClient(socket: DockerSocket): Docker {
+  _resolvedSocket = socket;
+  _docker = null;
+  return getDocker();
 }
 
 const IMAGE = "ghcr.io/actions/actions-runner:latest";

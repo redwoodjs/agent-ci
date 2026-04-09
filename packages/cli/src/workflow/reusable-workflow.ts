@@ -11,6 +11,14 @@ export interface ExpandedJobEntry {
   sourceTaskName: string;
   /** Dependencies (rewired to use composite IDs for inlined jobs) */
   needs: string[];
+  /** Raw caller `with:` values (unexpanded expressions) */
+  inputs?: Record<string, string>;
+  /** Defaults from `on.workflow_call.inputs.<name>.default` */
+  inputDefaults?: Record<string, string>;
+  /** Output value expressions from `on.workflow_call.outputs.<name>.value` */
+  workflowCallOutputDefs?: Record<string, string>;
+  /** Original caller job ID (set on inlined sub-jobs) */
+  callerJobId?: string;
 }
 
 /**
@@ -59,6 +67,33 @@ export function expandReusableJobs(
       const calledRaw = parseYaml(fs.readFileSync(calledPath, "utf-8"));
       const calledJobs = calledRaw?.jobs ?? {};
 
+      // Extract caller inputs (raw `with:` values)
+      const callerWith: Record<string, string> | undefined = jobDef.with
+        ? Object.fromEntries(Object.entries(jobDef.with).map(([k, v]) => [k, String(v)]))
+        : undefined;
+
+      // Extract input defaults from on.workflow_call.inputs
+      const wcInputs = (calledRaw.on || calledRaw.true)?.workflow_call?.inputs;
+      const inputDefaults: Record<string, string> | undefined =
+        wcInputs && typeof wcInputs === "object"
+          ? Object.fromEntries(
+              Object.entries(wcInputs)
+                .filter(([, def]: [string, any]) => def?.default != null)
+                .map(([k, def]: [string, any]) => [k, String(def.default)]),
+            )
+          : undefined;
+
+      // Extract workflow_call output definitions
+      const wcOutputs = (calledRaw.on || calledRaw.true)?.workflow_call?.outputs;
+      const workflowCallOutputDefs: Record<string, string> | undefined =
+        wcOutputs && typeof wcOutputs === "object"
+          ? Object.fromEntries(
+              Object.entries(wcOutputs)
+                .filter(([, def]: [string, any]) => def?.value != null)
+                .map(([k, def]: [string, any]) => [k, String(def.value)]),
+            )
+          : undefined;
+
       // Guard against nested reusable workflows
       for (const [cjId, cjDef] of Object.entries<any>(calledJobs)) {
         if (typeof cjDef?.uses === "string") {
@@ -100,6 +135,14 @@ export function expandReusableJobs(
           workflowPath: calledPath,
           sourceTaskName: cjId,
           needs,
+          inputs: callerWith,
+          inputDefaults:
+            inputDefaults && Object.keys(inputDefaults).length > 0 ? inputDefaults : undefined,
+          workflowCallOutputDefs:
+            workflowCallOutputDefs && Object.keys(workflowCallOutputDefs).length > 0
+              ? workflowCallOutputDefs
+              : undefined,
+          callerJobId: jobId,
         });
 
         if (terminalIds.includes(cjId)) {

@@ -40,6 +40,7 @@ export function expandExpressions(
   secrets?: Record<string, string>,
   matrixContext?: Record<string, string>,
   needsContext?: Record<string, Record<string, string>>,
+  inputsContext?: Record<string, string>,
 ): string {
   return value.replace(/\$\{\{([\s\S]*?)\}\}/g, (_match, expr: string) => {
     const trimmed = expr.trim();
@@ -101,6 +102,7 @@ export function expandExpressions(
           secrets,
           matrixContext,
           needsContext,
+          inputsContext,
         );
       }
       try {
@@ -131,6 +133,7 @@ export function expandExpressions(
           secrets,
           matrixContext,
           needsContext,
+          inputsContext,
         );
       }
       return JSON.stringify(rawValue);
@@ -147,7 +150,14 @@ export function expandExpressions(
         const i = parseInt(idx, 10);
         if (i < args.length) {
           // Recursively expand the arg value in case it's a context reference
-          return expandExpressions(`\${{ ${args[i]} }}`, repoPath);
+          return expandExpressions(
+            `\${{ ${args[i]} }}`,
+            repoPath,
+            secrets,
+            matrixContext,
+            needsContext,
+            inputsContext,
+          );
         }
         return "";
       });
@@ -200,6 +210,10 @@ export function expandExpressions(
     if (trimmed.startsWith("secrets.")) {
       const name = trimmed.slice("secrets.".length);
       return secrets?.[name] ?? "";
+    }
+    if (trimmed.startsWith("inputs.")) {
+      const name = trimmed.slice("inputs.".length);
+      return inputsContext?.[name] ?? "";
     }
     if (trimmed.startsWith("steps.") && trimmed.endsWith(".outputs.cache-hit")) {
       return "";
@@ -352,6 +366,7 @@ export async function parseWorkflowSteps(
   secrets?: Record<string, string>,
   matrixContext?: Record<string, string>,
   needsContext?: Record<string, Record<string, string>>,
+  inputsContext?: Record<string, string>,
 ) {
   const template = await getWorkflowTemplate(filePath);
   const rawYaml = parseYaml(fs.readFileSync(filePath, "utf8"));
@@ -383,7 +398,7 @@ export async function parseWorkflowSteps(
       // Prefer raw YAML name to preserve ${{ }} expressions for our own expansion
       const rawName = rawStep.name != null ? String(rawStep.name) : step.name?.toString();
       let stepName = rawName
-        ? expandExpressions(rawName, repoPath, secrets, matrixContext, needsContext)
+        ? expandExpressions(rawName, repoPath, secrets, matrixContext, needsContext, inputsContext)
         : stepId;
 
       // If a step lacks an explicit name, we map it to standard GitHub Actions defaults
@@ -409,7 +424,14 @@ export async function parseWorkflowSteps(
         // string is always the complete literal block scalar.
         const rawScript = rawStep.run != null ? String(rawStep.run) : step.run.toString();
         const inputs: Record<string, string> = {
-          script: expandExpressions(rawScript, repoPath, secrets, matrixContext, needsContext),
+          script: expandExpressions(
+            rawScript,
+            repoPath,
+            secrets,
+            matrixContext,
+            needsContext,
+            inputsContext,
+          ),
         };
         if (rawStep["working-directory"]) {
           inputs.workingDirectory = rawStep["working-directory"];
@@ -427,7 +449,14 @@ export async function parseWorkflowSteps(
             ? Object.fromEntries(
                 Object.entries(rawStep.env).map(([k, v]) => [
                   k,
-                  expandExpressions(String(v), repoPath, secrets, undefined, needsContext),
+                  expandExpressions(
+                    String(v),
+                    repoPath,
+                    secrets,
+                    undefined,
+                    needsContext,
+                    inputsContext,
+                  ),
                 ]),
               )
             : undefined,
@@ -467,7 +496,14 @@ export async function parseWorkflowSteps(
               ? Object.fromEntries(
                   Object.entries((step as any).with).map(([k, v]) => [
                     k,
-                    expandExpressions(String(v), repoPath, secrets, matrixContext, needsContext),
+                    expandExpressions(
+                      String(v),
+                      repoPath,
+                      secrets,
+                      matrixContext,
+                      needsContext,
+                      inputsContext,
+                    ),
                   ]),
                 )
               : {}),
@@ -475,7 +511,14 @@ export async function parseWorkflowSteps(
             ...Object.fromEntries(
               Object.entries(stepWith).map(([k, v]) => [
                 k,
-                expandExpressions(String(v), repoPath, secrets, matrixContext, needsContext),
+                expandExpressions(
+                  String(v),
+                  repoPath,
+                  secrets,
+                  matrixContext,
+                  needsContext,
+                  inputsContext,
+                ),
               ]),
             ),
             ...(isCheckout
@@ -487,7 +530,14 @@ export async function parseWorkflowSteps(
                   ...Object.fromEntries(
                     Object.entries(stepWith).map(([k, v]) => [
                       k,
-                      expandExpressions(String(v), repoPath, secrets, undefined, needsContext),
+                      expandExpressions(
+                        String(v),
+                        repoPath,
+                        secrets,
+                        undefined,
+                        needsContext,
+                        inputsContext,
+                      ),
                     ]),
                   ),
                 }
@@ -497,7 +547,14 @@ export async function parseWorkflowSteps(
             ? Object.fromEntries(
                 Object.entries(rawStep.env).map(([k, v]) => [
                   k,
-                  expandExpressions(String(v), repoPath, secrets, matrixContext, needsContext),
+                  expandExpressions(
+                    String(v),
+                    repoPath,
+                    secrets,
+                    matrixContext,
+                    needsContext,
+                    inputsContext,
+                  ),
                 ]),
               )
             : undefined,

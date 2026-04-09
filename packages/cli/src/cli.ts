@@ -26,6 +26,7 @@ import {
   parseJobIf,
   evaluateJobIf,
   parseFailFast,
+  expandExpressions,
 } from "./workflow/workflow-parser.js";
 import { resolveJobOutputs } from "./runner/result-builder.js";
 import { Job } from "./types.js";
@@ -529,6 +530,10 @@ async function handleWorkflow(options: {
     taskName: string;
     sourceTaskName?: string;
     matrixContext?: Record<string, string>;
+    inputs?: Record<string, string>;
+    inputDefaults?: Record<string, string>;
+    workflowCallOutputDefs?: Record<string, string>;
+    callerJobId?: string;
   };
 
   const expandedJobs: ExpandedJob[] = [];
@@ -552,6 +557,10 @@ async function handleWorkflow(options: {
                 __job_total: String(total),
                 __job_index: String(ci),
               },
+          inputs: entry.inputs,
+          inputDefaults: entry.inputDefaults,
+          workflowCallOutputDefs: entry.workflowCallOutputDefs,
+          callerJobId: entry.callerJobId,
         });
       }
     } else {
@@ -559,6 +568,10 @@ async function handleWorkflow(options: {
         workflowPath: entry.workflowPath,
         taskName: entry.id,
         sourceTaskName: entry.sourceTaskName,
+        inputs: entry.inputs,
+        inputDefaults: entry.inputDefaults,
+        workflowCallOutputDefs: entry.workflowCallOutputDefs,
+        callerJobId: entry.callerJobId,
       });
     }
   }
@@ -571,11 +584,27 @@ async function handleWorkflow(options: {
     const secretsFilePath = path.join(repoRoot, ".env.agent-ci");
     validateSecrets(ej.workflowPath, actualTaskName, secrets, secretsFilePath);
 
+    // Resolve inputs for called workflow jobs
+    let inputsContext: Record<string, string> | undefined;
+    if (ej.callerJobId) {
+      inputsContext = { ...ej.inputDefaults };
+      if (ej.inputs) {
+        for (const [k, v] of Object.entries(ej.inputs)) {
+          inputsContext[k] = expandExpressions(v, repoRoot, secrets);
+        }
+      }
+      if (Object.keys(inputsContext).length === 0) {
+        inputsContext = undefined;
+      }
+    }
+
     const steps = await parseWorkflowSteps(
       ej.workflowPath,
       actualTaskName,
       secrets,
       ej.matrixContext,
+      undefined,
+      inputsContext,
     );
     const services = await parseWorkflowServices(ej.workflowPath, actualTaskName);
     const container = await parseWorkflowContainer(ej.workflowPath, actualTaskName);
@@ -666,6 +695,33 @@ async function handleWorkflow(options: {
     };
   };
 
+  // Cache resolved inputs per callerJobId (all sub-jobs share the same inputs)
+  const resolvedInputsCache = new Map<string, Record<string, string>>();
+
+  const resolveInputsForJob = (
+    ej: ExpandedJob,
+    secrets: Record<string, string>,
+    needsContext?: Record<string, Record<string, string>>,
+  ): Record<string, string> | undefined => {
+    if (!ej.callerJobId) {
+      return undefined;
+    }
+    const cached = resolvedInputsCache.get(ej.callerJobId);
+    if (cached) {
+      return cached;
+    }
+
+    // Start with defaults, then override with caller's `with:` values (expanded)
+    const resolved: Record<string, string> = { ...ej.inputDefaults };
+    if (ej.inputs) {
+      for (const [k, v] of Object.entries(ej.inputs)) {
+        resolved[k] = expandExpressions(v, repoRoot, secrets, undefined, needsContext);
+      }
+    }
+    resolvedInputsCache.set(ej.callerJobId, resolved);
+    return Object.keys(resolved).length > 0 ? resolved : undefined;
+  };
+
   const runJob = async (
     ej: ExpandedJob,
     needsContext?: Record<string, Record<string, string>>,
@@ -678,12 +734,14 @@ async function handleWorkflow(options: {
     const secrets = loadMachineSecrets(repoRoot);
     const secretsFilePath = path.join(repoRoot, ".env.agent-ci");
     validateSecrets(ej.workflowPath, actualTaskName, secrets, secretsFilePath);
+    const inputsContext = resolveInputsForJob(ej, secrets, needsContext);
     const steps = await parseWorkflowSteps(
       ej.workflowPath,
       actualTaskName,
       secrets,
       matrixContext,
       needsContext,
+      inputsContext,
     );
     const services = await parseWorkflowServices(ej.workflowPath, actualTaskName);
     const container = await parseWorkflowContainer(ej.workflowPath, actualTaskName);
@@ -740,14 +798,76 @@ async function handleWorkflow(options: {
     const ctx: Record<string, Record<string, string>> = {};
     for (const depId of jobDeps) {
       ctx[depId] = jobOutputs.get(depId) ?? {};
+      if (depId.includes("/")) {
+        const callerJobId = depId.split("/")[0];
+        const calledJobId = depId.split("/").slice(1).join("/");
+        // For composite IDs like "lint/setup", also add the called job ID ("setup")
+        // so intra-workflow `needs.setup.outputs.*` references resolve correctly
+        if (!ctx[calledJobId]) {
+          ctx[calledJobId] = jobOutputs.get(depId) ?? {};
+        }
+        // If workflow_call outputs were resolved for the caller (e.g. "lint"),
+        // add them so downstream `needs.lint.outputs.*` references work
+        if (jobOutputs.has(callerJobId)) {
+          ctx[callerJobId] = jobOutputs.get(callerJobId)!;
+        }
+      }
     }
-    return ctx;
+    return Object.keys(ctx).length > 0 ? ctx : undefined;
   };
 
   /** Collect outputs from a completed job result */
   const collectOutputs = (result: JobResult, taskName: string) => {
     if (result.outputs && Object.keys(result.outputs).length > 0) {
       jobOutputs.set(taskName, result.outputs);
+    }
+  };
+
+  /**
+   * After a wave completes, resolve workflow_call outputs for any caller jobs
+   * whose sub-jobs have all finished. This allows downstream jobs to access
+   * `needs.<callerJobId>.outputs.*`.
+   */
+  const resolveWorkflowCallOutputs = () => {
+    // Group expanded jobs by callerJobId
+    const byCallerJobId = new Map<string, ExpandedJob[]>();
+    for (const ej of expandedJobs) {
+      if (ej.callerJobId) {
+        const group = byCallerJobId.get(ej.callerJobId) ?? [];
+        group.push(ej);
+        byCallerJobId.set(ej.callerJobId, group);
+      }
+    }
+
+    for (const [callerJobId, subJobs] of byCallerJobId) {
+      // Check if all sub-jobs have completed (have results)
+      const allDone = subJobs.every((sj) => jobResultStatus.has(sj.taskName));
+      if (!allDone) {
+        continue;
+      }
+      // Already resolved
+      if (jobOutputs.has(callerJobId)) {
+        continue;
+      }
+
+      // Find the output defs (all sub-jobs share the same defs)
+      const outputDefs = subJobs[0]?.workflowCallOutputDefs;
+      if (!outputDefs || Object.keys(outputDefs).length === 0) {
+        continue;
+      }
+
+      // Resolve each output value expression: ${{ jobs.<id>.outputs.<name> }}
+      const resolved: Record<string, string> = {};
+      for (const [outputName, valueExpr] of Object.entries(outputDefs)) {
+        resolved[outputName] = valueExpr.replace(
+          /\$\{\{\s*jobs\.([^.]+)\.outputs\.([^}\s]+)\s*\}\}/g,
+          (_match, jobId, outputKey) => {
+            const compositeId = `${callerJobId}/${jobId}`;
+            return jobOutputs.get(compositeId)?.[outputKey] ?? "";
+          },
+        );
+      }
+      jobOutputs.set(callerJobId, resolved);
     }
   };
 
@@ -863,6 +983,9 @@ async function handleWorkflow(options: {
         }
       }
     }
+
+    // After each wave, resolve workflow_call outputs for completed caller jobs
+    resolveWorkflowCallOutputs();
 
     // Check whether to abort remaining waves on failure
     const waveHadFailures = allResults.some((r) => !r.succeeded);

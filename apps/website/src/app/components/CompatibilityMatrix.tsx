@@ -15,6 +15,11 @@ const LEGEND = [
     label: "Ignored (no-op)",
     description: "Parsed without error but has no effect on the run",
   },
+  {
+    icon: "🚫",
+    label: "Not planned",
+    description: "Cannot be supported due to architectural constraints",
+  },
 ];
 
 type Row = { key: string; status: string; notes?: string };
@@ -54,7 +59,7 @@ const SECTIONS: { label: string; description: string; rows: Row[] }[] = [
       { key: "permissions", status: "🟡", notes: "Accepted, not enforced (mock GITHUB_TOKEN)" },
       {
         key: "concurrency",
-        status: "❌",
+        status: "🚫",
         notes:
           "Concurrency groups are a server-side queue/cancel mechanism; there is no persistent local server to coordinate across runs",
       },
@@ -88,7 +93,7 @@ const SECTIONS: { label: string; description: string; rows: Row[] }[] = [
       },
       { key: "jobs.<id>.timeout-minutes", status: "❌" },
       { key: "jobs.<id>.continue-on-error", status: "❌" },
-      { key: "jobs.<id>.concurrency", status: "❌", notes: "See workflow-level concurrency" },
+      { key: "jobs.<id>.concurrency", status: "🚫", notes: "See workflow-level concurrency" },
       {
         key: "jobs.<id>.container",
         status: "✅",
@@ -104,7 +109,11 @@ const SECTIONS: { label: string; description: string; rows: Row[] }[] = [
         status: "⚠️",
         notes: "Local refs (./) expanded inline; remote refs skipped with warning",
       },
-      { key: "jobs.<id>.secrets", status: "❌", notes: "Use .env.agent-ci file instead" },
+      {
+        key: "jobs.<id>.secrets",
+        status: "🚫",
+        notes: "Agent CI cannot access GitHub's secret storage — use .env.agent-ci file instead",
+      },
     ],
   },
   {

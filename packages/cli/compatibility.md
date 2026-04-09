@@ -6,19 +6,19 @@ Agent CI aims to run real GitHub Actions workflows locally. The table below show
 
 ## Workflow-Level Keys
 
-| Key                                | Status | Notes                                                                                                                                                                              |
-| ---------------------------------- | ------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `name`                             | ✅     |                                                                                                                                                                                    |
-| `run-name`                         | 🟡     | Parsed but not displayed anywhere                                                                                                                                                  |
-| `on` (push, pull_request)          | ✅     | Branch and path filters are evaluated when using `--all`                                                                                                                           |
-| `on` (schedule, workflow_dispatch) | 🟡     | Accepted without error, but Agent CI does not simulate event triggers — workflows must be run manually                                                                             |
-| `on` (workflow_call)               | ❌     | Reusable workflows would require downloading and parsing external workflow files, nested job orchestration, and cross-workflow output passing — a significant architectural change |
-| `on` (other events)                | 🟡     | Parsed without error, but the event is not simulated                                                                                                                               |
-| `env`                              | ✅     | Workflow-level env is propagated to all steps                                                                                                                                      |
-| `defaults.run.shell`               | ✅     | Passed through to the runner                                                                                                                                                       |
-| `defaults.run.working-directory`   | ✅     | Passed through to the runner                                                                                                                                                       |
-| `permissions`                      | 🟡     | Accepted but not enforced — the mock GITHUB_TOKEN has full access                                                                                                                  |
-| `concurrency`                      | ❌     | Concurrency groups are a GitHub-side queuing and cancellation mechanism. Agent CI has no persistent server to track group state across runs, so this cannot be implemented locally |
+| Key                                | Status | Notes                                                                                                                                                                                                 |
+| ---------------------------------- | ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `name`                             | ✅     |                                                                                                                                                                                                       |
+| `run-name`                         | 🟡     | Parsed but not displayed anywhere                                                                                                                                                                     |
+| `on` (push, pull_request)          | ✅     | Branch and path filters are evaluated when using `--all`                                                                                                                                              |
+| `on` (schedule, workflow_dispatch) | 🟡     | Accepted without error, but Agent CI does not simulate event triggers — workflows must be run manually                                                                                                |
+| `on` (workflow_call)               | ⚠️     | Local reusable workflows (`uses: ./.github/workflows/...`) are inlined into the caller's dependency graph. Remote refs, `inputs:`/`outputs:` passing, and nested reusable workflows are not supported |
+| `on` (other events)                | 🟡     | Parsed without error, but the event is not simulated                                                                                                                                                  |
+| `env`                              | ✅     | Workflow-level env is propagated to all steps                                                                                                                                                         |
+| `defaults.run.shell`               | ✅     | Passed through to the runner                                                                                                                                                                          |
+| `defaults.run.working-directory`   | ✅     | Passed through to the runner                                                                                                                                                                          |
+| `permissions`                      | 🟡     | Accepted but not enforced — the mock GITHUB_TOKEN has full access                                                                                                                                     |
+| `concurrency`                      | ❌     | Concurrency groups are a GitHub-side queuing and cancellation mechanism. Agent CI has no persistent server to track group state across runs, so this cannot be implemented locally                    |
 
 ## Job-Level Keys
 
@@ -38,7 +38,7 @@ Agent CI aims to run real GitHub Actions workflows locally. The table below show
 | `jobs.<id>.concurrency`               | ❌     | See workflow-level `concurrency` above                                                                                                                                                                                       |
 | `jobs.<id>.container`                 | ✅     | Short and long form; image, env, ports, volumes, and options are all supported                                                                                                                                               |
 | `jobs.<id>.services`                  | ✅     | Sidecar containers with image, env, ports, and options                                                                                                                                                                       |
-| `jobs.<id>.uses` (reusable workflows) | ❌     | See `on (workflow_call)` above — same architectural limitation                                                                                                                                                               |
+| `jobs.<id>.uses` (reusable workflows) | ⚠️     | Local refs (`./`) are expanded inline. Remote refs are skipped with a warning. `with:` (inputs) and `secrets:` pass-through are not yet supported                                                                            |
 | `jobs.<id>.secrets`                   | ❌     | Agent CI cannot access GitHub's secret storage. Use a `.env.agent-ci` file at the project root instead — secrets are loaded from there and injected as `${{ secrets.* }}` expressions                                        |
 
 ## Strategy / Matrix

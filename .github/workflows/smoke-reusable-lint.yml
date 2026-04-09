@@ -1,0 +1,11 @@
+name: Reusable Lint (smoke test)
+
+on:
+  workflow_call:
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Run lint check
+        run: echo "lint passed"

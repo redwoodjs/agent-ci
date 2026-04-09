@@ -354,10 +354,14 @@ export async function executeLocalJob(
     if (useDirectContainer) {
       await fs.promises.mkdir(hostRunnerSeedDir, { recursive: true });
       const markerFile = path.join(hostRunnerSeedDir, ".seeded");
-      try {
-        await fs.promises.access(markerFile);
-      } catch {
-        debugRunner(`Extracting runner binary to host (one-time)...`);
+      const runShExists = fs.existsSync(path.join(hostRunnerSeedDir, "run.sh"));
+      const needsSeed = !fs.existsSync(markerFile) || !runShExists;
+      if (needsSeed) {
+        if (!runShExists && fs.existsSync(markerFile)) {
+          debugRunner(`Runner seed is incomplete (run.sh missing), re-extracting...`);
+        } else {
+          debugRunner(`Extracting runner binary to host (one-time)...`);
+        }
         const tmpName = `agent-ci-seed-runner-${Date.now()}`;
         const seedContainer = await getDocker().createContainer({
           Image: IMAGE,

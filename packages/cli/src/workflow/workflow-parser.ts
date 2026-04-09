@@ -434,18 +434,19 @@ export async function parseWorkflowSteps(
         };
       } else if ("uses" in step) {
         // Basic support for 'uses' steps
-        // Parse uses string: owner/repo@ref
+        // Parse uses string: owner/repo@ref or ./.github/actions/foo (local)
         const uses = step.uses.toString();
+        const isLocalAction = uses.startsWith("./");
         let name = uses;
         let ref = "";
 
-        if (uses.indexOf("@") >= 0) {
+        if (!isLocalAction && uses.indexOf("@") >= 0) {
           const parts = uses.split("@");
           name = parts[0];
           ref = parts[1];
         }
 
-        const isCheckout = name.trim().toLowerCase() === "actions/checkout";
+        const isCheckout = !isLocalAction && name.trim().toLowerCase() === "actions/checkout";
         const stepWith = rawStep.with || {};
 
         return {
@@ -455,10 +456,10 @@ export async function parseWorkflowSteps(
           Id: crypto.randomUUID(),
           Reference: {
             Type: "Repository",
-            Name: name,
-            Ref: ref,
-            RepositoryType: "GitHub",
-            Path: "",
+            Name: isLocalAction ? "" : name,
+            Ref: isLocalAction ? "" : ref,
+            RepositoryType: isLocalAction ? "self" : "GitHub",
+            Path: isLocalAction ? uses : "",
           },
           Inputs: {
             // with: values from @actions/workflow-parser are expression objects; call toString() on each.

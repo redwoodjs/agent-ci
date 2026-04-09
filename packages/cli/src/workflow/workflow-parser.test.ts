@@ -1282,3 +1282,82 @@ jobs:
     expect((steps[0] as any).Name).toBe("Shard 3");
   });
 });
+
+// ─── parseWorkflowSteps with local composite actions ──────────────────────────
+
+describe("parseWorkflowSteps with local actions", () => {
+  let tmpDir: string;
+
+  afterEach(() => {
+    if (tmpDir) {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  function writeWorkflowTree(content: string): string {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "oa-steps-local-"));
+    const workflowDir = path.join(tmpDir, ".github", "workflows");
+    fs.mkdirSync(workflowDir, { recursive: true });
+    const filePath = path.join(workflowDir, "test.yml");
+    fs.writeFileSync(filePath, content);
+    return filePath;
+  }
+
+  it("sets RepositoryType to 'self' for local actions", async () => {
+    const filePath = writeWorkflowTree(`
+name: Local Action Test
+on: [push]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: ./.github/actions/foo
+`);
+    const steps = await parseWorkflowSteps(filePath, "test");
+    const ref = (steps[0] as any).Reference;
+
+    expect(ref.RepositoryType).toBe("self");
+    expect(ref.Path).toBe("./.github/actions/foo");
+    expect(ref.Name).toBe("");
+    expect(ref.Ref).toBe("");
+  });
+
+  it("keeps RepositoryType 'GitHub' for remote actions (regression)", async () => {
+    const filePath = writeWorkflowTree(`
+name: Remote Action Test
+on: [push]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+`);
+    const steps = await parseWorkflowSteps(filePath, "test");
+    const ref = (steps[0] as any).Reference;
+
+    expect(ref.RepositoryType).toBe("GitHub");
+    expect(ref.Name).toBe("actions/checkout");
+    expect(ref.Ref).toBe("v4");
+    expect(ref.Path).toBe("");
+  });
+
+  it("passes through with: inputs for local actions", async () => {
+    const filePath = writeWorkflowTree(`
+name: Local Action Inputs Test
+on: [push]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: ./.github/actions/shared-node-cache
+        with:
+          node-version: "18"
+          cache-key: my-cache
+`);
+    const steps = await parseWorkflowSteps(filePath, "test");
+    const inputs = (steps[0] as any).Inputs;
+
+    expect(inputs["node-version"]).toBe("18");
+    expect(inputs["cache-key"]).toBe("my-cache");
+  });
+});

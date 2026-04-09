@@ -118,7 +118,128 @@ export function registerGithubRoutes(app: Polka) {
   app.post("/actions/runner-registration", globalRunnerRegistrationHandler);
   app.post("/api/v3/actions/runner-registration", globalRunnerRegistrationHandler);
 
-  // 7. Tarball route — actions/checkout downloads repos via this endpoint.
+  // 7. Compare commits — used by actions that detect changed files (e.g. Khan/actions@get-changed-files).
+  // Runs `git diff` on the original repo root and returns a GitHub-compatible response.
+  const compareHandler = (req: any, res: any) => {
+    const basehead: string = req.params.basehead;
+    // GitHub format: "base...head" (three dots) or "base..head" (two dots)
+    const parts = basehead.split(/\.{2,3}/);
+    const [base, head] = parts;
+
+    if (!base || !head) {
+      res.writeHead(422, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ message: "Invalid basehead format" }));
+      return;
+    }
+
+    const repoRoot = state.repoRoot;
+    if (!repoRoot) {
+      // No repo root available — return empty comparison
+      console.warn("[DTU] Compare: no repoRoot available, returning empty file list");
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ status: "identical", files: [], total_commits: 0, commits: [] }));
+      return;
+    }
+
+    try {
+      const output = execSync(`git diff --name-status ${base} ${head}`, {
+        cwd: repoRoot,
+        stdio: "pipe",
+        timeout: 10000,
+      }).toString();
+
+      const statusMap: Record<string, string> = {
+        A: "added",
+        M: "modified",
+        D: "removed",
+        R: "renamed",
+        C: "copied",
+        T: "changed",
+      };
+
+      const files = output
+        .trim()
+        .split("\n")
+        .filter((line) => line.length > 0)
+        .map((line) => {
+          // Format: "M\tfilename" or "R100\told\tnew"
+          const parts = line.split("\t");
+          const rawStatus = parts[0]!;
+          const statusChar = rawStatus[0]!;
+          const filename = rawStatus.startsWith("R") ? parts[2]! : parts[1]!;
+          const previousFilename = rawStatus.startsWith("R") ? parts[1] : undefined;
+          return {
+            sha: "0000000000000000000000000000000000000000",
+            filename,
+            status: statusMap[statusChar] || "modified",
+            ...(previousFilename ? { previous_filename: previousFilename } : {}),
+            additions: 0,
+            deletions: 0,
+            changes: 0,
+          };
+        });
+
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(
+        JSON.stringify({
+          status: files.length > 0 ? "ahead" : "identical",
+          total_commits: 1,
+          commits: [],
+          files,
+        }),
+      );
+    } catch (err: any) {
+      console.warn(`[DTU] Compare failed (${base}...${head}):`, err.message);
+      // Fall back to listing all tracked files as "added"
+      try {
+        const allFiles = execSync("git ls-files", {
+          cwd: repoRoot,
+          stdio: "pipe",
+          timeout: 10000,
+        }).toString();
+
+        const files = allFiles
+          .trim()
+          .split("\n")
+          .filter((f) => f.length > 0)
+          .map((filename) => ({
+            sha: "0000000000000000000000000000000000000000",
+            filename,
+            status: "added",
+            additions: 0,
+            deletions: 0,
+            changes: 0,
+          }));
+
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(
+          JSON.stringify({
+            status: "ahead",
+            total_commits: 1,
+            commits: [],
+            files,
+          }),
+        );
+      } catch {
+        res.writeHead(500, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ message: "Failed to compute diff" }));
+      }
+    }
+  };
+  app.get("/repos/:owner/:repo/compare/:basehead", compareHandler);
+  app.get("/_apis/repos/:owner/:repo/compare/:basehead", compareHandler);
+
+  // 8. List pull requests associated with a commit — used by some changed-files actions
+  // when the push event has an all-zeros `before` (new branch push).
+  const listPrsForCommitHandler = (req: any, res: any) => {
+    console.log(`[DTU] List PRs for commit ${req.params.sha} (mock: returning empty)`);
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify([]));
+  };
+  app.get("/repos/:owner/:repo/commits/:sha/pulls", listPrsForCommitHandler);
+  app.get("/_apis/repos/:owner/:repo/commits/:sha/pulls", listPrsForCommitHandler);
+
+  // 9. Tarball route — actions/checkout downloads repos via this endpoint.
   // Return an empty tar.gz since the workspace is already bind-mounted.
   const tarballHandler = (req: any, res: any) => {
     console.log(`[DTU] Serving empty tarball for ${req.url}`);

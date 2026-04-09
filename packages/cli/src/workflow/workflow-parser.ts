@@ -219,7 +219,10 @@ export function expandExpressions(
       return "";
     }
     if (trimmed.startsWith("steps.")) {
-      return "";
+      // Leave steps.* expressions for the runner to resolve at execution time.
+      // The runner maintains the steps context as steps complete, so these
+      // must not be expanded at parse time.
+      return _match;
     }
     if (trimmed.startsWith("needs.") && needsContext) {
       // needs.<jobId>.outputs.<name> or needs.<jobId>.result
@@ -441,6 +444,7 @@ export async function parseWorkflowSteps(
           Name: stepName,
           DisplayName: stepName,
           Id: crypto.randomUUID(),
+          ContextName: step.id ? step.id.toString() : undefined,
           Reference: {
             Type: "Script",
           },
@@ -483,6 +487,7 @@ export async function parseWorkflowSteps(
           Name: stepName,
           DisplayName: stepName,
           Id: crypto.randomUUID(),
+          ContextName: step.id ? step.id.toString() : undefined,
           Reference: {
             Type: "Repository",
             Name: isLocalAction ? "" : name,

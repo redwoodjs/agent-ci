@@ -258,9 +258,13 @@ describe("expandExpressions", () => {
     expect(expandExpressions("shard-${{ matrix.shard }}")).toBe("shard-");
   });
 
-  it("expands steps.* to empty string", () => {
+  it("preserves steps.* expressions for runtime resolution", () => {
+    // steps.*.outputs.cache-hit is still expanded (special-cased for cache actions)
     expect(expandExpressions("hit-${{ steps.cache.outputs.cache-hit }}")).toBe("hit-");
-    expect(expandExpressions("${{ steps.some-step.outputs.result }}")).toBe("");
+    // General steps.* expressions are preserved for the runner to evaluate at runtime
+    expect(expandExpressions("${{ steps.some-step.outputs.result }}")).toBe(
+      "${{ steps.some-step.outputs.result }}",
+    );
   });
 
   it("expands needs.* to empty string", () => {

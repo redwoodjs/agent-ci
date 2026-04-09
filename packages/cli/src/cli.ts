@@ -511,6 +511,10 @@ async function handleWorkflow(options: {
   const { headSha, shaRef } = sha
     ? resolveHeadSha(repoRoot, sha)
     : { headSha: undefined, shaRef: undefined };
+  // Always resolve the real HEAD SHA for the push event context (before/after).
+  // This is separate from headSha which may be undefined for dirty workspace copies.
+  const realHeadSha = headSha ?? resolveHeadSha(repoRoot, "HEAD").headSha;
+  const baseSha = resolveBaseSha(repoRoot, realHeadSha);
   const githubRepo = config.GITHUB_REPO ?? resolveRepoSlug(repoRoot);
   config.GITHUB_REPO = githubRepo;
   const [owner, name] = githubRepo.split("/");
@@ -616,6 +620,9 @@ async function handleWorkflow(options: {
       githubRepo: githubRepo,
       githubToken: "mock_token",
       headSha: headSha,
+      baseSha: baseSha,
+      realHeadSha: realHeadSha,
+      repoRoot: repoRoot,
       shaRef: shaRef,
       env: { AGENT_CI_LOCAL: "true" },
       repository: {
@@ -678,6 +685,9 @@ async function handleWorkflow(options: {
       githubRepo: githubRepo,
       githubToken: "mock_token",
       headSha: headSha,
+      baseSha: baseSha,
+      realHeadSha: realHeadSha,
+      repoRoot: repoRoot,
       shaRef: shaRef,
       env: { AGENT_CI_LOCAL: "true" },
       repository: {
@@ -1061,6 +1071,16 @@ function resolveHeadSha(repoRoot: string, sha: string) {
     };
   } catch {
     throw new Error(`Failed to resolve ref: ${sha}`);
+  }
+}
+
+/** Resolve the parent commit SHA for push-event `before` context. */
+function resolveBaseSha(repoRoot: string, headSha?: string): string | undefined {
+  try {
+    const ref = headSha && headSha !== "HEAD" ? `${headSha}~1` : "HEAD~1";
+    return execSync(`git rev-parse ${ref}`, { cwd: repoRoot, stdio: "pipe" }).toString().trim();
+  } catch {
+    return undefined;
   }
 }
 

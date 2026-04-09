@@ -30,6 +30,11 @@ export function registerDtuRoutes(app: Polka) {
 
         const jobPayload = { ...payload, steps: mappedSteps };
 
+        // Track the original repo root for git operations (e.g. compare commits)
+        if (payload.repoRoot) {
+          state.repoRoot = payload.repoRoot;
+        }
+
         // Store the job for dispatch. Runner-targeted jobs go ONLY into runnerJobs
         // to prevent other runners from stealing them via the generic pool fallback.
         // Jobs without a runnerName go into the generic pool for any runner to pick up.

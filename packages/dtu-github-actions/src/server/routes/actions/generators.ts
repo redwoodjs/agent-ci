@@ -53,6 +53,20 @@ export function toContextData(obj: any): any {
 // TemplateTokenJsonConverter uses "type" key (integer) NOT the contextData "t" key.
 // TokenType.Mapping = 2. Items are serialized as {Key: scalarToken, Value: templateToken}.
 // Strings without file/line/col are serialized as bare string values.
+/**
+ * Convert a string value to the appropriate TemplateToken.
+ * If the value is a pure `${{ expr }}` expression, encode it as a
+ * BasicExpressionToken (type 6) so the runner evaluates it at execution time.
+ * Otherwise, return a bare string (StringToken).
+ */
+function toTemplateTokenValue(v: string): any {
+  const exprMatch = v.match(/^\$\{\{\s*([\s\S]+?)\s*\}\}$/);
+  if (exprMatch) {
+    return { type: 3, expr: exprMatch[1] };
+  }
+  return v;
+}
+
 export function toTemplateTokenMapping(obj: { [key: string]: string }): object {
   const entries = Object.entries(obj);
   if (entries.length === 0) {
@@ -60,7 +74,7 @@ export function toTemplateTokenMapping(obj: { [key: string]: string }): object {
   }
   return {
     type: 2,
-    map: entries.map(([k, v]) => ({ Key: k, Value: v })),
+    map: entries.map(([k, v]) => ({ Key: k, Value: toTemplateTokenValue(v) })),
   };
 }
 
@@ -128,10 +142,11 @@ export function createJobResponse(
     const inputsObj: { [key: string]: string } =
       step.Inputs || (step.run ? { script: step.run } : {});
 
-    const s = {
+    const s: any = {
       id: step.Id || step.id || crypto.randomUUID(),
       name: step.Name || step.name || `step-${index}`,
       displayName: step.DisplayName || step.Name || step.name || `step-${index}`,
+      contextName: step.ContextName || step.contextName || undefined,
       type: (step.Type || "Action").toLowerCase(),
       reference: (() => {
         const refTypeSource = step.Reference?.Type || "Script";
@@ -167,6 +182,14 @@ export function createJobResponse(
   const repoName = payload.repository?.name || repoFullName.split("/")[1] || "";
   const workspacePath = `/home/runner/_work/${repoName}/${repoName}`;
 
+  const headSha =
+    payload.headSha && payload.headSha !== "HEAD"
+      ? payload.headSha
+      : "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+  // realHeadSha is the actual HEAD commit SHA, even when headSha is unset
+  // (dirty workspace mode). Used for push event context (before/after).
+  const realHeadSha = payload.realHeadSha || headSha;
+
   const Variables: { [key: string]: JobVariable } = {
     // Standard GitHub Actions environment variables — always set by real runners.
     // CI=true is required by many scripts that branch on CI vs local (e.g. default DB_HOST).
@@ -184,6 +207,8 @@ export function createJobResponse(
     GITHUB_RUN_NUMBER: { Value: "1", IsSecret: false },
     GITHUB_JOB: { Value: payload.name || "local-job", IsSecret: false },
     GITHUB_EVENT_NAME: { Value: "push", IsSecret: false },
+    GITHUB_API_URL: { Value: baseUrl, IsSecret: false },
+    GITHUB_SERVER_URL: { Value: "https://github.com", IsSecret: false },
     GITHUB_REF_NAME: { Value: "main", IsSecret: false },
     GITHUB_WORKFLOW: { Value: payload.workflowName || "local-workflow", IsSecret: false },
     GITHUB_WORKSPACE: { Value: workspacePath, IsSecret: false },
@@ -193,24 +218,12 @@ export function createJobResponse(
     "system.github.repository": { Value: repoFullName, IsSecret: false },
     "github.repository": { Value: repoFullName, IsSecret: false },
     "github.actor": { Value: ownerName, IsSecret: false },
-    "github.sha": {
-      Value:
-        payload.headSha && payload.headSha !== "HEAD"
-          ? payload.headSha
-          : "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-      IsSecret: false,
-    },
+    "github.sha": { Value: realHeadSha, IsSecret: false },
     "github.ref": { Value: "refs/heads/main", IsSecret: false },
     repository: { Value: repoFullName, IsSecret: false },
     GITHUB_REPOSITORY: { Value: repoFullName, IsSecret: false },
     GITHUB_ACTOR: { Value: ownerName, IsSecret: false },
-    GITHUB_SHA: {
-      Value:
-        payload.headSha && payload.headSha !== "HEAD"
-          ? payload.headSha
-          : "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-      IsSecret: false,
-    },
+    GITHUB_SHA: { Value: realHeadSha, IsSecret: false },
     "build.repository.name": { Value: repoFullName, IsSecret: false },
     "build.repository.uri": { Value: `https://github.com/${repoFullName}`, IsSecret: false },
   };
@@ -235,13 +248,11 @@ export function createJobResponse(
   const githubContext: any = {
     repository: repoFullName,
     actor: ownerName,
-    sha:
-      payload.headSha && payload.headSha !== "HEAD"
-        ? payload.headSha
-        : "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    sha: realHeadSha,
     ref: "refs/heads/main",
+    event_name: "push",
     server_url: "https://github.com",
-    api_url: `${baseUrl}/_apis`,
+    api_url: `${baseUrl}`,
     graphql_url: `${baseUrl}/_graphql`,
     workspace: workspacePath,
     action: "__run",
@@ -260,6 +271,8 @@ export function createJobResponse(
         name: repoName,
         owner: { login: ownerName },
       },
+      before: payload.baseSha || "0000000000000000000000000000000000000000",
+      after: realHeadSha,
     };
   }
 

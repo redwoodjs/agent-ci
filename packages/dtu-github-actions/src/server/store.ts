@@ -44,6 +44,9 @@ export const state = {
   // (used as fallback when the feed recordId is a Job-level ID)
   currentInProgressStep: new Map<string, string>(),
 
+  // Original repo root on the host (for git operations like compare)
+  repoRoot: undefined as string | undefined,
+
   // Substring patterns for cache keys that should always return a synthetic hit
   // with an empty archive (e.g. "pnpm" for bind-mounted pnpm stores).
   virtualCachePatterns: new Set<string>(),
@@ -105,6 +108,7 @@ export const state = {
     this.planToLogDir.clear();
     this.timelineToLogDir.clear();
     this.currentInProgressStep.clear();
+    this.repoRoot = undefined;
     this.virtualCachePatterns.clear();
     this.caches.clear();
     this.pendingCaches.clear();

@@ -1,6 +1,7 @@
 # Tweet Queue
 
 Drafts ready to post. Each follows the formula that worked on Apr 7 (78K impressions):
+
 - **One-line hook** — relatable developer pain or satisfying outcome
 - **Terminal screenshot** — concrete proof, instantly digestible
 - **Short** — no threads, no walls of text, no "show more"
@@ -17,9 +18,11 @@ Post cadence: ~1 per day, screenshot-first. Reply to your own tweet with context
 **Screenshot needed:** Terminal showing `pnpm agent-ci run --all tests.yml` succeeding on a dirty working tree — with `git status` above it showing uncommitted changes.
 
 **Copy:**
+
 > Running CI before you commit is underrated.
 
 **Reply (post only if traction):**
+
 > agent-ci runs against your working tree directly. No need to commit, no need to push. Just run it.
 >
 > agent-ci.dev
@@ -35,9 +38,11 @@ Post cadence: ~1 per day, screenshot-first. Reply to your own tweet with context
 **Screenshot needed:** Split-screen or sequential showing: (1) a GitHub Actions run taking 2-4 minutes, (2) the same workflow via agent-ci taking 9 seconds. Or just the agent-ci side with a caption that implies the comparison.
 
 **Copy:**
+
 > Same workflow. Same actions. 9 seconds instead of 4 minutes.
 
 **Reply (post only if traction):**
+
 > agent-ci runs the official GitHub Actions runner locally. Cache is bind-mounted (~0ms), no upload/download cycles.
 >
 > agent-ci.dev
@@ -53,11 +58,12 @@ Post cadence: ~1 per day, screenshot-first. Reply to your own tweet with context
 **Screenshot needed:** Terminal showing a failed step, then the same step succeeding after a retry — two runs visible in one screenshot. Key: show the step name, the error, and then the green checkmark.
 
 **Copy:**
+
 > Step 6 failed. Fixed the file. Retried just that step. Green.
 >
 > No commit. No push. No waiting.
 
-**Why this works:** The Apr 9 video of this same feature got 536 impressions. The hypothesis: the feature is compelling but the format was wrong. A screenshot showing the before/after in one glance tests whether the *feature* resonates when delivered in the proven *format*.
+**Why this works:** The Apr 9 video of this same feature got 536 impressions. The hypothesis: the feature is compelling but the format was wrong. A screenshot showing the before/after in one glance tests whether the _feature_ resonates when delivered in the proven _format_.
 
 ---
 
@@ -68,6 +74,7 @@ Post cadence: ~1 per day, screenshot-first. Reply to your own tweet with context
 **Screenshot needed:** A `.git/hooks/pre-push` or `package.json` script showing agent-ci wired as a pre-push hook, then a terminal showing it catching a failure before the push goes through.
 
 **Copy:**
+
 > Added agent-ci to my pre-push hook. Now CI runs in 9 seconds before every push.
 >
 > Haven't seen a red CI on GitHub in a week.
@@ -83,9 +90,11 @@ Post cadence: ~1 per day, screenshot-first. Reply to your own tweet with context
 **Screenshot needed:** Terminal showing a workflow with `services: postgres` running locally via agent-ci, with the test step passing.
 
 **Copy:**
+
 > Running GitHub Actions with service containers locally. Postgres spins up, tests run, 12 seconds total.
 
 **Reply (post only if traction):**
+
 > agent-ci supports service containers natively. Same `services:` block you already have in your workflow YAML.
 >
 > agent-ci.dev
@@ -101,6 +110,7 @@ Post cadence: ~1 per day, screenshot-first. Reply to your own tweet with context
 **Screenshot needed:** Terminal showing agent-ci running a workflow that's known to fail on act — ideally one with `actions/setup-node` or another action that act handles incorrectly.
 
 **Copy:**
+
 > This workflow fails on act. Runs fine on agent-ci.
 >
 > Official runner binary. Not a re-implementation.
@@ -116,14 +126,16 @@ Post cadence: ~1 per day, screenshot-first. Reply to your own tweet with context
 **Screenshot needed:** Terminal showing `AI_AGENT=1 pnpm agent-ci run --all tests.yml` with the minimal, token-efficient output. Maybe side-by-side with normal output.
 
 **Copy:**
+
 > What your AI agent sees when it runs CI locally. Minimal tokens, just the signal.
 
 **Reply (post only if traction):**
+
 > Set AI_AGENT=1 for quiet mode. On failure, it outputs just the error and the step name — so your agent knows exactly what to fix.
 >
 > agent-ci.dev
 
-**Why this works:** This is the one tweet where the AI-agent angle is the primary hook — but it works because the *format* is still a screenshot, and the hook is about what you *see* (visual), not what it *does* (abstract). Test whether the AI-agent audience responds when the delivery format is right.
+**Why this works:** This is the one tweet where the AI-agent angle is the primary hook — but it works because the _format_ is still a screenshot, and the hook is about what you _see_ (visual), not what it _does_ (abstract). Test whether the AI-agent audience responds when the delivery format is right.
 
 ---
 
@@ -134,6 +146,7 @@ Post cadence: ~1 per day, screenshot-first. Reply to your own tweet with context
 **Screenshot needed:** Terminal showing a workflow with a matrix strategy (e.g., node versions 18/20/22) running all variants locally.
 
 **Copy:**
+
 > Matrix strategy running locally. Three Node versions, one command, 15 seconds.
 
 **Why this works:** Matrix strategies are another "surely that can't work locally" feature. Showing it working with a concrete time is the same formula as Tweet 1.

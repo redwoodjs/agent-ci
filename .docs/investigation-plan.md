@@ -81,12 +81,14 @@ The "AI-aware" angle is about workflow: agent-ci creates an environment where AI
 ## Quality Criteria
 
 ### Strong Evidence
+
 - Quantitative data: download stats, GitHub stars, survey results
 - Official documentation: LLM training pipelines, tool-calling specs
 - Reproducible examples: case studies with before/after metrics
 - Community validation: HN/Reddit rankings, dev surveys
 
 ### Weak Evidence
+
 - Anecdotes from single blog posts
 - Outdated data (>2 years old)
 - Vendor claims without third-party validation

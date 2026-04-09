@@ -1,0 +1,33 @@
+name: "Smoke: Cross-Job Outputs"
+
+on:
+  pull_request_target:
+    types: [opened, labeled, synchronize]
+
+jobs:
+  setup-outputs:
+    if: '!github.event.pull_request.draft && (contains(fromJSON(''["MEMBER", "OWNER", "COLLABORATOR"]''), github.event.pull_request.author_association) || contains(github.event.pull_request.labels.*.name, ''safe-to-run''))'
+    runs-on: ubuntu-latest
+    outputs:
+      deploy_env: ${{ steps.set-env.outputs.deploy_env }}
+      shard_count: ${{ steps.set-shards.outputs.shard_count }}
+    steps:
+      - name: Set deploy environment
+        id: set-env
+        run: echo "deploy_env=staging" >> "$GITHUB_OUTPUT"
+
+      - name: Set shard count
+        id: set-shards
+        run: echo "shard_count=4" >> "$GITHUB_OUTPUT"
+
+  consume-outputs:
+    needs: setup-outputs
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify cross-job outputs
+        run: |
+          echo "deploy_env=${{ needs.setup-outputs.outputs.deploy_env }}"
+          echo "shard_count=${{ needs.setup-outputs.outputs.shard_count }}"
+          [ "${{ needs.setup-outputs.outputs.deploy_env }}" = "staging" ] || (echo "❌ deploy_env is '${{ needs.setup-outputs.outputs.deploy_env }}', expected 'staging'" && exit 1)
+          [ "${{ needs.setup-outputs.outputs.shard_count }}" = "4" ] || (echo "❌ shard_count is '${{ needs.setup-outputs.outputs.shard_count }}', expected '4'" && exit 1)
+          echo "✅ Cross-job outputs resolved correctly"

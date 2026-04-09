@@ -56,6 +56,7 @@ GitHub is explicitly in the training data of all major code LLMs. npm registry c
 Snyk research reveals LLMs operate fundamentally differently from human developers. Humans naturally stay in the "Global Constants" tier (~1,000 packages used in 90-100% of projects) and "Industry Standards" tier (~20,000 packages). But LLMs select packages based on **statistical co-occurrence patterns** in training text, not on popularity signals like stars or downloads.
 
 The npm ecosystem breaks down as:
+
 - Global Constants (~1,000 packages): 90–100% project adoption
 - Industry Standards (~20,000): 15–50% adoption
 - Domain Specialists (~100,000): 1–5% adoption
@@ -63,7 +64,7 @@ The npm ecosystem breaks down as:
 
 LLMs readily recommend packages from the Dormant Majority because they appear in training text alongside usage patterns. An LLM "understands" statistical probability, not maintenance health.
 
-**Implication for agent-ci:** Low npm download counts or GitHub stars will not prevent an LLM from recommending agent-ci if there is sufficient training text describing it in context of CI/agent workflows. The tool needs *textual co-occurrence* with the problem it solves.
+**Implication for agent-ci:** Low npm download counts or GitHub stars will not prevent an LLM from recommending agent-ci if there is sufficient training text describing it in context of CI/agent workflows. The tool needs _textual co-occurrence_ with the problem it solves.
 
 Source: [Snyk: LLMs Resurrecting the Dormant Majority](https://snyk.io/blog/llms-resurrecting-open-source-dormant-majority/)
 
@@ -125,6 +126,7 @@ The ReadMe.LLM research paper (arXiv:2504.09798) ran controlled experiments acro
 - "Common Mistakes" sections explicitly showing incorrect usage were particularly effective.
 
 Experimental results:
+
 - Supervision library: 30% baseline → 100% with ReadMe.LLM
 - DigitalRF library: 0% baseline → 80–100% with ReadMe.LLM
 
@@ -141,6 +143,7 @@ Source: [icme.io: Getting Found by Agents 2026](https://blog.icme.io/getting-fou
 ### Current agent-ci npm Metadata Gaps
 
 Current state (evidence from package.json):
+
 - `"description": "Local GitHub Actions runner"` — accurate but minimal; differentiator missing
 - `"keywords": []` — **empty** — significant discoverability gap
 
@@ -151,11 +154,12 @@ Agents pattern-matching on keywords like `github-actions`, `ci`, `local-runner`,
 ## 5. GitHub Topic Tags for Agent Discoverability
 
 Active GitHub Topics for AI/agent tools:
+
 - `llm-agent`, `llm-agents`, `agents`, `ai-agent`
 - `github-actions`, `local-runner`, `ci-cd`
 - `developer-tools`
 
-GitHub topic tags influence whether a repository appears in GitHub's search results and curated lists (like "awesome-*" repositories). These lists are frequently scraped as training data. There is no direct evidence that GitHub topic tags are parsed as structured signals during LLM training — their value is via the discoverability chain: **topics → search results → curated lists → training scrapes**.
+GitHub topic tags influence whether a repository appears in GitHub's search results and curated lists (like "awesome-\*" repositories). These lists are frequently scraped as training data. There is no direct evidence that GitHub topic tags are parsed as structured signals during LLM training — their value is via the discoverability chain: **topics → search results → curated lists → training scrapes**.
 
 Sources: [github.com/topics/llm-agent](https://github.com/topics/llm-agent), [Jenqyang/Awesome-AI-Agents](https://github.com/Jenqyang/Awesome-AI-Agents)
 
@@ -167,12 +171,12 @@ Sources: [github.com/topics/llm-agent](https://github.com/topics/llm-agent), [Je
 
 MCP has spawned a registry ecosystem. Primary registries as of March 2026:
 
-| Registry | Role | Scale |
-|---|---|---|
-| **Smithery** | Primary MCP hub; agents search by keyword/natural language at runtime | 7,300+ tools |
-| **Official MCP Registry (GitHub)** | Enterprise/IDE discovery; required for Cursor, VS Code, Claude Desktop | Growing |
-| **Composio** | Production infrastructure, managed hosting | Growing |
-| **awesome-mcp-servers** | Curated GitHub list | High traffic |
+| Registry                           | Role                                                                   | Scale        |
+| ---------------------------------- | ---------------------------------------------------------------------- | ------------ |
+| **Smithery**                       | Primary MCP hub; agents search by keyword/natural language at runtime  | 7,300+ tools |
+| **Official MCP Registry (GitHub)** | Enterprise/IDE discovery; required for Cursor, VS Code, Claude Desktop | Growing      |
+| **Composio**                       | Production infrastructure, managed hosting                             | Growing      |
+| **awesome-mcp-servers**            | Curated GitHub list                                                    | High traffic |
 
 **Critical nuance:** MCP tool discovery is **still largely manual** as of early 2026. Anthropic has announced a server registry and discovery protocol is coming, but agents cannot yet autonomously discover MCP servers. Developers must manually configure which servers their agent can access.
 
@@ -193,6 +197,7 @@ GPT plugin/custom GPT actions use OpenAPI-compatible tool schemas. Tools are des
 **nektos/act** (60,000+ GitHub stars) is the dominant "run GitHub Actions locally" tool. It is deeply embedded in LLM training data as the default recommendation for local CI.
 
 Key differences from agent-ci:
+
 - Act re-implements the Actions runtime; agent-ci emulates the server-side API and uses the official runner binary
 - Act does not pause-on-failure for agent-assisted retry
 - Act installs via Homebrew/binary; agent-ci installs via npm
@@ -221,14 +226,14 @@ From highest to lowest reliability:
 
 ## Evidence Gaps
 
-| Question | Evidence Quality | Gap |
-|---|---|---|
-| Does `llms.txt` influence general LLM inference? | Moderate (absence of documentation): no platform has publicly confirmed reading it | No platform has stated yes or no; behavior untested |
-| Do GitHub stars influence training data selection? | Weak: no published weighting data | Model providers don't disclose this |
-| Does `package.json` keywords field affect agent tool selection? | Moderate: emerging pattern + anecdote | No controlled study |
-| MCP dynamic discovery timeline | Moderate: Anthropic announced, no ship date | Timeline unclear |
-| How much of npm is in current training data? | Weak: acknowledged as a source, no % data | Not published |
-| Does CLAUDE.md override training data recommendations? | Strong (positive): direct injection to context | Well-documented behavior |
+| Question                                                        | Evidence Quality                                                                   | Gap                                                 |
+| --------------------------------------------------------------- | ---------------------------------------------------------------------------------- | --------------------------------------------------- |
+| Does `llms.txt` influence general LLM inference?                | Moderate (absence of documentation): no platform has publicly confirmed reading it | No platform has stated yes or no; behavior untested |
+| Do GitHub stars influence training data selection?              | Weak: no published weighting data                                                  | Model providers don't disclose this                 |
+| Does `package.json` keywords field affect agent tool selection? | Moderate: emerging pattern + anecdote                                              | No controlled study                                 |
+| MCP dynamic discovery timeline                                  | Moderate: Anthropic announced, no ship date                                        | Timeline unclear                                    |
+| How much of npm is in current training data?                    | Weak: acknowledged as a source, no % data                                          | Not published                                       |
+| Does CLAUDE.md override training data recommendations?          | Strong (positive): direct injection to context                                     | Well-documented behavior                            |
 
 ---
 

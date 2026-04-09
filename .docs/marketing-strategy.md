@@ -2,8 +2,160 @@
 
 > How to get human developers to discover agent-ci — and how to get AI agents to recommend it.
 
-**Date:** March 23, 2026
+**Date:** March 23, 2026 (revised April 9, 2026)
 **Tool:** `@redwoodjs/agent-ci` — local GitHub Actions runner with pause-on-failure, designed for AI-agent-driven development
+
+---
+
+## Update: April 9, 2026 — What the Data Says
+
+The original strategy below was written before any public traction. Since then, a series of tweets in early April 2026 generated **78K+ impressions** and revealed what actually resonates with developers. This section captures those learnings and revises the positioning accordingly.
+
+### Twitter Performance (April 7–9, 2026)
+
+| Tweet | Date | Impressions | Likes | RTs | Replies | Format |
+|---|---|---|---|---|---|---|
+| "Running GitHub Actions locally never gets old." | Apr 7 | 78,000 | 462 | 21 | 15 | Terminal screenshot (9s run) |
+| "this is agent-ci.dev: Caching in ~0 ms. Pause on failure..." | Apr 7 | 4,300 | 30 | 1 | 1 | Text reply |
+| "This is agent-ci.dev, it runs the same native GitHub Actions Runner in a container..." | Apr 8 | 22,000 | 194 | 17 | 7 | Quote tweet + screenshot |
+| "Here's a demo of failure-pause-retry loop..." | Apr 9 | 536 | 1 | 0 | 0 | Video demo (0:36) |
+
+For comparison, the original launch tweet (Mar 27) reached 14,600 impressions over 4 days.
+
+### What Worked
+
+**1. "Run GitHub Actions locally" is the hook — not "CI for AI agents."**
+The 78K tweet didn't mention AI at all. It was a simple statement of the developer pain point with visual proof. The AI agent angle appeared in the reply thread (4.3K) and architecture explanation (22K), but wasn't the primary draw.
+
+**2. Terminal screenshots massively outperform video demos.**
+The static terminal screenshot showing "1 passed, Duration: 9s" was instantly digestible and drove 78K impressions. The 36-second video demo of failure-pause-retry got 536. Developers scroll fast — a screenshot is consumed in one glance; a video requires commitment.
+
+**3. Concrete speed numbers land instantly.**
+"9 seconds." "~0ms caching." These don't need explanation. They're obviously impressive relative to the known baseline of "push, wait 2 minutes, fail, repeat."
+
+**4. act frustration is organic and unprompted.**
+Multiple reply-thread comments:
+- *"Act is almost unusable so yeah, I'll give this a try"*
+- *"I was burned by act so many times, gonna give this a shot today"*
+
+Nobody had to be told agent-ci is better than act. People arrived at the comparison on their own, driven by their own pain.
+
+**5. The "local HTTP control plane" explanation resonated as a follow-up (22K).**
+After the headline hook, the technical explanation of *how* (local HTTP server replacing GitHub.com, never communicates externally) served as the credibility-building second beat.
+
+**6. Feature requests signal real evaluation, not just interest.**
+Reusable workflows and GitHub token mocking were requested — these are asks from people trying to use agent-ci in production, not just liking the concept.
+
+**7. Engaged founder persona converts.**
+Peter's reply style — "please let me know where it sucks! reproductions and I fix it in a few hours!" — builds trust that this is actively maintained and responsive. Multiple people said they'd try it based on the replies, not just the original tweet.
+
+### What Didn't Work
+
+**1. AI-agent-forward messaging underperforms as a primary hook.**
+The reply that led with "Let your AI agent fix it and retry" reached 4.3K — solid, but 18x less reach than the universal developer hook. AI agent positioning is a differentiator, not a top-of-funnel message.
+
+**2. Video demos don't travel on Twitter.**
+The failure-pause-retry video (536 impressions) performed 145x worse than the terminal screenshot. For Twitter specifically, static proof > moving proof. Videos may work better on YouTube, blog posts, or documentation.
+
+**3. Long-form technical threads have diminishing returns.**
+The numbered list format in the Apr 8 quote tweet (22K) worked well but was inherently capped by the quote-tweet mechanic. The standalone screenshot (78K) traveled further because it was self-contained.
+
+### Revised Positioning Model
+
+The original strategy framed two equal tracks: "human developers" and "AI agents." The data reveals a **funnel**, not parallel tracks:
+
+```
+HOOK       →  "Run GitHub Actions locally"          (universal pain — 78K reach)
+               Simple statement + terminal screenshot proof
+                                    ↓
+EXPLAIN    →  "Local HTTP control plane,             (technical credibility — 22K)
+               never hits GitHub.com"
+               How it works, why it's not act
+                                    ↓
+DIFFERENTIATE → "Pause on failure, let your           (unique value — 4.3K)
+                 AI agent fix & retry"
+                 The thing no one else does
+                                    ↓
+CONVERT    →  "Try it: pnpm agent-ci run"             (CTA)
+```
+
+**People come for local CI. They stay for the AI agent loop.** The AI angle is what makes agent-ci uniquely valuable and defensible, but it's not what gets people in the door.
+
+### Revised Core Message
+
+**Primary hook (top-of-funnel):**
+> "Run GitHub Actions locally. 9 seconds. No push required."
+
+**Credibility beat (mid-funnel):**
+> "Same official GitHub runner, local HTTP control plane. Never hits GitHub.com."
+
+**Differentiator (bottom-of-funnel):**
+> "Pauses on failure. Your AI agent fixes it and retries — without pushing."
+
+This replaces the previous two-audience split. The audiences are the same people at different stages of awareness.
+
+### Updated Competitive Position
+
+The original strategy correctly identified act as the primary competitor but framed the competition as "correctness vs. re-implementation." The tweet data reveals a simpler, more visceral framing:
+
+- **act** = "I tried it but it burned me" (sentiment from multiple unprompted replies)
+- **agent-ci** = "it just works, 9 seconds, and if it doesn't work tell me and I'll fix it"
+
+The competitive advantage isn't a feature comparison — it's **reliability + responsiveness**. act has 69K stars but frustrated users. agent-ci has fewer stars but zero tolerance for broken workflows.
+
+### Revised Action Items
+
+#### Completed since original strategy
+
+- [x] `package.json` keywords and description
+- [x] `SKILL.md` in npm package
+- [x] CLAUDE.md snippet in README
+- [x] GitHub repository topics
+- [x] Marketing site at agent-ci.dev
+- [x] Launch tweet (Mar 27)
+- [x] Breakout tweet thread (Apr 7–8) — 78K+ reach
+
+#### Next: Capitalize on Twitter momentum (this week)
+
+- [ ] **Screenshot-first tweet cadence.** One tweet per feature, each with a terminal screenshot showing concrete output. Candidates:
+  - Matrix strategy support (multiple jobs, one command)
+  - Service containers (postgres/redis running locally)
+  - Custom action resolution
+  - Environment variable handling
+- [ ] **Pin the 78K tweet** or create a polished thread linking from it to agent-ci.dev
+- [ ] **"act refugee" thread.** Quote-tweet one of the "act burned me" replies with a short "here's what's different" comparison — screenshot-based, not text-based
+
+#### Next: Content (weeks 2–4)
+
+- [ ] **"Show HN" post** — the tweet traction proves the message works. Use the same framing: "Run GitHub Actions locally. 9 seconds." Include the terminal screenshot in the post. Do NOT lead with AI agent angle on HN.
+- [ ] **Comparison blog post: "act vs agent-ci"** — moved up from long-term. The organic act comparisons in replies confirm demand. Write it now while search interest is fresh.
+- [ ] Tutorial post on DEV Community / BetterStack
+- [ ] r/selfhosted builder story post
+
+#### Unchanged: Medium-term and long-term items
+
+The ecosystem integration (MCP server, llms.txt, curated lists) and training data surface (ReadMe.LLM, Stack Overflow) timelines remain valid as originally scoped.
+
+### Key Insight for HN Launch
+
+The original HN draft led with "The commit-push-wait loop kills productivity when your AI coding agent is driving CI." Based on the tweet data, revise to:
+
+```
+Show HN: agent-ci – Run GitHub Actions locally in 9 seconds
+
+I got tired of the commit-push-wait-fail loop. agent-ci runs the official,
+unmodified GitHub Actions runner binary locally via a local HTTP control plane.
+It never communicates with GitHub.com.
+
+- ~0ms cache (bind-mount, no tar/upload cycles)
+- Pauses on failure — fix the issue, retry just the failed step
+- Your AI coding agent can fix and retry without pushing
+
+Install: npm install -D @redwoodjs/agent-ci
+Site: https://agent-ci.dev
+```
+
+Changes from original draft: leads with speed ("9 seconds"), moves AI agent angle to third bullet (not the headline), adds the site URL.
 
 ---
 

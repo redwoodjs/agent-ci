@@ -1,0 +1,11 @@
+name: "Smoke: Nested Level 3"
+
+on:
+  workflow_call:
+
+jobs:
+  level-3:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Leaf workflow
+        run: echo "level 3 reached"

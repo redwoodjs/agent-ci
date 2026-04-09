@@ -283,8 +283,21 @@ jobs:
     expect(byId["lint/lint"].sourceTaskName).toBe("lint");
   });
 
-  it("throws on nested reusable workflows", () => {
+  it("expands 2-level nested reusable workflows", () => {
     const wfDir = setup();
+    const leafWf = path.join(wfDir, "leaf.yml");
+    fs.writeFileSync(
+      leafWf,
+      `
+on: workflow_call
+jobs:
+  job:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo leaf
+`,
+    );
+
     const innerWf = path.join(wfDir, "inner.yml");
     fs.writeFileSync(
       innerWf,
@@ -292,7 +305,7 @@ jobs:
 on: workflow_call
 jobs:
   nested:
-    uses: ./.github/workflows/something.yml
+    uses: ./.github/workflows/leaf.yml
 `,
     );
 
@@ -306,9 +319,339 @@ jobs:
 `,
     );
 
-    expect(() => expandReusableJobs(callerWf, tmpDir)).toThrow(
-      /Nested reusable workflows are not supported/,
+    const entries = expandReusableJobs(callerWf, tmpDir);
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toMatchObject({
+      id: "outer/nested/job",
+      workflowPath: leafWf,
+      sourceTaskName: "job",
+      needs: [],
+    });
+  });
+
+  it("expands 2-level nested workflows with internal needs and downstream deps", () => {
+    const wfDir = setup();
+    const leafWf = path.join(wfDir, "b.yml");
+    fs.writeFileSync(
+      leafWf,
+      `
+on: workflow_call
+jobs:
+  leaf:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo leaf
+`,
     );
+
+    const midWf = path.join(wfDir, "a.yml");
+    fs.writeFileSync(
+      midWf,
+      `
+on: workflow_call
+jobs:
+  inner:
+    uses: ./.github/workflows/b.yml
+  post:
+    needs: inner
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo post
+`,
+    );
+
+    const callerWf = path.join(wfDir, "ci.yml");
+    fs.writeFileSync(
+      callerWf,
+      `
+jobs:
+  outer:
+    uses: ./.github/workflows/a.yml
+  deploy:
+    needs: outer
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo deploy
+`,
+    );
+
+    const entries = expandReusableJobs(callerWf, tmpDir);
+    const byId = Object.fromEntries(entries.map((e) => [e.id, e]));
+
+    expect(byId["outer/inner/leaf"].needs).toEqual([]);
+    expect(byId["outer/post"].needs).toEqual(["outer/inner/leaf"]);
+    expect(byId["deploy"].needs).toEqual(["outer/post"]);
+  });
+
+  it("expands 3-level nested reusable workflows with chained composite IDs", () => {
+    const wfDir = setup();
+    const l3 = path.join(wfDir, "l3.yml");
+    fs.writeFileSync(
+      l3,
+      `
+on: workflow_call
+jobs:
+  leaf:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo leaf
+`,
+    );
+
+    const l2 = path.join(wfDir, "l2.yml");
+    fs.writeFileSync(
+      l2,
+      `
+on: workflow_call
+jobs:
+  l3:
+    uses: ./.github/workflows/l3.yml
+`,
+    );
+
+    const l1 = path.join(wfDir, "l1.yml");
+    fs.writeFileSync(
+      l1,
+      `
+on: workflow_call
+jobs:
+  l2:
+    uses: ./.github/workflows/l2.yml
+`,
+    );
+
+    const callerWf = path.join(wfDir, "ci.yml");
+    fs.writeFileSync(
+      callerWf,
+      `
+jobs:
+  l1:
+    uses: ./.github/workflows/l1.yml
+`,
+    );
+
+    const entries = expandReusableJobs(callerWf, tmpDir);
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toMatchObject({
+      id: "l1/l2/l3/leaf",
+      workflowPath: l3,
+      sourceTaskName: "leaf",
+      needs: [],
+    });
+  });
+
+  it("expands 4-level nested reusable workflows (GitHub max depth)", () => {
+    const wfDir = setup();
+    const l4 = path.join(wfDir, "l4.yml");
+    fs.writeFileSync(
+      l4,
+      `
+on: workflow_call
+jobs:
+  leaf:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo leaf
+`,
+    );
+
+    const l3 = path.join(wfDir, "l3.yml");
+    fs.writeFileSync(
+      l3,
+      `
+on: workflow_call
+jobs:
+  l4:
+    uses: ./.github/workflows/l4.yml
+`,
+    );
+
+    const l2 = path.join(wfDir, "l2.yml");
+    fs.writeFileSync(
+      l2,
+      `
+on: workflow_call
+jobs:
+  l3:
+    uses: ./.github/workflows/l3.yml
+`,
+    );
+
+    const l1 = path.join(wfDir, "l1.yml");
+    fs.writeFileSync(
+      l1,
+      `
+on: workflow_call
+jobs:
+  l2:
+    uses: ./.github/workflows/l2.yml
+`,
+    );
+
+    const callerWf = path.join(wfDir, "ci.yml");
+    fs.writeFileSync(
+      callerWf,
+      `
+jobs:
+  l1:
+    uses: ./.github/workflows/l1.yml
+`,
+    );
+
+    const entries = expandReusableJobs(callerWf, tmpDir);
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toMatchObject({
+      id: "l1/l2/l3/l4/leaf",
+      workflowPath: l4,
+      sourceTaskName: "leaf",
+      needs: [],
+    });
+  });
+
+  it("throws when nesting depth exceeds 4", () => {
+    const wfDir = setup();
+    const l5 = path.join(wfDir, "l5.yml");
+    fs.writeFileSync(
+      l5,
+      `
+on: workflow_call
+jobs:
+  leaf:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo leaf
+`,
+    );
+
+    const l4 = path.join(wfDir, "l4.yml");
+    fs.writeFileSync(
+      l4,
+      `
+on: workflow_call
+jobs:
+  l5:
+    uses: ./.github/workflows/l5.yml
+`,
+    );
+
+    const l3 = path.join(wfDir, "l3.yml");
+    fs.writeFileSync(
+      l3,
+      `
+on: workflow_call
+jobs:
+  l4:
+    uses: ./.github/workflows/l4.yml
+`,
+    );
+
+    const l2 = path.join(wfDir, "l2.yml");
+    fs.writeFileSync(
+      l2,
+      `
+on: workflow_call
+jobs:
+  l3:
+    uses: ./.github/workflows/l3.yml
+`,
+    );
+
+    const l1 = path.join(wfDir, "l1.yml");
+    fs.writeFileSync(
+      l1,
+      `
+on: workflow_call
+jobs:
+  l2:
+    uses: ./.github/workflows/l2.yml
+`,
+    );
+
+    const callerWf = path.join(wfDir, "ci.yml");
+    fs.writeFileSync(
+      callerWf,
+      `
+jobs:
+  l1:
+    uses: ./.github/workflows/l1.yml
+`,
+    );
+
+    expect(() => expandReusableJobs(callerWf, tmpDir)).toThrow(
+      /nesting depth exceeds maximum of 4/,
+    );
+  });
+
+  it("throws on cyclic reusable workflow references", () => {
+    const wfDir = setup();
+    const aWf = path.join(wfDir, "a.yml");
+    const bWf = path.join(wfDir, "b.yml");
+
+    fs.writeFileSync(
+      aWf,
+      `
+on: workflow_call
+jobs:
+  call-b:
+    uses: ./.github/workflows/b.yml
+`,
+    );
+
+    fs.writeFileSync(
+      bWf,
+      `
+on: workflow_call
+jobs:
+  call-a:
+    uses: ./.github/workflows/a.yml
+`,
+    );
+
+    const callerWf = path.join(wfDir, "ci.yml");
+    fs.writeFileSync(
+      callerWf,
+      `
+jobs:
+  start:
+    uses: ./.github/workflows/a.yml
+`,
+    );
+
+    expect(() => expandReusableJobs(callerWf, tmpDir)).toThrow(/Cycle detected/);
+  });
+
+  it("allows the same workflow to be reused by sibling jobs (not a cycle)", () => {
+    const wfDir = setup();
+    const sharedWf = path.join(wfDir, "shared.yml");
+    fs.writeFileSync(
+      sharedWf,
+      `
+on: workflow_call
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo shared
+`,
+    );
+
+    const callerWf = path.join(wfDir, "ci.yml");
+    fs.writeFileSync(
+      callerWf,
+      `
+jobs:
+  lint:
+    uses: ./.github/workflows/shared.yml
+  test:
+    uses: ./.github/workflows/shared.yml
+`,
+    );
+
+    const entries = expandReusableJobs(callerWf, tmpDir);
+    expect(entries).toHaveLength(2);
+    const byId = Object.fromEntries(entries.map((e) => [e.id, e]));
+    expect(byId["lint/run"]).toBeDefined();
+    expect(byId["test/run"]).toBeDefined();
   });
 
   it("inherits caller needs for entry-point jobs in called workflow", () => {

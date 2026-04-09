@@ -1,0 +1,27 @@
+name: "Smoke: Reusable Workflow Inputs/Outputs"
+
+on:
+  pull_request_target:
+    types: [opened, labeled, synchronize]
+
+jobs:
+  # Call a reusable workflow with inputs and capture its outputs
+  build:
+    if: '!github.event.pull_request.draft && (contains(fromJSON(''["MEMBER", "OWNER", "COLLABORATOR"]''), github.event.pull_request.author_association) || contains(github.event.pull_request.labels.*.name, ''safe-to-run''))'
+    uses: ./.github/workflows/smoke-reusable-build.yml
+    with:
+      node-version: "20"
+      environment: staging
+
+  # Verify outputs from the reusable workflow are available downstream
+  verify-outputs:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify reusable workflow outputs
+        run: |
+          echo "artifact-name=${{ needs.build.outputs.artifact-name }}"
+          echo "full-version=${{ needs.build.outputs.full-version }}"
+          [ "${{ needs.build.outputs.artifact-name }}" = "app-staging-v1.0.0" ] || (echo "FAIL: artifact-name is '${{ needs.build.outputs.artifact-name }}', expected 'app-staging-v1.0.0'" && exit 1)
+          [ "${{ needs.build.outputs.full-version }}" = "node20-staging" ] || (echo "FAIL: full-version is '${{ needs.build.outputs.full-version }}', expected 'node20-staging'" && exit 1)
+          echo "reusable workflow inputs/outputs working correctly"

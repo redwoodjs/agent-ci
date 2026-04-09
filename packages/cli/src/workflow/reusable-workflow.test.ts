@@ -76,11 +76,12 @@ jobs:
 
     const entries = expandReusableJobs(callerWf, tmpDir);
     expect(entries).toHaveLength(1);
-    expect(entries[0]).toEqual({
+    expect(entries[0]).toMatchObject({
       id: "lint/lint",
       workflowPath: calledWf,
       sourceTaskName: "lint",
       needs: [],
+      callerJobId: "lint",
     });
   });
 
@@ -320,7 +321,7 @@ jobs:
 
     const entries = expandReusableJobs(callerWf, tmpDir);
     expect(entries).toHaveLength(1);
-    expect(entries[0]).toEqual({
+    expect(entries[0]).toMatchObject({
       id: "outer/nested/job",
       workflowPath: leafWf,
       sourceTaskName: "job",
@@ -431,7 +432,7 @@ jobs:
 
     const entries = expandReusableJobs(callerWf, tmpDir);
     expect(entries).toHaveLength(1);
-    expect(entries[0]).toEqual({
+    expect(entries[0]).toMatchObject({
       id: "l1/l2/l3/leaf",
       workflowPath: l3,
       sourceTaskName: "leaf",
@@ -499,7 +500,7 @@ jobs:
 
     const entries = expandReusableJobs(callerWf, tmpDir);
     expect(entries).toHaveLength(1);
-    expect(entries[0]).toEqual({
+    expect(entries[0]).toMatchObject({
       id: "l1/l2/l3/l4/leaf",
       workflowPath: l4,
       sourceTaskName: "leaf",
@@ -747,5 +748,143 @@ jobs:
     // Both lint and typecheck are terminal — deploy depends on both
     expect(deploy!.needs).toEqual(expect.arrayContaining(["checks/lint", "checks/typecheck"]));
     expect(deploy!.needs).toHaveLength(2);
+  });
+
+  it("extracts caller with: values as inputs on inlined entries", () => {
+    const wfDir = setup();
+    const calledWf = path.join(wfDir, "test.yml");
+    fs.writeFileSync(
+      calledWf,
+      `
+on:
+  workflow_call:
+    inputs:
+      node-version:
+        default: '18'
+      environment:
+        required: true
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo test
+`,
+    );
+
+    const callerWf = path.join(wfDir, "ci.yml");
+    fs.writeFileSync(
+      callerWf,
+      `
+jobs:
+  test:
+    uses: ./.github/workflows/test.yml
+    with:
+      node-version: '20'
+      environment: staging
+`,
+    );
+
+    const entries = expandReusableJobs(callerWf, tmpDir);
+    expect(entries).toHaveLength(1);
+    const entry = entries[0];
+    expect(entry.inputs).toEqual({ "node-version": "20", environment: "staging" });
+    expect(entry.inputDefaults).toEqual({ "node-version": "18" });
+    expect(entry.callerJobId).toBe("test");
+  });
+
+  it("extracts workflowCallOutputDefs from called workflow", () => {
+    const wfDir = setup();
+    const calledWf = path.join(wfDir, "build.yml");
+    fs.writeFileSync(
+      calledWf,
+      `
+on:
+  workflow_call:
+    outputs:
+      artifact-url:
+        value: \${{ jobs.build.outputs.url }}
+      version:
+        value: \${{ jobs.build.outputs.version }}
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo build
+`,
+    );
+
+    const callerWf = path.join(wfDir, "ci.yml");
+    fs.writeFileSync(
+      callerWf,
+      `
+jobs:
+  build:
+    uses: ./.github/workflows/build.yml
+`,
+    );
+
+    const entries = expandReusableJobs(callerWf, tmpDir);
+    expect(entries).toHaveLength(1);
+    expect(entries[0].workflowCallOutputDefs).toEqual({
+      "artifact-url": "${{ jobs.build.outputs.url }}",
+      version: "${{ jobs.build.outputs.version }}",
+    });
+  });
+
+  it("preserves raw expressions in with: values (does not expand)", () => {
+    const wfDir = setup();
+    const calledWf = path.join(wfDir, "deploy.yml");
+    fs.writeFileSync(
+      calledWf,
+      `
+on:
+  workflow_call:
+    inputs:
+      sha:
+        required: true
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo deploy
+`,
+    );
+
+    const callerWf = path.join(wfDir, "ci.yml");
+    fs.writeFileSync(
+      callerWf,
+      `
+jobs:
+  deploy:
+    uses: ./.github/workflows/deploy.yml
+    with:
+      sha: \${{ github.sha }}
+`,
+    );
+
+    const entries = expandReusableJobs(callerWf, tmpDir);
+    // Raw expression is preserved, not expanded at this stage
+    expect(entries[0].inputs).toEqual({ sha: "${{ github.sha }}" });
+  });
+
+  it("sets callerJobId, inputs, and inputDefaults as undefined for regular jobs", () => {
+    const wfDir = setup();
+    const wf = path.join(wfDir, "ci.yml");
+    fs.writeFileSync(
+      wf,
+      `
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo build
+`,
+    );
+
+    const entries = expandReusableJobs(wf, tmpDir);
+    expect(entries[0].callerJobId).toBeUndefined();
+    expect(entries[0].inputs).toBeUndefined();
+    expect(entries[0].inputDefaults).toBeUndefined();
+    expect(entries[0].workflowCallOutputDefs).toBeUndefined();
   });
 });

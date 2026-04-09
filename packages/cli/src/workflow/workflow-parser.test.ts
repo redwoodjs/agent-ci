@@ -267,6 +267,72 @@ describe("expandExpressions", () => {
     expect(expandExpressions("${{ needs.build.result }}")).toBe("");
   });
 
+  // ── inputs.* ──────────────────────────────────────────────────────────────
+
+  it("expands inputs.* from inputsContext", () => {
+    const inputs = { "node-version": "20", environment: "staging" };
+    expect(
+      expandExpressions(
+        "node-${{ inputs.node-version }}",
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        inputs,
+      ),
+    ).toBe("node-20");
+    expect(
+      expandExpressions(
+        "env=${{ inputs.environment }}",
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        inputs,
+      ),
+    ).toBe("env=staging");
+  });
+
+  it("expands inputs.* to empty string when no inputsContext provided", () => {
+    expect(expandExpressions("ver=${{ inputs.node-version }}")).toBe("ver=");
+  });
+
+  it("expands inputs.* to empty string when key is absent from inputsContext", () => {
+    expect(
+      expandExpressions("${{ inputs.missing }}", undefined, undefined, undefined, undefined, {
+        other: "val",
+      }),
+    ).toBe("");
+  });
+
+  it("expands inputs.* inside fromJSON()", () => {
+    const inputs = { config: '{"key":"value"}' };
+    expect(
+      expandExpressions(
+        "${{ fromJSON(inputs.config) }}",
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        inputs,
+      ),
+    ).toBe('{"key":"value"}');
+  });
+
+  it("expands inputs.* inside format()", () => {
+    const inputs = { name: "world" };
+    expect(
+      expandExpressions(
+        "${{ format('hello {0}', inputs.name) }}",
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        inputs,
+      ),
+    ).toBe("hello world");
+  });
+
   it("expands unknown expressions to empty string (no commas injected)", () => {
     expect(expandExpressions("${{ some.unknown.expr }}")).toBe("");
     // Especially important: unknown expressions must NOT contain commas

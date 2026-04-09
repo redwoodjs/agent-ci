@@ -1,0 +1,41 @@
+name: Reusable Build (smoke test)
+
+on:
+  workflow_call:
+    inputs:
+      node-version:
+        description: Node.js version to use
+        required: true
+        type: string
+      environment:
+        description: Deployment environment
+        type: string
+        default: development
+    outputs:
+      artifact-name:
+        description: Name of the build artifact
+        value: ${{ jobs.build.outputs.artifact }}
+      full-version:
+        description: Full version string
+        value: ${{ jobs.build.outputs.version }}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      artifact: ${{ steps.build.outputs.artifact }}
+      version: ${{ steps.build.outputs.version }}
+    steps:
+      - name: Verify inputs received
+        run: |
+          echo "node-version=${{ inputs.node-version }}"
+          echo "environment=${{ inputs.environment }}"
+          [ "${{ inputs.node-version }}" = "20" ] || (echo "FAIL: node-version is '${{ inputs.node-version }}', expected '20'" && exit 1)
+          [ "${{ inputs.environment }}" = "staging" ] || (echo "FAIL: environment is '${{ inputs.environment }}', expected 'staging'" && exit 1)
+          echo "inputs verified"
+
+      - name: Build
+        id: build
+        run: |
+          echo "artifact=app-${{ inputs.environment }}-v1.0.0" >> "$GITHUB_OUTPUT"
+          echo "version=node${{ inputs.node-version }}-${{ inputs.environment }}" >> "$GITHUB_OUTPUT"

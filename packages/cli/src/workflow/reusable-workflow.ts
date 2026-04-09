@@ -11,6 +11,14 @@ export interface ExpandedJobEntry {
   sourceTaskName: string;
   /** Dependencies (rewired to use composite IDs for inlined jobs) */
   needs: string[];
+  /** Raw caller `with:` values (unexpanded expressions) */
+  inputs?: Record<string, string>;
+  /** Defaults from `on.workflow_call.inputs.<name>.default` */
+  inputDefaults?: Record<string, string>;
+  /** Output value expressions from `on.workflow_call.outputs.<name>.value` */
+  workflowCallOutputDefs?: Record<string, string>;
+  /** Original caller job ID (set on inlined sub-jobs) */
+  callerJobId?: string;
 }
 
 const MAX_REUSABLE_DEPTH = 4;
@@ -83,6 +91,33 @@ function expandReusableJobsInternal(
         );
       }
 
+      // Extract caller inputs (raw `with:` values)
+      const callerWith: Record<string, string> | undefined = jobDef.with
+        ? Object.fromEntries(Object.entries(jobDef.with).map(([k, v]) => [k, String(v)]))
+        : undefined;
+
+      // Extract input defaults and output defs from the called workflow's on.workflow_call
+      const calledRaw = parseYaml(fs.readFileSync(calledPath, "utf-8"));
+      const wcInputs = (calledRaw.on || calledRaw.true)?.workflow_call?.inputs;
+      const inputDefaults: Record<string, string> | undefined =
+        wcInputs && typeof wcInputs === "object"
+          ? Object.fromEntries(
+              Object.entries(wcInputs)
+                .filter(([, def]: [string, any]) => def?.default != null)
+                .map(([k, def]: [string, any]) => [k, String(def.default)]),
+            )
+          : undefined;
+
+      const wcOutputs = (calledRaw.on || calledRaw.true)?.workflow_call?.outputs;
+      const workflowCallOutputDefs: Record<string, string> | undefined =
+        wcOutputs && typeof wcOutputs === "object"
+          ? Object.fromEntries(
+              Object.entries(wcOutputs)
+                .filter(([, def]: [string, any]) => def?.value != null)
+                .map(([k, def]: [string, any]) => [k, String(def.value)]),
+            )
+          : undefined;
+
       // Recursively expand the called workflow
       const calledEntries = expandReusableJobsInternal(
         calledPath,
@@ -94,12 +129,21 @@ function expandReusableJobsInternal(
 
       const callerNeeds = parseNeeds(jobDef?.needs);
 
-      // Prefix all entry IDs and needs with the caller job ID
+      // Prefix all entry IDs and needs with the caller job ID,
+      // and attach inputs/outputs metadata
       const prefixed: ExpandedJobEntry[] = calledEntries.map((entry) => ({
         id: `${jobId}/${entry.id}`,
         workflowPath: entry.workflowPath,
         sourceTaskName: entry.sourceTaskName,
         needs: entry.needs.length === 0 ? callerNeeds : entry.needs.map((n) => `${jobId}/${n}`),
+        inputs: callerWith,
+        inputDefaults:
+          inputDefaults && Object.keys(inputDefaults).length > 0 ? inputDefaults : undefined,
+        workflowCallOutputDefs:
+          workflowCallOutputDefs && Object.keys(workflowCallOutputDefs).length > 0
+            ? workflowCallOutputDefs
+            : undefined,
+        callerJobId: jobId,
       }));
 
       // Compute terminals among the prefixed entries

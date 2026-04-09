@@ -1,8 +1,20 @@
 const LEGEND = [
-  { icon: "✅", label: "Supported" },
-  { icon: "⚠️", label: "Partial" },
-  { icon: "❌", label: "Not supported" },
-  { icon: "🟡", label: "Ignored (no-op)" },
+  {
+    icon: "✅",
+    label: "Supported",
+    description: "Fully implemented and behaves like GitHub Actions",
+  },
+  { icon: "⚠️", label: "Partial", description: "Works with limitations — see notes for details" },
+  {
+    icon: "❌",
+    label: "Not supported",
+    description: "Not implemented — the feature is skipped or errors",
+  },
+  {
+    icon: "🟡",
+    label: "Ignored (no-op)",
+    description: "Parsed without error but has no effect on the run",
+  },
 ];
 
 type Row = { key: string; status: string; notes?: string };
@@ -213,11 +225,12 @@ export function CompatibilityMatrix() {
   return (
     <div className="space-y-10">
       {/* Legend */}
-      <div className="flex flex-wrap gap-4 text-xs font-mono text-[#71a792]">
-        {LEGEND.map(({ icon, label }) => (
+      <div className="flex flex-wrap gap-6 text-xs font-mono text-[#71a792]">
+        {LEGEND.map(({ icon, label, description }) => (
           <span key={label} className="flex items-center gap-1.5">
             <span>{icon}</span>
-            <span>{label}</span>
+            <span className="text-[#e0eee5]">{label}</span>
+            <span className="hidden sm:inline">— {description}</span>
           </span>
         ))}
       </div>

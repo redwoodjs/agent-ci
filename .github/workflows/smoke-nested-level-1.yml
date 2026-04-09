@@ -1,0 +1,8 @@
+name: "Smoke: Nested Level 1"
+
+on:
+  workflow_call:
+
+jobs:
+  level-1:
+    uses: ./.github/workflows/smoke-nested-level-2.yml

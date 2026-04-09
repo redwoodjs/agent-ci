@@ -15,9 +15,14 @@ jobs:
     if: '!github.event.pull_request.draft && (contains(fromJSON(''["MEMBER", "OWNER", "COLLABORATOR"]''), github.event.pull_request.author_association) || contains(github.event.pull_request.labels.*.name, ''safe-to-run''))'
     uses: redwoodjs/actions/.github/workflows/lint.yml@main
 
-  # Depends on both — verifies dependency wiring works across reusable workflows
+  # Calls a chain of nested reusable workflows 4 levels deep
+  nested-reusable:
+    if: '!github.event.pull_request.draft && (contains(fromJSON(''["MEMBER", "OWNER", "COLLABORATOR"]''), github.event.pull_request.author_association) || contains(github.event.pull_request.labels.*.name, ''safe-to-run''))'
+    uses: ./.github/workflows/smoke-nested-level-1.yml
+
+  # Depends on all — verifies dependency wiring works across reusable workflows
   verify-reusable:
-    needs: [reusable-lint, remote-reusable-lint]
+    needs: [reusable-lint, remote-reusable-lint, nested-reusable]
     runs-on: ubuntu-latest
     steps:
       - name: Verify reusable workflows completed

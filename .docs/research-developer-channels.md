@@ -21,6 +21,7 @@ Key adoption drivers identified:
 **a) Pain-first positioning.** Act's README leads with the problem before the solution: avoid pushing code just to test workflow changes. This framing converts passive readers into active users.
 
 **b) Organic search dominance.** Leading tutorial blogs and corporate engineering posts recommend `act`, making it the dominant result for searches on "run GitHub Actions locally." Each post acts as a long-tail SEO node. Verified sources:
+
 - [Red Hat: Testing Github Actions Locally](https://www.redhat.com/en/blog/testing-github-actions-locally)
 - [BrowserStack: How to Test GitHub Actions Locally?](https://www.browserstack.com/guide/test-github-actions-locally)
 - [Microsoft Azure Blog: Using Act to Test GitHub Workflows Locally for Azure Deployments](https://techcommunity.microsoft.com/blog/azureinfrastructureblog/using-act-to-test-github-workflows-locally-for-azure-deployments-cicd/4414310)
@@ -32,6 +33,7 @@ On dev.to alone, at least 10 distinct articles recommend `act`: [1](https://dev.
 **c) GitHub topics compounding.** The `nektos/act` repo is the canonical result for GitHub topic searches related to `github-actions` + local testing. act has built a large ecosystem with thousands of forks and hundreds of dependent projects (see [github.com/nektos/act](https://github.com/nektos/act) for current stats), and network effects are self-reinforcing.
 
 **d) HackerNews recurring resurfacing.** `act` has appeared on HN multiple times with significant traction (two confirmed instances with item IDs):
+
 - `news.ycombinator.com/item?id=33750654` — 273 points, 133 comments
 - `news.ycombinator.com/item?id=44003184` — continued relevance demonstrated by resurfacing
 - Organic mentions in unrelated CI/CD threads
@@ -43,6 +45,7 @@ HN repeatedly surfaces `act` because it is the only well-known answer to a repea
 ### npm Package Discovery Patterns
 
 npm's search algorithm weights: **package name**, **description**, **keywords array**, and **download velocity**. For CLI dev tools installed as devDependencies, the primary discovery vector is NOT npm search — it is:
+
 1. Blog/tutorial recommendation ("install X with `npm install -D`")
 2. GitHub README copy-paste
 3. Colleague word-of-mouth
@@ -54,6 +57,7 @@ The `keywords` field in `package.json` governs npm search relevance. The npm reg
 ### GitHub Topic/Keyword Patterns Used by Top CI Tools
 
 Top CI tools in the GitHub Actions local-runner space use these topics consistently:
+
 - `github-actions`, `ci`, `cd`, `devops`, `workflow`, `runner`, `docker`, `local`
 - `act` specifically also uses: `golang`, `automation`
 
@@ -64,12 +68,14 @@ Top CI tools in the GitHub Actions local-runner space use these topics consisten
 ### Hacker News: Highest-ROI Single Event
 
 A well-timed HN front-page appearance is the highest-density single-moment ROI for a developer tool launch. Evidence:
+
 - Front-page residence: commonly observed as ~13 hours (act, Dagger cases)
 - Traffic range: commonly estimated at 10,000–100,000 unique visitors in 48 hours (based on developer-reported case studies; no single controlled measurement)
 - GitHub stars: 300+ in 24 hours reported in case studies [[Nebula Graph](https://www.nebula-graph.io/posts/nebula-graph-being-on-hacker-new-front-page)]
 - HN traffic converts ~3:1 vs. Product Hunt (100 installs from HN front page vs. 30 from Product Hunt in one developer's documented experience [[Medium](https://medium.com/@baristaGeek/lessons-launching-a-developer-tool-on-hacker-news-vs-product-hunt-and-other-channels-27be8784338b)])
 
 **What works on HN for CI tools:**
+
 - Use "Show HN:" prefix
 - Frame with the problem, not the solution: "I was tired of push-wait-fail so I built..." outperforms feature lists
 - Respond to every comment, including critical ones
@@ -81,19 +87,20 @@ HN discussions about GitHub Actions frustration are high-traffic recurring event
 
 Reddit drives 41% of traffic for developer tools in some measured cases. Key subreddits:
 
-| Subreddit | Members | Approach |
-|-----------|---------|----------|
-| r/devops | 300K+ | Deep technical; authentic participation required before promotion |
-| r/selfhosted | 350K+ | Technically sophisticated; rewards "here's what I built" stories |
-| r/programming | 6.6M | Strict moderation; requires reputation-building before product mentions |
-| r/webdev | 2.4M | Less relevant but large |
-| r/github | Niche | Directly relevant |
+| Subreddit     | Members | Approach                                                                |
+| ------------- | ------- | ----------------------------------------------------------------------- |
+| r/devops      | 300K+   | Deep technical; authentic participation required before promotion       |
+| r/selfhosted  | 350K+   | Technically sophisticated; rewards "here's what I built" stories        |
+| r/programming | 6.6M    | Strict moderation; requires reputation-building before product mentions |
+| r/webdev      | 2.4M    | Less relevant but large                                                 |
+| r/github      | Niche   | Directly relevant                                                       |
 
 **Key finding:** Use personal engineer/founder accounts, not brand accounts. Maintain a 90:10 ratio of helpful contributions to product mentions. A single well-timed, genuinely helpful comment can drive qualified signups for months via Google indexing and AI citation.
 
 ### Dev.to / Blog Posts: Long-Tail SEO Compounding
 
 The `act` case makes clear that tutorial content compounds over time. Every "How to run GitHub Actions locally" post that mentions agent-ci is an evergreen discovery node. The most effective pattern:
+
 1. Write the tutorial yourself ("I built this, here's how to use it")
 2. Guest-post on BetterStack Community, LogRocket Blog, DEV Community — these all rank highly for CI-related searches
 3. Submit to newsletters: TLDR.tech, JavaScript Weekly, DevOps Weekly
@@ -125,11 +132,13 @@ From HN discussion analysis and blog post aggregation, the most-resonating pain 
 ### Messaging Gaps / Opportunities for agent-ci
 
 The AI agent angle is currently **unaddressed by any competitor**:
+
 - "AI agent CI workflow development loop" searches return general agentic workflow content, no CI tooling
 - Spotify Engineering explicitly named CI integration as **future planned work** for background coding agents — unresolved
 - GitHub Actions reliability is actively failing (February 9, 2026 outage documented) — developers using AI agents are dependent on an unreliable external service
 
 **Proposed hook language (evidence-based):**
+
 - "Zero-commit CI. Fix the step that failed, not the commit that broke it."
 - "The CI loop your AI agent actually needs — local, fast, pausable."
 - "Stop polluting git history with `fix: ci` commits."
@@ -156,6 +165,7 @@ Being in a less-crowded keyword category matters. `keywords:local-runner` has fa
 ### npm Description Best Practices
 
 npm's search weights the description string heavily:
+
 1. Include the highest-intent keyword in the first 5 words
 2. Be a complete sentence describing the primary use case
 3. Avoid marketing adjectives (fast, powerful, easy) in favor of concrete differentiators

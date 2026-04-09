@@ -1,0 +1,23 @@
+name: "Smoke: Matrix"
+
+on:
+  pull_request_target:
+    types: [opened, labeled, synchronize]
+
+jobs:
+  matrix-shards:
+    name: Shard
+    if: '!github.event.pull_request.draft && (contains(fromJSON(''["MEMBER", "OWNER", "COLLABORATOR"]''), github.event.pull_request.author_association) || contains(github.event.pull_request.labels.*.name, ''safe-to-run''))'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
+    steps:
+      - name: Verify matrix shard (${{ matrix.shard }}/${{ strategy.job-total }})
+        run: |
+          echo "shard=${{ matrix.shard }}"
+          echo "job-total=${{ strategy.job-total }}"
+          [ "${{ matrix.shard }}" != "" ] || (echo "❌ matrix.shard is empty" && exit 1)
+          [ "${{ strategy.job-total }}" = "3" ] || (echo "❌ strategy.job-total is '${{ strategy.job-total }}', expected '3'" && exit 1)
+          echo "✅ Shard ${{ matrix.shard }} of ${{ strategy.job-total }} resolved correctly"

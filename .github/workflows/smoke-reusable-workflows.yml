@@ -1,0 +1,24 @@
+name: "Smoke: Reusable Workflows"
+
+on:
+  pull_request_target:
+    types: [opened, labeled, synchronize]
+
+jobs:
+  # Calls a local reusable workflow — verifies agent-ci inlines it correctly
+  reusable-lint:
+    if: '!github.event.pull_request.draft && (contains(fromJSON(''["MEMBER", "OWNER", "COLLABORATOR"]''), github.event.pull_request.author_association) || contains(github.event.pull_request.labels.*.name, ''safe-to-run''))'
+    uses: ./.github/workflows/smoke-reusable-lint.yml
+
+  # Calls a remote reusable workflow — verifies remote workflow fetching works
+  remote-reusable-lint:
+    if: '!github.event.pull_request.draft && (contains(fromJSON(''["MEMBER", "OWNER", "COLLABORATOR"]''), github.event.pull_request.author_association) || contains(github.event.pull_request.labels.*.name, ''safe-to-run''))'
+    uses: redwoodjs/actions/.github/workflows/lint.yml@main
+
+  # Depends on both — verifies dependency wiring works across reusable workflows
+  verify-reusable:
+    needs: [reusable-lint, remote-reusable-lint]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify reusable workflows completed
+        run: echo "✅ Local and remote reusable workflow dependencies resolved correctly"

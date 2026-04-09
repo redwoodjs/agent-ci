@@ -13,7 +13,6 @@ import { debugCli } from "./output/debug.js";
 
 import { executeLocalJob } from "./runner/local-job.js";
 import {
-  getWorkflowTemplate,
   parseWorkflowSteps,
   parseWorkflowServices,
   parseWorkflowContainer,
@@ -34,7 +33,9 @@ import { createConcurrencyLimiter, getDefaultMaxConcurrentJobs } from "./output/
 import { isWarmNodeModules, computeLockfileHash } from "./output/cleanup.js";
 import { getWorkingDirectory } from "./output/working-directory.js";
 import { pruneOrphanedDockerResources } from "./docker/shutdown.js";
-import { parseJobDependencies, topoSort } from "./workflow/job-scheduler.js";
+import { topoSort } from "./workflow/job-scheduler.js";
+import { expandReusableJobs } from "./workflow/reusable-workflow.js";
+import { prefetchRemoteWorkflows } from "./workflow/remote-workflow-fetch.js";
 import { printSummary, type JobResult } from "./output/reporter.js";
 import { syncWorkspaceForRetry } from "./runner/sync.js";
 import { RunStateStore } from "./output/run-state.js";
@@ -513,10 +514,11 @@ async function handleWorkflow(options: {
   config.GITHUB_REPO = githubRepo;
   const [owner, name] = githubRepo.split("/");
 
-  const template = await getWorkflowTemplate(workflowPath);
-  const jobs = (template.jobs ?? []).filter((j) => j.type === "job");
+  const remoteCacheDir = path.resolve(getWorkingDirectory(), "cache", "remote-workflows");
+  const remoteCache = await prefetchRemoteWorkflows(workflowPath, remoteCacheDir);
+  const expandedEntries = expandReusableJobs(workflowPath, repoRoot, remoteCache);
 
-  if (jobs.length === 0) {
+  if (expandedEntries.length === 0) {
     debugCli(`[Agent CI] No jobs found in workflow: ${path.basename(workflowPath)}`);
     return [];
   }
@@ -525,14 +527,14 @@ async function handleWorkflow(options: {
   type ExpandedJob = {
     workflowPath: string;
     taskName: string;
+    sourceTaskName?: string;
     matrixContext?: Record<string, string>;
   };
 
   const expandedJobs: ExpandedJob[] = [];
 
-  for (const job of jobs) {
-    const id = job.id.toString();
-    const matrixDef = await parseMatrixDef(workflowPath, id);
+  for (const entry of expandedEntries) {
+    const matrixDef = await parseMatrixDef(entry.workflowPath, entry.sourceTaskName);
     if (matrixDef) {
       const combos = noMatrix
         ? collapseMatrixToSingle(matrixDef)
@@ -540,8 +542,9 @@ async function handleWorkflow(options: {
       const total = combos.length;
       for (let ci = 0; ci < combos.length; ci++) {
         expandedJobs.push({
-          workflowPath,
-          taskName: id,
+          workflowPath: entry.workflowPath,
+          taskName: entry.id,
+          sourceTaskName: entry.sourceTaskName,
           matrixContext: noMatrix
             ? combos[ci]
             : {
@@ -552,20 +555,30 @@ async function handleWorkflow(options: {
         });
       }
     } else {
-      expandedJobs.push({ workflowPath, taskName: id });
+      expandedJobs.push({
+        workflowPath: entry.workflowPath,
+        taskName: entry.id,
+        sourceTaskName: entry.sourceTaskName,
+      });
     }
   }
 
   // For single-job workflows, run directly without extra orchestration
   if (expandedJobs.length === 1) {
     const ej = expandedJobs[0];
+    const actualTaskName = ej.sourceTaskName ?? ej.taskName;
     const secrets = loadMachineSecrets(repoRoot);
     const secretsFilePath = path.join(repoRoot, ".env.agent-ci");
-    validateSecrets(workflowPath, ej.taskName, secrets, secretsFilePath);
+    validateSecrets(ej.workflowPath, actualTaskName, secrets, secretsFilePath);
 
-    const steps = await parseWorkflowSteps(workflowPath, ej.taskName, secrets, ej.matrixContext);
-    const services = await parseWorkflowServices(workflowPath, ej.taskName);
-    const container = await parseWorkflowContainer(workflowPath, ej.taskName);
+    const steps = await parseWorkflowSteps(
+      ej.workflowPath,
+      actualTaskName,
+      secrets,
+      ej.matrixContext,
+    );
+    const services = await parseWorkflowServices(ej.workflowPath, actualTaskName);
+    const container = await parseWorkflowContainer(ej.workflowPath, actualTaskName);
 
     const job: Job = {
       deliveryId: `run-${Date.now()}`,
@@ -585,7 +598,7 @@ async function handleWorkflow(options: {
       steps,
       services,
       container: container ?? undefined,
-      workflowPath,
+      workflowPath: ej.workflowPath,
       taskId: ej.taskName,
     };
 
@@ -616,9 +629,10 @@ async function handleWorkflow(options: {
   let globalIdx = 0;
 
   const buildJob = (ej: ExpandedJob): Job => {
+    const actualTaskName = ej.sourceTaskName ?? ej.taskName;
     const secrets = loadMachineSecrets(repoRoot);
     const secretsFilePath = path.join(repoRoot, ".env.agent-ci");
-    validateSecrets(workflowPath, ej.taskName, secrets, secretsFilePath);
+    validateSecrets(ej.workflowPath, actualTaskName, secrets, secretsFilePath);
 
     const idx = globalIdx++;
     let suffix = `-j${idx + 1}`;
@@ -647,7 +661,7 @@ async function handleWorkflow(options: {
       steps: undefined as any,
       services: undefined as any,
       container: undefined,
-      workflowPath,
+      workflowPath: ej.workflowPath,
       taskId: ej.taskName,
     };
   };
@@ -657,21 +671,22 @@ async function handleWorkflow(options: {
     needsContext?: Record<string, Record<string, string>>,
   ): Promise<JobResult> => {
     const { taskName, matrixContext } = ej;
+    const actualTaskName = ej.sourceTaskName ?? taskName;
     debugCli(
-      `Running: ${path.basename(workflowPath)} | Task: ${taskName}${matrixContext ? ` | Matrix: ${JSON.stringify(Object.fromEntries(Object.entries(matrixContext).filter(([k]) => !k.startsWith("__"))))}` : ""}`,
+      `Running: ${path.basename(ej.workflowPath)} | Task: ${taskName}${matrixContext ? ` | Matrix: ${JSON.stringify(Object.fromEntries(Object.entries(matrixContext).filter(([k]) => !k.startsWith("__"))))}` : ""}`,
     );
     const secrets = loadMachineSecrets(repoRoot);
     const secretsFilePath = path.join(repoRoot, ".env.agent-ci");
-    validateSecrets(workflowPath, taskName, secrets, secretsFilePath);
+    validateSecrets(ej.workflowPath, actualTaskName, secrets, secretsFilePath);
     const steps = await parseWorkflowSteps(
-      workflowPath,
-      taskName,
+      ej.workflowPath,
+      actualTaskName,
       secrets,
       matrixContext,
       needsContext,
     );
-    const services = await parseWorkflowServices(workflowPath, taskName);
-    const container = await parseWorkflowContainer(workflowPath, taskName);
+    const services = await parseWorkflowServices(ej.workflowPath, actualTaskName);
+    const container = await parseWorkflowContainer(ej.workflowPath, actualTaskName);
 
     const job = buildJob(ej);
     job.steps = steps;
@@ -684,7 +699,7 @@ async function handleWorkflow(options: {
     // before workspace cleanup). Resolve them to job-level outputs using the
     // output definitions from the workflow YAML.
     if (result.outputs && Object.keys(result.outputs).length > 0) {
-      const outputDefs = parseJobOutputDefs(workflowPath, taskName);
+      const outputDefs = parseJobOutputDefs(ej.workflowPath, actualTaskName);
       if (Object.keys(outputDefs).length > 0) {
         result.outputs = resolveJobOutputs(outputDefs, result.outputs);
       }
@@ -701,7 +716,10 @@ async function handleWorkflow(options: {
   const jobOutputs = new Map<string, Record<string, string>>();
 
   // ── Dependency-aware wave scheduling ──────────────────────────────────────
-  const deps = parseJobDependencies(workflowPath);
+  const deps = new Map<string, string[]>();
+  for (const entry of expandedEntries) {
+    deps.set(entry.id, entry.needs);
+  }
   const waves = topoSort(deps);
 
   const taskNamesInWf = new Set(expandedJobs.map((j) => j.taskName));
@@ -737,8 +755,10 @@ async function handleWorkflow(options: {
   const jobResultStatus = new Map<string, string>();
 
   /** Check if a job should be skipped based on its if: condition */
-  const shouldSkipJob = (jobId: string): boolean => {
-    const ifExpr = parseJobIf(workflowPath, jobId);
+  const shouldSkipJob = (jobId: string, ej?: ExpandedJob): boolean => {
+    const ejWorkflowPath = ej?.workflowPath ?? workflowPath;
+    const actualTaskName = ej?.sourceTaskName ?? jobId;
+    const ifExpr = parseJobIf(ejWorkflowPath, actualTaskName);
     if (ifExpr === null) {
       // No if: condition — default behavior is success() (skip if any upstream failed)
       const jobDeps = deps.get(jobId);
@@ -763,7 +783,7 @@ async function handleWorkflow(options: {
   /** Create a synthetic skipped result for a job that was skipped by if: */
   const skippedResult = (ej: ExpandedJob): JobResult => ({
     name: `agent-ci-skipped-${ej.taskName}`,
-    workflow: path.basename(workflowPath),
+    workflow: path.basename(ej.workflowPath),
     taskId: ej.taskName,
     succeeded: true,
     durationMs: 0,
@@ -773,7 +793,7 @@ async function handleWorkflow(options: {
 
   /** Run a job or skip it based on if: condition */
   const runOrSkipJob = async (ej: ExpandedJob): Promise<JobResult> => {
-    if (shouldSkipJob(ej.taskName)) {
+    if (shouldSkipJob(ej.taskName, ej)) {
       debugCli(`Skipping ${ej.taskName} (if: condition is false)`);
       const result = skippedResult(ej);
       jobResultStatus.set(ej.taskName, "skipped");
@@ -848,7 +868,9 @@ async function handleWorkflow(options: {
     const waveHadFailures = allResults.some((r) => !r.succeeded);
     if (waveHadFailures && wi < filteredWaves.length - 1) {
       // Check fail-fast setting for jobs in this wave
-      const waveFailFastSettings = waveJobs.map((ej) => parseFailFast(workflowPath, ej.taskName));
+      const waveFailFastSettings = waveJobs.map((ej) =>
+        parseFailFast(ej.workflowPath, ej.sourceTaskName ?? ej.taskName),
+      );
       // Abort unless ALL jobs in the wave explicitly set fail-fast: false
       const shouldAbort = !waveFailFastSettings.every((ff) => ff === false);
       if (shouldAbort) {

@@ -306,7 +306,8 @@ export function buildJobResult(opts: BuildJobResultOpts): JobResult {
       result.failedStepLogPath = failure.stepLogPath;
       result.lastOutputLines = failure.tailLines ?? [];
     } else {
-      result.lastOutputLines = [];
+      // Boot failure — no timeline, so fall back to debug.log for error context
+      result.lastOutputLines = tailLogFile(debugLogPath);
     }
   }
 

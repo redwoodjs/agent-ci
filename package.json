@@ -12,10 +12,10 @@
     "format:fix": "oxfmt",
     "format:check": "oxfmt --check",
     "agent-ci": "cd packages/dtu-github-actions && pnpm run build && cd ../cli && tsx src/cli.ts",
-    "agent-ci-dev": "pnpm run agent-ci",
+    "agent-ci-dev": "./scripts/agent-ci-dev.sh",
     "ts-runner": "tsx packages/ts-runner/src/cli.ts",
     "start": "./scripts/run.sh",
-    "prepare": "husky",
+    "prepare": "husky || true",
     "changeset": "changeset",
     "version": "changeset version",
     "release": "pnpm -r build && changeset publish"

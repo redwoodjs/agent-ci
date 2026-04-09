@@ -1,15 +1,34 @@
 const LEGEND = [
-  { icon: "✅", label: "Supported" },
-  { icon: "⚠️", label: "Partial" },
-  { icon: "❌", label: "Not supported" },
-  { icon: "🟡", label: "Ignored (no-op)" },
+  {
+    icon: "✅",
+    label: "Supported",
+    description: "Fully implemented and behaves like GitHub Actions",
+  },
+  { icon: "⚠️", label: "Partial", description: "Works with limitations — see notes for details" },
+  {
+    icon: "❌",
+    label: "Not supported",
+    description: "Not implemented — the feature is skipped or errors",
+  },
+  {
+    icon: "🟡",
+    label: "Ignored (no-op)",
+    description: "Parsed without error but has no effect on the run",
+  },
+  {
+    icon: "🚫",
+    label: "Not planned",
+    description: "Cannot be supported due to architectural constraints",
+  },
 ];
 
 type Row = { key: string; status: string; notes?: string };
 
-const SECTIONS: { label: string; rows: Row[] }[] = [
+const SECTIONS: { label: string; description: string; rows: Row[] }[] = [
   {
     label: "Workflow",
+    description:
+      "Top-level keys that control when and how a workflow runs — triggers, environment defaults, and concurrency.",
     rows: [
       { key: "name", status: "✅" },
       { key: "run-name", status: "🟡", notes: "Parsed but not displayed" },
@@ -23,7 +42,12 @@ const SECTIONS: { label: string; rows: Row[] }[] = [
         status: "🟡",
         notes: "Accepted but triggers are not simulated",
       },
-      { key: "on (workflow_call)", status: "❌", notes: "Reusable workflow calls not supported" },
+      {
+        key: "on (workflow_call)",
+        status: "⚠️",
+        notes:
+          "Local refs (./) inlined into caller graph; remote refs, inputs/outputs, and nesting not supported",
+      },
       { key: "on (other events)", status: "🟡", notes: "Parsed, not simulated" },
       { key: "env", status: "✅", notes: "Workflow-level env propagated to steps" },
       { key: "defaults.run.shell", status: "✅", notes: "Passed through to the runner" },
@@ -35,7 +59,7 @@ const SECTIONS: { label: string; rows: Row[] }[] = [
       { key: "permissions", status: "🟡", notes: "Accepted, not enforced (mock GITHUB_TOKEN)" },
       {
         key: "concurrency",
-        status: "❌",
+        status: "🚫",
         notes:
           "Concurrency groups are a server-side queue/cancel mechanism; there is no persistent local server to coordinate across runs",
       },
@@ -43,6 +67,8 @@ const SECTIONS: { label: string; rows: Row[] }[] = [
   },
   {
     label: "Jobs",
+    description:
+      "Per-job configuration — runner selection, dependencies, conditional execution, containers, and service sidecars.",
     rows: [
       { key: "jobs.<id>", status: "✅", notes: "Multiple jobs in a single workflow" },
       { key: "jobs.<id>.name", status: "✅" },
@@ -67,7 +93,7 @@ const SECTIONS: { label: string; rows: Row[] }[] = [
       },
       { key: "jobs.<id>.timeout-minutes", status: "❌" },
       { key: "jobs.<id>.continue-on-error", status: "❌" },
-      { key: "jobs.<id>.concurrency", status: "❌", notes: "See workflow-level concurrency" },
+      { key: "jobs.<id>.concurrency", status: "🚫", notes: "See workflow-level concurrency" },
       {
         key: "jobs.<id>.container",
         status: "✅",
@@ -78,12 +104,22 @@ const SECTIONS: { label: string; rows: Row[] }[] = [
         status: "✅",
         notes: "Sidecar containers with image, env, ports, options",
       },
-      { key: "jobs.<id>.uses (reusable workflows)", status: "❌" },
-      { key: "jobs.<id>.secrets", status: "❌", notes: "Use .env.agent-ci file instead" },
+      {
+        key: "jobs.<id>.uses (reusable workflows)",
+        status: "⚠️",
+        notes: "Local refs (./) expanded inline; remote refs skipped with warning",
+      },
+      {
+        key: "jobs.<id>.secrets",
+        status: "🚫",
+        notes: "Agent CI cannot access GitHub's secret storage — use .env.agent-ci file instead",
+      },
     ],
   },
   {
     label: "Strategy",
+    description:
+      "Matrix builds and failure behavior — how jobs are multiplied across configurations and when to stop on errors.",
     rows: [
       { key: "strategy.matrix", status: "✅", notes: "Cartesian product expansion" },
       { key: "strategy.matrix.include", status: "❌" },
@@ -98,6 +134,8 @@ const SECTIONS: { label: string; rows: Row[] }[] = [
   },
   {
     label: "Steps",
+    description:
+      "Individual step configuration — shell commands, action references, conditional execution, and environment variables.",
     rows: [
       { key: "steps[*].id", status: "✅" },
       { key: "steps[*].name", status: "✅", notes: "Expression expansion in names" },
@@ -124,6 +162,8 @@ const SECTIONS: { label: string; rows: Row[] }[] = [
   },
   {
     label: "Expressions",
+    description:
+      "The ${{ }} expression language — built-in functions, context variables, and operators available in workflow YAML.",
     rows: [
       { key: "hashFiles(...)", status: "✅", notes: "SHA-256 of matching files, multi-glob" },
       { key: "format(...)", status: "✅", notes: "Template substitution with recursive expansion" },
@@ -156,6 +196,8 @@ const SECTIONS: { label: string; rows: Row[] }[] = [
   },
   {
     label: "GitHub API",
+    description:
+      "Interactions with GitHub's API — action downloads, common actions (cache, checkout, setup-*), artifacts, and tokens.",
     rows: [
       { key: "Action downloads", status: "✅", notes: "Resolves tarballs from github.com" },
       {
@@ -192,11 +234,12 @@ export function CompatibilityMatrix() {
   return (
     <div className="space-y-10">
       {/* Legend */}
-      <div className="flex flex-wrap gap-4 text-xs font-mono text-[#71a792]">
-        {LEGEND.map(({ icon, label }) => (
+      <div className="flex flex-wrap gap-6 text-xs font-mono text-[#71a792]">
+        {LEGEND.map(({ icon, label, description }) => (
           <span key={label} className="flex items-center gap-1.5">
             <span>{icon}</span>
-            <span>{label}</span>
+            <span className="text-[#e0eee5]">{label}</span>
+            <span className="hidden sm:inline">— {description}</span>
           </span>
         ))}
       </div>
@@ -206,6 +249,9 @@ export function CompatibilityMatrix() {
           <h2 className="font-mono text-xs uppercase tracking-wider text-[#e0eee5] mb-0 px-4 py-2 bg-[#12211c] border border-b-0 border-[#2b483e] inline-block">
             {section.label}
           </h2>
+          <p className="text-xs text-[#71a792] px-4 py-2 bg-[#0d110f] border border-b-0 border-[#2b483e] m-0">
+            {section.description}
+          </p>
           <div className="overflow-x-auto border border-[#2b483e] bg-[#0d110f]">
             <table className="w-full text-left border-collapse">
               <thead>

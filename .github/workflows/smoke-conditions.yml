@@ -1,0 +1,22 @@
+name: "Smoke: Job Conditions"
+
+on:
+  pull_request_target:
+    types: [opened, labeled, synchronize]
+
+jobs:
+  upstream:
+    if: '!github.event.pull_request.draft && (contains(fromJSON(''["MEMBER", "OWNER", "COLLABORATOR"]''), github.event.pull_request.author_association) || contains(github.event.pull_request.labels.*.name, ''safe-to-run''))'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Upstream job
+        run: echo "✅ Upstream job completed"
+
+  # This job always runs (if: always()) even if upstream jobs fail
+  always-runs:
+    needs: upstream
+    if: 'always() && !github.event.pull_request.draft && (contains(fromJSON(''["MEMBER", "OWNER", "COLLABORATOR"]''), github.event.pull_request.author_association) || contains(github.event.pull_request.labels.*.name, ''safe-to-run''))'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify this job ran despite upstream state
+        run: echo "✅ Job with if:always() ran correctly"

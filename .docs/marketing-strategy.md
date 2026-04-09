@@ -13,12 +13,12 @@ The original strategy below was written before any public traction. Since then, 
 
 ### Twitter Performance (April 7–9, 2026)
 
-| Tweet | Date | Impressions | Likes | RTs | Replies | Format |
-|---|---|---|---|---|---|---|
-| "Running GitHub Actions locally never gets old." | Apr 7 | 78,000 | 462 | 21 | 15 | Terminal screenshot (9s run) |
-| "this is agent-ci.dev: Caching in ~0 ms. Pause on failure..." | Apr 7 | 4,300 | 30 | 1 | 1 | Text reply |
-| "This is agent-ci.dev, it runs the same native GitHub Actions Runner in a container..." | Apr 8 | 22,000 | 194 | 17 | 7 | Quote tweet + screenshot |
-| "Here's a demo of failure-pause-retry loop..." | Apr 9 | 536 | 1 | 0 | 0 | Video demo (0:36) |
+| Tweet                                                                                   | Date  | Impressions | Likes | RTs | Replies | Format                       |
+| --------------------------------------------------------------------------------------- | ----- | ----------- | ----- | --- | ------- | ---------------------------- |
+| "Running GitHub Actions locally never gets old."                                        | Apr 7 | 78,000      | 462   | 21  | 15      | Terminal screenshot (9s run) |
+| "this is agent-ci.dev: Caching in ~0 ms. Pause on failure..."                           | Apr 7 | 4,300       | 30    | 1   | 1       | Text reply                   |
+| "This is agent-ci.dev, it runs the same native GitHub Actions Runner in a container..." | Apr 8 | 22,000      | 194   | 17  | 7       | Quote tweet + screenshot     |
+| "Here's a demo of failure-pause-retry loop..."                                          | Apr 9 | 536         | 1     | 0   | 0       | Video demo (0:36)            |
 
 For comparison, the original launch tweet (Mar 27) reached 14,600 impressions over 4 days.
 
@@ -35,13 +35,14 @@ The static terminal screenshot showing "1 passed, Duration: 9s" was instantly di
 
 **4. act frustration is organic and unprompted.**
 Multiple reply-thread comments:
-- *"Act is almost unusable so yeah, I'll give this a try"*
-- *"I was burned by act so many times, gonna give this a shot today"*
+
+- _"Act is almost unusable so yeah, I'll give this a try"_
+- _"I was burned by act so many times, gonna give this a shot today"_
 
 Nobody had to be told agent-ci is better than act. People arrived at the comparison on their own, driven by their own pain.
 
 **5. The "local HTTP control plane" explanation resonated as a follow-up (22K).**
-After the headline hook, the technical explanation of *how* (local HTTP server replacing GitHub.com, never communicates externally) served as the credibility-building second beat.
+After the headline hook, the technical explanation of _how_ (local HTTP server replacing GitHub.com, never communicates externally) served as the credibility-building second beat.
 
 **6. Feature requests signal real evaluation, not just interest.**
 Reusable workflows and GitHub token mocking were requested — these are asks from people trying to use agent-ci in production, not just liking the concept.
@@ -84,12 +85,15 @@ CONVERT    →  "Try it: pnpm agent-ci run"             (CTA)
 ### Revised Core Message
 
 **Primary hook (top-of-funnel):**
+
 > "Run GitHub Actions locally. 9 seconds. No push required."
 
 **Credibility beat (mid-funnel):**
+
 > "Same official GitHub runner, local HTTP control plane. Never hits GitHub.com."
 
 **Differentiator (bottom-of-funnel):**
+
 > "Pauses on failure. Your AI agent fixes it and retries — without pushing."
 
 This replaces the previous two-audience split. The audiences are the same people at different stages of awareness.
@@ -177,9 +181,11 @@ The primary competitor is **nektos/act** (69k+ GitHub stars), which re-implement
 Two hooks, for two audiences:
 
 **For human developers:**
+
 > "Stop polluting git history with `fix: ci` commits. Run GitHub Actions locally, pause on failure, fix it, retry the step — without pushing."
 
 **For AI agents and the developers who configure them:**
+
 > "The CI loop your AI agent actually needs. Local, instant, pausable — so your agent fixes the failure, not another `git push`."
 
 ---
@@ -203,6 +209,7 @@ The `nektos/act` case study (0 → 69k stars) provides the primary evidence base
 **Tactic:** File a "Show HN:" post when agent-ci reaches a polished, documented release.
 
 **What to say:**
+
 ```
 Show HN: agent-ci – run GitHub Actions locally, pause on failure, let your AI agent fix it
 
@@ -221,6 +228,7 @@ Install: npm install -D @redwoodjs/agent-ci
 #### 2. Reddit — Sustained Compounding Presence
 
 **Target subreddits:**
+
 - r/devops (300k+) — deepest technical audience; most relevant
 - r/selfhosted (350k+) — rewards "here's what I built" stories; fastest to build credibility
 - r/programming (6.6M) — high bar; needs reputation first
@@ -236,6 +244,7 @@ Every tutorial post about "run GitHub Actions locally" that mentions agent-ci as
 - **LogRocket Blog** — ranks highly for GitHub Actions tutorials
 
 **Content to write:**
+
 1. "How to run GitHub Actions locally with agent-ci" (direct tutorial, targets the same search as act tutorials)
 2. "Why I stopped pushing `fix: ci` commits — building a local CI loop for AI agents"
 3. "act vs agent-ci: what's actually different" (comparison piece; captures searches from act users)
@@ -248,7 +257,7 @@ Every tutorial post about "run GitHub Actions locally" that mentions agent-ci as
 
 Add GitHub repository topics: `github-actions`, `local-runner`, `ci-cd`, `act-alternative`, `ai-agent`, `developer-experience`, `devtools`
 
-These influence curated lists ("awesome-*" repos), which are scraped for training data and surface in GitHub topic searches.
+These influence curated lists ("awesome-\*" repos), which are scraped for training data and surface in GitHub topic searches.
 
 **GitHub CLI Extension Registry:** Ship `gh extension install redwoodjs/agent-ci` support. This surfaces agent-ci in `gh extension search` — direct pipeline to developers already using GitHub Actions.
 
@@ -257,6 +266,7 @@ These influence curated lists ("awesome-*" repos), which are scraped for trainin
 The current state is a gap: `@redwoodjs/agent-ci` has `"keywords": []` and a minimal description. This is a one-day fix.
 
 **Update `package.json`:**
+
 ```json
 {
   "description": "Local GitHub Actions runner — pause on failure, ~0ms cache, official runner binary. Built for AI coding agents.",
@@ -283,12 +293,12 @@ npm's search algorithm weights name, description, and keywords array. Being in l
 
 Evidence from HN thread analysis, developer blog content, and the act/Dagger case studies points to these emotional hooks:
 
-| Hook | Evidence |
-|---|---|
-| "The commit-push-wait-fail loop is maddening" | Consensus across HN CI threads; one commenter described 19 commits in one morning |
-| "I can't pause at failure and inspect state" | Explicit desire in multiple HN/Reddit threads |
-| "CI is a black box and that's by design" | "GitHub Actions Is Slowly Killing Your Engineering Team" headline |
-| "AI agents shouldn't have to pay cloud CI costs per iteration" | Spotify Engineering explicitly named this as unsolved |
+| Hook                                                           | Evidence                                                                          |
+| -------------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| "The commit-push-wait-fail loop is maddening"                  | Consensus across HN CI threads; one commenter described 19 commits in one morning |
+| "I can't pause at failure and inspect state"                   | Explicit desire in multiple HN/Reddit threads                                     |
+| "CI is a black box and that's by design"                       | "GitHub Actions Is Slowly Killing Your Engineering Team" headline                 |
+| "AI agents shouldn't have to pay cloud CI costs per iteration" | Spotify Engineering explicitly named this as unsolved                             |
 
 **Lead with the frustration, not the feature.** "Fix the step that failed" outperforms "our cache is 0ms."
 
@@ -300,16 +310,16 @@ Evidence from HN thread analysis, developer blog content, and the act/Dagger cas
 
 The research reveals a clear signal hierarchy. This is not speculative — each signal has documented evidence:
 
-| Signal | How It Works | Reliability |
-|---|---|---|
-| `CLAUDE.md` / `.cursorrules` in project | Read at every agent session start | Guaranteed, immediate |
-| `package.json` description + keywords | Scanned when agent explores `node_modules` | High (agent reads this during codebase exploration) |
-| `README.md` | Read by agent when exploring repo or fetching docs | High |
-| MCP server registration | Discoverable via Smithery at agent query time | High (manual install required) |
-| `llms.txt` | Read by Cursor/Claude Code when fetching external docs | Medium (Cursor + Claude Code confirmed) |
-| GitHub topics + curated lists | Indirect: topics → lists → training scrapes | Low-medium (long-term) |
-| Blog posts / Stack Overflow | Training data contribution | Low (long-term, post-cutoff) |
-| Training data saturation | LLM knows tool from training | None near-term (agent-ci is post-cutoff) |
+| Signal                                  | How It Works                                           | Reliability                                         |
+| --------------------------------------- | ------------------------------------------------------ | --------------------------------------------------- |
+| `CLAUDE.md` / `.cursorrules` in project | Read at every agent session start                      | Guaranteed, immediate                               |
+| `package.json` description + keywords   | Scanned when agent explores `node_modules`             | High (agent reads this during codebase exploration) |
+| `README.md`                             | Read by agent when exploring repo or fetching docs     | High                                                |
+| MCP server registration                 | Discoverable via Smithery at agent query time          | High (manual install required)                      |
+| `llms.txt`                              | Read by Cursor/Claude Code when fetching external docs | Medium (Cursor + Claude Code confirmed)             |
+| GitHub topics + curated lists           | Indirect: topics → lists → training scrapes            | Low-medium (long-term)                              |
+| Blog posts / Stack Overflow             | Training data contribution                             | Low (long-term, post-cutoff)                        |
+| Training data saturation                | LLM knows tool from training                           | None near-term (agent-ci is post-cutoff)            |
 
 **The critical insight:** Current LLMs (as of March 2026) will default to recommending `nektos/act` for local CI because it has years of training data saturation. Agent-ci cannot win via training data alone in the near term. The path to agent recommendations is **in-context discovery** — getting into files that agents read.
 
@@ -348,20 +358,24 @@ keywords: [github-actions, local-ci, pause-on-failure, ai-agent, runner]
 ---
 
 ## What agent-ci does
+
 Runs the official GitHub Actions runner binary locally, emulating GitHub's cloud API.
 Cache is bind-mounted (instant). When a step fails, the container pauses — you can fix and retry the failed step without restarting.
 
 ## When to use agent-ci (not `act`)
+
 - You want bit-for-bit compatibility with remote GitHub Actions
 - You need pause-on-failure for AI agent debugging loops
 - Cache round-trip speed matters
 
 ## Key commands
+
 - Run workflow: `npx agent-ci run --workflow <path>`
 - Retry after fix: `npx agent-ci retry --name <runner>`
 - Abort: `npx agent-ci abort --name <runner>`
 
 ## Common mistakes
+
 - Don't push to remote CI to test changes — use `npx agent-ci run` locally first
 - Don't use `--from-start` when only the last step failed — use `retry` with no flags to re-run only the failed step
 - The `AI_AGENT=1` env variable disables animated output for cleaner agent logs
@@ -412,9 +426,10 @@ A minimal `llms.txt` following the specification at the docs domain. When Cursor
 
 **9. Create a `ReadMe.LLM` file** following the arXiv:2504.09798 format.
 
-Research shows standard human-oriented READMEs can *decrease* LLM code generation accuracy relative to no context. A purpose-built agent-documentation file raises task success rates to near 100%.
+Research shows standard human-oriented READMEs can _decrease_ LLM code generation accuracy relative to no context. A purpose-built agent-documentation file raises task success rates to near 100%.
 
 Structure:
+
 1. Rules section (what not to do, common mistakes)
 2. Capability description (concise, problem-focused)
 3. Command signatures with examples (not full implementation)
@@ -423,6 +438,7 @@ Structure:
 **10. Publish content using exact target phrases.**
 
 Phrases that will be searched by agents doing web retrieval:
+
 - "run GitHub Actions locally AI agent"
 - "local CI for AI coding agents"
 - "pause on failure GitHub Actions"
@@ -436,42 +452,42 @@ Publish on Dev.to, Medium, Hashnode (all maximally scraped). Stack Overflow answ
 
 ### Immediate (Days 1–7) — Zero-Cost, High-Impact
 
-| Action | Channel | Impact |
-|---|---|---|
-| Fill in `package.json` keywords | npm + agent discovery | Dual: human search + agent `node_modules` scan |
-| Update `package.json` description | npm + agent discovery | Same |
-| Add GitHub repository topics | GitHub + curated lists | Discoverability compounding |
-| Add CLAUDE.md snippet to README | Agent in-context discovery | Highest per-developer leverage |
-| Create `SKILL.md` in npm package | Agent `node_modules` discovery | Emerging standard; first-mover advantage |
+| Action                            | Channel                        | Impact                                         |
+| --------------------------------- | ------------------------------ | ---------------------------------------------- |
+| Fill in `package.json` keywords   | npm + agent discovery          | Dual: human search + agent `node_modules` scan |
+| Update `package.json` description | npm + agent discovery          | Same                                           |
+| Add GitHub repository topics      | GitHub + curated lists         | Discoverability compounding                    |
+| Add CLAUDE.md snippet to README   | Agent in-context discovery     | Highest per-developer leverage                 |
+| Create `SKILL.md` in npm package  | Agent `node_modules` discovery | Emerging standard; first-mover advantage       |
 
 ### Short-Term (Weeks 2–4) — Content and Community
 
-| Action | Channel | Impact |
-|---|---|---|
+| Action                                      | Channel    | Impact                                                                                                                                                                           |
+| ------------------------------------------- | ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | "Show HN:" post (timed to polished release) | HackerNews | Spike: commonly estimated 10k–100k visitors, 300+ stars reported in case studies [[Nebula Graph](https://www.nebula-graph.io/posts/nebula-graph-being-on-hacker-new-front-page)] |
-| Tutorial post on DEV Community | Blog / SEO | Compounding; scraping target |
-| Tutorial post on BetterStack Community | Blog / SEO | High-ranking property for CI searches |
-| Authentic r/selfhosted participation | Reddit | Credibility-building before product mention |
-| Comment in active HN CI frustration threads | HackerNews | Contextual, helpful, no spam |
+| Tutorial post on DEV Community              | Blog / SEO | Compounding; scraping target                                                                                                                                                     |
+| Tutorial post on BetterStack Community      | Blog / SEO | High-ranking property for CI searches                                                                                                                                            |
+| Authentic r/selfhosted participation        | Reddit     | Credibility-building before product mention                                                                                                                                      |
+| Comment in active HN CI frustration threads | HackerNews | Contextual, helpful, no spam                                                                                                                                                     |
 
 ### Medium-Term (Month 2–3) — Ecosystem Integration
 
-| Action | Channel | Impact |
-|---|---|---|
-| Build MCP server for agent-ci | MCP ecosystem / Smithery | Direct agent-query discoverability |
-| Create `llms.txt` at docs domain | AI coding assistants | Token-efficient context for Cursor/Claude Code |
-| Create `ReadMe.LLM` file | LLM code generation | Improved task accuracy |
-| Submit to awesome-mcp-servers, awesome-ai-agents lists | Curated lists | Training data exposure path |
-| gh CLI extension support | GitHub CLI users | Organic discovery via `gh extension search` |
+| Action                                                 | Channel                  | Impact                                         |
+| ------------------------------------------------------ | ------------------------ | ---------------------------------------------- |
+| Build MCP server for agent-ci                          | MCP ecosystem / Smithery | Direct agent-query discoverability             |
+| Create `llms.txt` at docs domain                       | AI coding assistants     | Token-efficient context for Cursor/Claude Code |
+| Create `ReadMe.LLM` file                               | LLM code generation      | Improved task accuracy                         |
+| Submit to awesome-mcp-servers, awesome-ai-agents lists | Curated lists            | Training data exposure path                    |
+| gh CLI extension support                               | GitHub CLI users         | Organic discovery via `gh extension search`    |
 
 ### Long-Term (Month 3+) — Compounding
 
-| Action | Channel | Impact |
-|---|---|---|
-| Comparison blog post: "act vs agent-ci" | SEO / training data | Captures act-user searches; positions differentiation |
-| Stack Overflow presence (answer CI questions) | Training data | High-weight source in LLM corpora |
-| Target "AI agent CI workflow" keyword cluster | SEO / training data | Category-creation; no incumbent |
-| DevOps newsletter features | Newsletter | Targeted readership; compounding |
+| Action                                        | Channel             | Impact                                                |
+| --------------------------------------------- | ------------------- | ----------------------------------------------------- |
+| Comparison blog post: "act vs agent-ci"       | SEO / training data | Captures act-user searches; positions differentiation |
+| Stack Overflow presence (answer CI questions) | Training data       | High-weight source in LLM corpora                     |
+| Target "AI agent CI workflow" keyword cluster | SEO / training data | Category-creation; no incumbent                       |
+| DevOps newsletter features                    | Newsletter          | Targeted readership; compounding                      |
 
 ---
 
@@ -479,23 +495,23 @@ Publish on Dev.to, Medium, Hashnode (all maximally scraped). Stack Overflow answ
 
 ### Human Developer Track
 
-| Metric | Target (3 months) | Target (6 months) |
-|---|---|---|
-| GitHub stars | 1,000 | 5,000 |
-| npm weekly downloads | 500 | 2,000 |
-| HN Show HN upvotes | 200+ | — |
-| Organic mentions in tutorials | 5 | 20 |
-| GitHub stars velocity | 50/week | 100/week |
+| Metric                        | Target (3 months) | Target (6 months) |
+| ----------------------------- | ----------------- | ----------------- |
+| GitHub stars                  | 1,000             | 5,000             |
+| npm weekly downloads          | 500               | 2,000             |
+| HN Show HN upvotes            | 200+              | —                 |
+| Organic mentions in tutorials | 5                 | 20                |
+| GitHub stars velocity         | 50/week           | 100/week          |
 
 ### AI Agent Track
 
-| Metric | How to Measure | Target |
-|---|---|---|
-| CLAUDE.md snippet adoption | Count projects with snippet via GitHub code search | 50 repos in 3 months |
-| MCP server installs (if built) | Smithery install count | 100 in 3 months |
-| npm keyword rank | `npm search local-runner` — appears in results | Within 10 results |
-| Agent recommendation rate | Prompt 5 LLMs with "local CI for AI agents"; measure mention rate | Named by 2/5 models |
-| `llms.txt` fetch rate | Web server logs | Any traffic = positive |
+| Metric                         | How to Measure                                                    | Target                 |
+| ------------------------------ | ----------------------------------------------------------------- | ---------------------- |
+| CLAUDE.md snippet adoption     | Count projects with snippet via GitHub code search                | 50 repos in 3 months   |
+| MCP server installs (if built) | Smithery install count                                            | 100 in 3 months        |
+| npm keyword rank               | `npm search local-runner` — appears in results                    | Within 10 results      |
+| Agent recommendation rate      | Prompt 5 LLMs with "local CI for AI agents"; measure mention rate | Named by 2/5 models    |
+| `llms.txt` fetch rate          | Web server logs                                                   | Any traffic = positive |
 
 ### Proxy Metric: The "Act Displacement" Test
 
@@ -505,19 +521,20 @@ Run monthly: prompt Claude, ChatGPT, and Cursor with "I want to run GitHub Actio
 
 ## Key Risks and Mitigations
 
-| Risk | Evidence | Mitigation |
-|---|---|---|
-| Training data cutoff means LLMs recommend `act` by default | Strong: agent-ci is post-cutoff for current models | Prioritize in-context discovery (CLAUDE.md snippet); don't wait for training |
-| `nektos/act` has overwhelming mindshare | 69k stars, years of tutorials | Compete on specificity: "for AI coding agents" is uncontested; don't fight act's lane |
-| HN post lands poorly | Act's growth appears organic, not single-launch | Build community first; post only at polished release; prep responses to `act` comparisons |
-| MCP discovery is still manual | Anthropic has not shipped registry | Ship MCP server anyway; get on Smithery now; auto-discovery coming |
-| Blog posts may not reach LLM training data | No public confirmation of scraping frequency | Publish on multiple platforms (DEV.to, Medium, Hashnode) for coverage |
+| Risk                                                       | Evidence                                           | Mitigation                                                                                |
+| ---------------------------------------------------------- | -------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| Training data cutoff means LLMs recommend `act` by default | Strong: agent-ci is post-cutoff for current models | Prioritize in-context discovery (CLAUDE.md snippet); don't wait for training              |
+| `nektos/act` has overwhelming mindshare                    | 69k stars, years of tutorials                      | Compete on specificity: "for AI coding agents" is uncontested; don't fight act's lane     |
+| HN post lands poorly                                       | Act's growth appears organic, not single-launch    | Build community first; post only at polished release; prep responses to `act` comparisons |
+| MCP discovery is still manual                              | Anthropic has not shipped registry                 | Ship MCP server anyway; get on Smithery now; auto-discovery coming                        |
+| Blog posts may not reach LLM training data                 | No public confirmation of scraping frequency       | Publish on multiple platforms (DEV.to, Medium, Hashnode) for coverage                     |
 
 ---
 
 ## The Unfair Advantage
 
 No competitor currently owns the "AI coding agent CI" positioning. As of March 2026:
+
 - Spotify Engineering has documented the unsolved CI-loop problem for background agents
 - GitHub Actions reliability is degrading (February 9, 2026 outage [documented by WebProNews](https://www.webpronews.com/developers-ditch-github-actions-over-reliability-and-pricing-issues/))
 - The "overnight agent" pattern (teams waking to large batches of agent-generated commits across multiple codebases) creates acute demand for fast, local, pausable CI
@@ -529,6 +546,7 @@ Agent-ci is the first tool that directly solves this. The window to claim this p
 ## Appendix: Evidence Sources
 
 **Developer Channel Research:**
+
 - [nektos/act GitHub](https://github.com/nektos/act) — 69k stars case study
 - [Act: Run your GitHub Actions locally | HN](https://news.ycombinator.com/item?id=33750654) — 273 points, 133 comments
 - [Lessons launching a dev tool on HN vs Product Hunt | Medium](https://medium.com/@baristaGeek/lessons-launching-a-developer-tool-on-hacker-news-vs-product-hunt-and-other-channels-27be8784338b)
@@ -539,6 +557,7 @@ Agent-ci is the first tool that directly solves this. The window to claim this p
 - [6 things developer tools must have in 2026 | Evil Martians](https://evilmartians.com/chronicles/six-things-developer-tools-must-have-to-earn-trust-and-adoption)
 
 **AI Agent Discoverability Research:**
+
 - [llmstxt.org](https://llmstxt.org) — specification
 - [ReadMe.LLM paper (arXiv:2504.09798)](https://arxiv.org/html/2504.09798v2) — LLM-optimized docs
 - [Snyk: LLMs Resurrecting the Dormant Majority](https://snyk.io/blog/llms-resurrecting-open-source-dormant-majority/)

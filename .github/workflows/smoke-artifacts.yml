@@ -1,0 +1,113 @@
+name: "Smoke: Artifacts & Services"
+
+on:
+  pull_request_target:
+    types: [opened, labeled, synchronize]
+
+jobs:
+  build:
+    if: '!github.event.pull_request.draft && (contains(fromJSON(''["MEMBER", "OWNER", "COLLABORATOR"]''), github.event.pull_request.author_association) || contains(github.event.pull_request.labels.*.name, ''safe-to-run''))'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Caching is natively supported
+        id: cache-smoke
+        uses: actions/cache@v4
+        with:
+          path: smoke-cache-file.txt
+          key: smoke-test-cache-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: |
+            smoke-test-cache-${{ runner.os }}-
+      - name: Write Cache File
+        if: steps.cache-smoke.outputs.cache-hit != 'true'
+        run: echo "Hello from cache" > smoke-cache-file.txt
+      - name: Verify Cache File
+        run: grep "Hello from cache" smoke-cache-file.txt
+
+      - name: Say Hello
+        run: echo "Hello from E2E"
+
+      - name: Create Build Output
+        run: echo "built artifact content" > build-output.txt
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-build
+          path: build-output.txt
+
+  verify:
+    needs: build
+    runs-on: ubuntu-latest
+    # A container block is required for service hostnames (e.g. "cache-db") to be resolvable
+    # via Docker DNS on real GitHub runners. Without it, services are only reachable via localhost.
+    # Our local runner always uses Docker aliasing, so this aligns both environments.
+    container: ghcr.io/actions/actions-runner:latest
+    services:
+      cache-db:
+        image: redis:7-alpine
+        options: >-
+          --health-cmd="redis-cli ping"
+          --health-interval=5s
+          --health-timeout=3s
+          --health-retries=5
+    steps:
+      - name: Download Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: smoke-build
+          path: downloaded-artifacts
+
+      - name: Verify Artifact
+        run: |
+          cat downloaded-artifacts/build-output.txt
+          grep "built artifact content" downloaded-artifacts/build-output.txt
+          echo "Artifact verified successfully"
+
+      - name: Verify standard runner env vars are set
+        # GitHub Actions always sets CI=true, GITHUB_ACTIONS=true, and RUNNER_OS.
+        # Reproduces the failure where CI=false caused DB_HOST to default to localhost.
+        run: |
+          echo "CI=$CI"
+          echo "GITHUB_ACTIONS=$GITHUB_ACTIONS"
+          echo "RUNNER_OS=$RUNNER_OS"
+          [ "$CI" = "true" ]             || (echo "❌ CI is not 'true'" && exit 1)
+          [ "$GITHUB_ACTIONS" = "true" ] || (echo "❌ GITHUB_ACTIONS is not 'true'" && exit 1)
+          [ -n "$RUNNER_OS" ]            || (echo "❌ RUNNER_OS is empty" && exit 1)
+          [ -n "$GITHUB_WORKSPACE" ]     || (echo "❌ GITHUB_WORKSPACE is empty" && exit 1)
+          echo "✅ Standard runner env vars are present"
+
+      - name: Verify step-level env vars reach the step process
+        # Reproduces the failure where `env: DB_HOST: mysql` was silently dropped and
+        # the process fell back to DB_HOST=localhost from .env.test.
+        run: |
+          echo "STEP_DB_HOST=$STEP_DB_HOST"
+          echo "STEP_CUSTOM=$STEP_CUSTOM"
+          [ "$STEP_DB_HOST" = "cache-db" ] || (echo "❌ STEP_DB_HOST is '$STEP_DB_HOST', expected 'cache-db'" && exit 1)
+          [ "$STEP_CUSTOM" = "hello-from-env" ] || (echo "❌ STEP_CUSTOM is '$STEP_CUSTOM'" && exit 1)
+          echo "✅ Step-level env vars are correctly passed to the step process"
+        env:
+          STEP_DB_HOST: cache-db
+          STEP_CUSTOM: hello-from-env
+
+      - name: Verify service is reachable by hostname
+        # Connects to the service using its YAML key name as the hostname.
+        # Without Docker network aliases this resolves to nothing and fails with ECONNREFUSED,
+        # reproducing the same failure mode as DB_HOST=mysql in the Playwright workflow.
+        run: |
+          echo "Connecting to cache-db:6379..."
+          python3 - <<'EOF'
+          import socket, sys
+          try:
+              s = socket.create_connection(("cache-db", 6379), timeout=5)
+              s.sendall(b"PING\r\n")
+              resp = s.recv(128).decode()
+              s.close()
+              assert resp.startswith("+PONG"), f"Expected +PONG, got: {resp!r}"
+              print("✅ Service alias resolves correctly — cache-db:6379 reachable")
+          except Exception as e:
+              print(f"❌ Failed: {e}", file=sys.stderr)
+              sys.exit(1)
+          EOF
+        env:
+          CACHE_HOST: cache-db
+          CACHE_PORT: "6379"

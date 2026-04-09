@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Dev wrapper for agent-ci that works from any directory.
-# Builds dtu-github-actions, then runs the CLI via tsx.
+# Dev-only wrapper: runs agent-ci against local development code (via tsx)
+# instead of the published package. Not intended for end users.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

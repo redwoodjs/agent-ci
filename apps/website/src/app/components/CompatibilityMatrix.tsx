@@ -7,9 +7,11 @@ const LEGEND = [
 
 type Row = { key: string; status: string; notes?: string };
 
-const SECTIONS: { label: string; rows: Row[] }[] = [
+const SECTIONS: { label: string; description: string; rows: Row[] }[] = [
   {
     label: "Workflow",
+    description:
+      "Top-level keys that control when and how a workflow runs — triggers, environment defaults, and concurrency.",
     rows: [
       { key: "name", status: "✅" },
       { key: "run-name", status: "🟡", notes: "Parsed but not displayed" },
@@ -48,6 +50,8 @@ const SECTIONS: { label: string; rows: Row[] }[] = [
   },
   {
     label: "Jobs",
+    description:
+      "Per-job configuration — runner selection, dependencies, conditional execution, containers, and service sidecars.",
     rows: [
       { key: "jobs.<id>", status: "✅", notes: "Multiple jobs in a single workflow" },
       { key: "jobs.<id>.name", status: "✅" },
@@ -93,6 +97,8 @@ const SECTIONS: { label: string; rows: Row[] }[] = [
   },
   {
     label: "Strategy",
+    description:
+      "Matrix builds and failure behavior — how jobs are multiplied across configurations and when to stop on errors.",
     rows: [
       { key: "strategy.matrix", status: "✅", notes: "Cartesian product expansion" },
       { key: "strategy.matrix.include", status: "❌" },
@@ -107,6 +113,8 @@ const SECTIONS: { label: string; rows: Row[] }[] = [
   },
   {
     label: "Steps",
+    description:
+      "Individual step configuration — shell commands, action references, conditional execution, and environment variables.",
     rows: [
       { key: "steps[*].id", status: "✅" },
       { key: "steps[*].name", status: "✅", notes: "Expression expansion in names" },
@@ -133,6 +141,8 @@ const SECTIONS: { label: string; rows: Row[] }[] = [
   },
   {
     label: "Expressions",
+    description:
+      "The ${{ }} expression language — built-in functions, context variables, and operators available in workflow YAML.",
     rows: [
       { key: "hashFiles(...)", status: "✅", notes: "SHA-256 of matching files, multi-glob" },
       { key: "format(...)", status: "✅", notes: "Template substitution with recursive expansion" },
@@ -165,6 +175,8 @@ const SECTIONS: { label: string; rows: Row[] }[] = [
   },
   {
     label: "GitHub API",
+    description:
+      "Interactions with GitHub's API — action downloads, common actions (cache, checkout, setup-*), artifacts, and tokens.",
     rows: [
       { key: "Action downloads", status: "✅", notes: "Resolves tarballs from github.com" },
       {
@@ -215,6 +227,9 @@ export function CompatibilityMatrix() {
           <h2 className="font-mono text-xs uppercase tracking-wider text-[#e0eee5] mb-0 px-4 py-2 bg-[#12211c] border border-b-0 border-[#2b483e] inline-block">
             {section.label}
           </h2>
+          <p className="text-xs text-[#71a792] px-4 py-2 bg-[#0d110f] border border-b-0 border-[#2b483e] m-0">
+            {section.description}
+          </p>
           <div className="overflow-x-auto border border-[#2b483e] bg-[#0d110f]">
             <table className="w-full text-left border-collapse">
               <thead>

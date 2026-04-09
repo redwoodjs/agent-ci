@@ -23,7 +23,12 @@ const SECTIONS: { label: string; rows: Row[] }[] = [
         status: "🟡",
         notes: "Accepted but triggers are not simulated",
       },
-      { key: "on (workflow_call)", status: "❌", notes: "Reusable workflow calls not supported" },
+      {
+        key: "on (workflow_call)",
+        status: "⚠️",
+        notes:
+          "Local refs (./) inlined into caller graph; remote refs, inputs/outputs, and nesting not supported",
+      },
       { key: "on (other events)", status: "🟡", notes: "Parsed, not simulated" },
       { key: "env", status: "✅", notes: "Workflow-level env propagated to steps" },
       { key: "defaults.run.shell", status: "✅", notes: "Passed through to the runner" },
@@ -78,7 +83,11 @@ const SECTIONS: { label: string; rows: Row[] }[] = [
         status: "✅",
         notes: "Sidecar containers with image, env, ports, options",
       },
-      { key: "jobs.<id>.uses (reusable workflows)", status: "❌" },
+      {
+        key: "jobs.<id>.uses (reusable workflows)",
+        status: "⚠️",
+        notes: "Local refs (./) expanded inline; remote refs skipped with warning",
+      },
       { key: "jobs.<id>.secrets", status: "❌", notes: "Use .env.agent-ci file instead" },
     ],
   },

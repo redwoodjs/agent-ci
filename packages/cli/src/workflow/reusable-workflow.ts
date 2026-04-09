@@ -13,19 +13,46 @@ export interface ExpandedJobEntry {
   needs: string[];
 }
 
+const MAX_REUSABLE_DEPTH = 4;
+
 /**
  * Expand reusable workflow jobs (`uses: ./.github/workflows/...`) into concrete
  * job entries that can be scheduled alongside regular jobs.
  *
  * Local refs (starting with `./`) are resolved relative to repoRoot.
  * Remote refs are resolved via the remoteCache map (pre-fetched by
- * prefetchRemoteWorkflows). Nested reusable workflows throw an error.
+ * prefetchRemoteWorkflows). Nesting is supported up to 4 levels deep
+ * (matching GitHub Actions' limit). Cycles are detected and rejected.
  */
 export function expandReusableJobs(
   workflowPath: string,
   repoRoot: string,
   remoteCache?: Map<string, string>,
 ): ExpandedJobEntry[] {
+  return expandReusableJobsInternal(workflowPath, repoRoot, remoteCache, 0, new Set());
+}
+
+function expandReusableJobsInternal(
+  workflowPath: string,
+  repoRoot: string,
+  remoteCache: Map<string, string> | undefined,
+  depth: number,
+  visitedPaths: Set<string>,
+): ExpandedJobEntry[] {
+  if (depth > MAX_REUSABLE_DEPTH) {
+    throw new Error(
+      `Reusable workflow nesting depth exceeds maximum of ${MAX_REUSABLE_DEPTH}: ${workflowPath}`,
+    );
+  }
+
+  const resolvedPath = path.resolve(workflowPath);
+  if (visitedPaths.has(resolvedPath)) {
+    throw new Error(
+      `Cycle detected in reusable workflows: ${resolvedPath} is already in the call chain`,
+    );
+  }
+  visitedPaths.add(resolvedPath);
+
   const raw = parseYaml(fs.readFileSync(workflowPath, "utf-8"));
   const jobs = raw?.jobs ?? {};
 
@@ -56,58 +83,39 @@ export function expandReusableJobs(
         );
       }
 
-      const calledRaw = parseYaml(fs.readFileSync(calledPath, "utf-8"));
-      const calledJobs = calledRaw?.jobs ?? {};
-
-      // Guard against nested reusable workflows
-      for (const [cjId, cjDef] of Object.entries<any>(calledJobs)) {
-        if (typeof cjDef?.uses === "string") {
-          throw new Error(
-            `Nested reusable workflows are not supported: job "${cjId}" in ${calledPath} calls "${cjDef.uses}"`,
-          );
-        }
-      }
+      // Recursively expand the called workflow
+      const calledEntries = expandReusableJobsInternal(
+        calledPath,
+        repoRoot,
+        remoteCache,
+        depth + 1,
+        visitedPaths,
+      );
 
       const callerNeeds = parseNeeds(jobDef?.needs);
 
-      // Find terminal jobs in the called workflow (jobs that no other job depends on)
-      const calledJobIds = new Set(Object.keys(calledJobs));
+      // Prefix all entry IDs and needs with the caller job ID
+      const prefixed: ExpandedJobEntry[] = calledEntries.map((entry) => ({
+        id: `${jobId}/${entry.id}`,
+        workflowPath: entry.workflowPath,
+        sourceTaskName: entry.sourceTaskName,
+        needs: entry.needs.length === 0 ? callerNeeds : entry.needs.map((n) => `${jobId}/${n}`),
+      }));
+
+      // Compute terminals among the prefixed entries
+      const prefixedIds = new Set(prefixed.map((e) => e.id));
       const depended = new Set<string>();
-      for (const [, cjDef] of Object.entries<any>(calledJobs)) {
-        for (const n of parseNeeds(cjDef?.needs)) {
-          depended.add(n);
+      for (const entry of prefixed) {
+        for (const n of entry.needs) {
+          if (prefixedIds.has(n)) {
+            depended.add(n);
+          }
         }
       }
-      const terminalIds = [...calledJobIds].filter((id) => !depended.has(id));
-
-      const terminals: string[] = [];
-
-      for (const [cjId, cjDef] of Object.entries<any>(calledJobs)) {
-        const compositeId = `${jobId}/${cjId}`;
-        const internalNeeds = parseNeeds(cjDef?.needs);
-
-        let needs: string[];
-        if (internalNeeds.length === 0) {
-          // Entry-point job in called workflow: inherits caller's needs
-          needs = callerNeeds;
-        } else {
-          // Internal deps get prefixed with caller job ID
-          needs = internalNeeds.map((n) => `${jobId}/${n}`);
-        }
-
-        entries.push({
-          id: compositeId,
-          workflowPath: calledPath,
-          sourceTaskName: cjId,
-          needs,
-        });
-
-        if (terminalIds.includes(cjId)) {
-          terminals.push(compositeId);
-        }
-      }
+      const terminals = prefixed.filter((e) => !depended.has(e.id)).map((e) => e.id);
 
       callerToTerminals.set(jobId, terminals);
+      entries.push(...prefixed);
     } else {
       // Regular job — has `steps:` or `runs-on:`
       entries.push({
@@ -130,6 +138,8 @@ export function expandReusableJobs(
       return [dep];
     });
   }
+
+  visitedPaths.delete(resolvedPath);
 
   return entries;
 }

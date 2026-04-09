@@ -35,6 +35,7 @@ import { getWorkingDirectory } from "./output/working-directory.js";
 import { pruneOrphanedDockerResources } from "./docker/shutdown.js";
 import { topoSort } from "./workflow/job-scheduler.js";
 import { expandReusableJobs } from "./workflow/reusable-workflow.js";
+import { prefetchRemoteWorkflows } from "./workflow/remote-workflow-fetch.js";
 import { printSummary, type JobResult } from "./output/reporter.js";
 import { syncWorkspaceForRetry } from "./runner/sync.js";
 import { RunStateStore } from "./output/run-state.js";
@@ -513,7 +514,9 @@ async function handleWorkflow(options: {
   config.GITHUB_REPO = githubRepo;
   const [owner, name] = githubRepo.split("/");
 
-  const expandedEntries = expandReusableJobs(workflowPath, repoRoot);
+  const remoteCacheDir = path.resolve(getWorkingDirectory(), "cache", "remote-workflows");
+  const remoteCache = await prefetchRemoteWorkflows(workflowPath, remoteCacheDir);
+  const expandedEntries = expandReusableJobs(workflowPath, repoRoot, remoteCache);
 
   if (expandedEntries.length === 0) {
     debugCli(`[Agent CI] No jobs found in workflow: ${path.basename(workflowPath)}`);

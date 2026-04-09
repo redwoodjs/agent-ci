@@ -218,7 +218,7 @@ jobs:
     expect(byId["test"].needs).toEqual(["build", "lint/lint"]);
   });
 
-  it("skips remote uses refs with a warning", () => {
+  it("throws on unresolved remote uses refs", () => {
     const wfDir = setup();
     const callerWf = path.join(wfDir, "ci.yml");
     fs.writeFileSync(
@@ -234,10 +234,52 @@ jobs:
 `,
     );
 
-    const entries = expandReusableJobs(callerWf, tmpDir);
-    // Remote reusable workflow is skipped; only build remains
-    expect(entries).toHaveLength(1);
-    expect(entries[0].id).toBe("build");
+    expect(() => expandReusableJobs(callerWf, tmpDir)).toThrow(
+      /Remote reusable workflow not resolved/,
+    );
+  });
+
+  it("expands remote uses refs when remoteCache is provided", () => {
+    const wfDir = setup();
+
+    // Create a file to act as the cached remote workflow
+    const cachedWf = path.join(wfDir, "cached-remote-lint.yml");
+    fs.writeFileSync(
+      cachedWf,
+      `
+on: workflow_call
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo lint
+`,
+    );
+
+    const callerWf = path.join(wfDir, "ci.yml");
+    fs.writeFileSync(
+      callerWf,
+      `
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo build
+  lint:
+    uses: some-org/some-repo/.github/workflows/lint.yml@main
+`,
+    );
+
+    const remoteCache = new Map<string, string>();
+    remoteCache.set("some-org/some-repo/.github/workflows/lint.yml@main", cachedWf);
+
+    const entries = expandReusableJobs(callerWf, tmpDir, remoteCache);
+    expect(entries).toHaveLength(2);
+
+    const byId = Object.fromEntries(entries.map((e) => [e.id, e]));
+    expect(byId["build"].workflowPath).toBe(callerWf);
+    expect(byId["lint/lint"].workflowPath).toBe(cachedWf);
+    expect(byId["lint/lint"].sourceTaskName).toBe("lint");
   });
 
   it("throws on nested reusable workflows", () => {
@@ -304,7 +346,7 @@ jobs:
     expect(testJob!.needs).toEqual(["build"]);
   });
 
-  it("handles called workflow file not found gracefully", () => {
+  it("throws when called workflow file not found", () => {
     const wfDir = setup();
     const callerWf = path.join(wfDir, "ci.yml");
     fs.writeFileSync(
@@ -320,10 +362,7 @@ jobs:
 `,
     );
 
-    const entries = expandReusableJobs(callerWf, tmpDir);
-    // nonexistent file is skipped; only build remains
-    expect(entries).toHaveLength(1);
-    expect(entries[0].id).toBe("build");
+    expect(() => expandReusableJobs(callerWf, tmpDir)).toThrow(/Reusable workflow file not found/);
   });
 
   it("rewires multiple downstream deps when caller has multiple terminal jobs", () => {

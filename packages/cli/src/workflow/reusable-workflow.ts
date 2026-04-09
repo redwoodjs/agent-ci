@@ -17,10 +17,15 @@ export interface ExpandedJobEntry {
  * Expand reusable workflow jobs (`uses: ./.github/workflows/...`) into concrete
  * job entries that can be scheduled alongside regular jobs.
  *
- * Only local refs (starting with `./`) are supported. Remote refs are warned
- * and skipped. Nested reusable workflows throw an error.
+ * Local refs (starting with `./`) are resolved relative to repoRoot.
+ * Remote refs are resolved via the remoteCache map (pre-fetched by
+ * prefetchRemoteWorkflows). Nested reusable workflows throw an error.
  */
-export function expandReusableJobs(workflowPath: string, repoRoot: string): ExpandedJobEntry[] {
+export function expandReusableJobs(
+  workflowPath: string,
+  repoRoot: string,
+  remoteCache?: Map<string, string>,
+): ExpandedJobEntry[] {
   const raw = parseYaml(fs.readFileSync(workflowPath, "utf-8"));
   const jobs = raw?.jobs ?? {};
 
@@ -34,17 +39,21 @@ export function expandReusableJobs(workflowPath: string, repoRoot: string): Expa
     const uses = jobDef?.uses;
     if (typeof uses === "string") {
       // This is a reusable workflow call
-      if (!uses.startsWith("./")) {
-        console.warn(`[Agent CI] Skipping remote reusable workflow: ${jobId} uses ${uses}`);
-        continue;
+      let calledPath: string;
+      if (uses.startsWith("./")) {
+        calledPath = path.resolve(repoRoot, uses);
+      } else {
+        const cached = remoteCache?.get(uses);
+        if (!cached) {
+          throw new Error(`Remote reusable workflow not resolved: job "${jobId}" uses ${uses}`);
+        }
+        calledPath = cached;
       }
 
-      const calledPath = path.resolve(repoRoot, uses);
       if (!fs.existsSync(calledPath)) {
-        console.warn(
-          `[Agent CI] Reusable workflow file not found: ${calledPath} (referenced by job "${jobId}")`,
+        throw new Error(
+          `Reusable workflow file not found: ${calledPath} (referenced by job "${jobId}")`,
         );
-        continue;
       }
 
       const calledRaw = parseYaml(fs.readFileSync(calledPath, "utf-8"));

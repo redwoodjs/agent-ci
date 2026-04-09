@@ -241,6 +241,37 @@ describe("Action Tarball Cache", () => {
     const data = await res.json();
     expect(data.actions).toEqual({});
   });
+
+  it("should skip local actions without crashing", async () => {
+    const baseUrl = `http://localhost:${PORT}`;
+
+    const res = await fetch(
+      `${baseUrl}/_apis/distributedtask/hubs/Hub/plans/Plan/actiondownloadinfo`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          actions: [
+            { nameWithOwner: "./.github/actions/shared-node-cache", ref: "" },
+            { nameWithOwner: "", ref: "" },
+            { nameWithOwner: "actions/checkout", ref: "v4" },
+          ],
+        }),
+      },
+    );
+
+    expect(res.status).toBe(200);
+    const data = await res.json();
+
+    // Local and empty actions should be skipped
+    expect(data.actions["./.github/actions/shared-node-cache@"]).toBeUndefined();
+    expect(data.actions["@"]).toBeUndefined();
+
+    // Remote action should still be present
+    const checkoutInfo = data.actions["actions/checkout@v4"];
+    expect(checkoutInfo).toBeDefined();
+    expect(checkoutInfo.tarballUrl).toBe(`${baseUrl}/_dtu/action-tarball/actions/checkout/v4`);
+  });
 });
 
 // ── writeStepOutputLines group filtering ─────────────────────────────────────

@@ -652,6 +652,12 @@ export function registerActionRoutes(app: Polka) {
       const baseUrl = getBaseUrl(req);
 
       for (const action of actions) {
+        // Local actions (RepositoryType: "self") are resolved from the workspace by the
+        // runner — they never need a tarball download. Skip them to avoid parsing errors.
+        if (!action.nameWithOwner || action.nameWithOwner.startsWith("./")) {
+          continue;
+        }
+
         const key = `${action.nameWithOwner}@${action.ref}`;
         // Strip sub-path from nameWithOwner (e.g. "actions/cache/save" → "actions/cache")
         // Sub-path actions share the same repo tarball as the parent action.

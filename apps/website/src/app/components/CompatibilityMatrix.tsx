@@ -44,9 +44,9 @@ const SECTIONS: { label: string; description: string; rows: Row[] }[] = [
       },
       {
         key: "on (workflow_call)",
-        status: "⚠️",
+        status: "✅",
         notes:
-          "Local refs (./) inlined into caller graph; remote refs, inputs/outputs, and nesting not supported",
+          "Local and remote refs inlined into caller graph; inputs/outputs passing and nesting up to 4 levels supported",
       },
       { key: "on (other events)", status: "🟡", notes: "Parsed, not simulated" },
       { key: "env", status: "✅", notes: "Workflow-level env propagated to steps" },
@@ -106,8 +106,9 @@ const SECTIONS: { label: string; description: string; rows: Row[] }[] = [
       },
       {
         key: "jobs.<id>.uses (reusable workflows)",
-        status: "⚠️",
-        notes: "Local refs (./) expanded inline; remote refs skipped with warning",
+        status: "✅",
+        notes:
+          "Local and remote refs expanded inline; with: inputs resolved as inputs.*, workflow_call outputs wired back, nesting up to 4 levels",
       },
       {
         key: "jobs.<id>.secrets",
@@ -179,6 +180,11 @@ const SECTIONS: { label: string; description: string; rows: Row[] }[] = [
       { key: "github.event.*", status: "⚠️", notes: "Returns empty strings" },
       { key: "strategy.job-total, strategy.job-index", status: "✅" },
       { key: "steps.*.outputs.*", status: "⚠️", notes: "Resolves to empty string at parse time" },
+      {
+        key: "inputs.*",
+        status: "✅",
+        notes: "Resolved from caller with: values merged with workflow_call input defaults",
+      },
       { key: "needs.*.outputs.*", status: "⚠️", notes: "Resolved from needsContext when provided" },
       {
         key: "Boolean/comparison operators",

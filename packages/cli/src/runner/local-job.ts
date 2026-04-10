@@ -550,6 +550,9 @@ export async function executeLocalJob(
     container = await getDocker().createContainer({
       Image: containerImage,
       name: containerName,
+      Labels: {
+        "agent-ci.pid": String(process.pid),
+      },
       Env: containerEnv,
       ...(useDirectContainer ? { Entrypoint: ["bash"] } : {}),
       Cmd: containerCmd,

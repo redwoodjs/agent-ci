@@ -85,6 +85,25 @@ describe("copyWorkspace", () => {
       "console.log('hello')",
     );
   });
+
+  it("preserves git-tracked symlinks", async () => {
+    // Create a shared directory and a symlink to it (like Khan/wonder-blocks)
+    fs.mkdirSync(path.join(repoDir, "types"), { recursive: true });
+    fs.writeFileSync(path.join(repoDir, "types", "global.d.ts"), "declare module 'aphrodite';");
+    fs.mkdirSync(path.join(repoDir, "packages", "pkg-a"), { recursive: true });
+    fs.symlinkSync("../../types", path.join(repoDir, "packages", "pkg-a", "types"));
+
+    execSync("git add .", { cwd: repoDir, stdio: "pipe" });
+    execSync('git commit -m "add symlink"', { cwd: repoDir, stdio: "pipe" });
+
+    const { copyWorkspace } = await import("./cleanup.js");
+    copyWorkspace(repoDir, destDir);
+
+    const copiedLink = path.join(destDir, "packages", "pkg-a", "types");
+    const stat = fs.lstatSync(copiedLink);
+    expect(stat.isSymbolicLink()).toBe(true);
+    expect(fs.readlinkSync(copiedLink)).toBe("../../types");
+  });
 });
 
 // ── computeLockfileHash tests ─────────────────────────────────────────────────

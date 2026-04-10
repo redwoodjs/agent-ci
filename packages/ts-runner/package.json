@@ -33,16 +33,14 @@
   "scripts": {
     "build": "tsgo",
     "typecheck": "tsgo",
-    "ts-runner": "tsx src/cli.ts",
-    "test": "vitest run"
+    "ts-runner": "tsx src/cli.ts"
   },
   "dependencies": {
     "yaml": "^2.8.2"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",
-    "tsx": "^4.21.0",
-    "vitest": "^4.0.18"
+    "tsx": "^4.21.0"
   },
   "engines": {
     "node": ">=22"

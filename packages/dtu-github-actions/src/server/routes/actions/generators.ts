@@ -182,13 +182,7 @@ export function createJobResponse(
   const repoName = payload.repository?.name || repoFullName.split("/")[1] || "";
   const workspacePath = `/home/runner/_work/${repoName}/${repoName}`;
 
-  const headSha =
-    payload.headSha && payload.headSha !== "HEAD"
-      ? payload.headSha
-      : "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-  // realHeadSha is the actual HEAD commit SHA, even when headSha is unset
-  // (dirty workspace mode). Used for push event context (before/after).
-  const realHeadSha = payload.realHeadSha || headSha;
+  const realHeadSha = payload.realHeadSha;
 
   const Variables: { [key: string]: JobVariable } = {
     // Standard GitHub Actions environment variables — always set by real runners.

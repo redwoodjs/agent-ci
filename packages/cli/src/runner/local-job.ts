@@ -20,7 +20,7 @@ import { type JobResult, tailLogFile } from "../output/reporter.js";
 import { RunStateStore, type StepState } from "../output/run-state.js";
 
 import { writeJobMetadata } from "./metadata.js";
-import { computeFakeSha, writeGitShim } from "./git-shim.js";
+import { writeGitShim } from "./git-shim.js";
 import { prepareWorkspace } from "./workspace.js";
 import { createRunDirectories } from "./directory-setup.js";
 import {
@@ -303,8 +303,7 @@ export async function executeLocalJob(
     // 4. Write git shim BEFORE container start so the entrypoint can install it
     // immediately. On Linux, prepareWorkspace (rsync) is slow enough that the
     // container entrypoint would race ahead and find an empty shims dir.
-    const fakeSha = computeFakeSha(job.headSha);
-    writeGitShim(dirs.shimsDir, fakeSha);
+    writeGitShim(dirs.shimsDir, job.realHeadSha);
 
     // Prepare workspace files in parallel with container setup
     const workspacePrepStart = Date.now();

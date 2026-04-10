@@ -64,12 +64,13 @@ describe("buildContainerBinds", () => {
       warmModulesDir: "/tmp/warm",
       hostRunnerDir: "/tmp/runner",
       useDirectContainer: false,
+      githubRepo: "org/repo",
     });
 
     expect(binds).toContain("/tmp/work:/home/runner/_work");
     expect(binds).toContain("/var/run/docker.sock:/var/run/docker.sock"); // default when dockerSocketPath is not set
     expect(binds).toContain("/tmp/shims:/tmp/agent-ci-shims");
-    expect(binds).toContain("/tmp/warm:/tmp/node_modules");
+    expect(binds).toContain("/tmp/warm:/home/runner/_work/repo/repo/node_modules");
     expect(binds).toContain("/tmp/pnpm:/home/runner/_work/.pnpm-store");
     expect(binds).toContain("/tmp/npm:/home/runner/.npm");
     expect(binds).toContain("/tmp/bun:/home/runner/.bun/install/cache");
@@ -88,6 +89,7 @@ describe("buildContainerBinds", () => {
       warmModulesDir: "/tmp/warm",
       hostRunnerDir: "/tmp/runner",
       useDirectContainer: false,
+      githubRepo: "org/repo",
     });
 
     expect(binds).toContain("/tmp/work:/home/runner/_work");
@@ -108,6 +110,7 @@ describe("buildContainerBinds", () => {
       warmModulesDir: "/tmp/warm",
       hostRunnerDir: "/tmp/runner",
       useDirectContainer: false,
+      githubRepo: "org/repo",
     });
 
     expect(binds).toContain("/tmp/npm:/home/runner/.npm");
@@ -126,6 +129,7 @@ describe("buildContainerBinds", () => {
       warmModulesDir: "/tmp/warm",
       hostRunnerDir: "/tmp/runner",
       useDirectContainer: false,
+      githubRepo: "org/repo",
       dockerSocketPath: "/Users/test/.orbstack/run/docker.sock",
     });
 
@@ -147,6 +151,7 @@ describe("buildContainerBinds", () => {
       warmModulesDir: "/tmp/warm",
       hostRunnerDir: "/tmp/runner",
       useDirectContainer: true,
+      githubRepo: "org/repo",
     });
 
     expect(binds).toContain("/tmp/runner:/home/runner");
@@ -383,6 +388,7 @@ describe("buildContainerBinds with dockerSocketPath", () => {
     warmModulesDir: "/tmp/warm",
     hostRunnerDir: "/tmp/runner",
     useDirectContainer: false,
+    githubRepo: "org/repo",
   };
 
   it("uses default /var/run/docker.sock when no dockerSocketPath is provided", async () => {
@@ -417,6 +423,7 @@ describe("buildContainerBinds with signalsDir", () => {
     warmModulesDir: "/tmp/warm",
     hostRunnerDir: "/tmp/runner",
     useDirectContainer: false,
+    githubRepo: "org/repo",
   };
 
   it("includes signals bind-mount when signalsDir is provided", async () => {

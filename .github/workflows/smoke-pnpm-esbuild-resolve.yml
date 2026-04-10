@@ -1,0 +1,39 @@
+name: "Smoke: pnpm monorepo esbuild resolution"
+
+# Reproduces a bug where esbuild fails to resolve imports through
+# pnpm workspace symlinks when warm node_modules is mounted via
+# a symlink to /tmp/node_modules instead of a direct bind mount.
+#
+# The bug manifests as esbuild "Cannot read file" errors because
+# the symlink chain (workspace/node_modules → /tmp/node_modules)
+# causes path resolution to produce incorrect intermediate paths.
+#
+# Fixture: .github/fixtures/pnpm-esbuild-resolve/
+#   A minimal pnpm monorepo with apps/web importing a root-hoisted
+#   dependency (ms). esbuild must follow the pnpm symlink chain
+#   from apps/web/node_modules/ms → ../../node_modules/.pnpm/ms@2.x/...
+
+on:
+  pull_request_target:
+    types: [opened, labeled, synchronize]
+
+jobs:
+  esbuild-resolve:
+    if: '!github.event.pull_request.draft && (contains(fromJSON(''["MEMBER", "OWNER", "COLLABORATOR"]''), github.event.pull_request.author_association) || contains(github.event.pull_request.labels.*.name, ''safe-to-run''))'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install pnpm and dependencies
+        working-directory: .github/fixtures/pnpm-esbuild-resolve
+        run: |
+          npm install -g pnpm
+          pnpm install
+
+      # ── Verify esbuild resolves through pnpm workspace symlinks ──
+      - name: esbuild bundle through workspace symlinks
+        working-directory: .github/fixtures/pnpm-esbuild-resolve
+        run: |
+          npx esbuild apps/web/src/index.mjs --bundle --platform=node --outfile=/tmp/out.js
+          node /tmp/out.js
+          echo "✅ esbuild bundle + execution succeeded"

@@ -119,13 +119,17 @@ export function resolveDockerSocket(): DockerSocket {
 }
 
 /**
- * If `socketPath` exists (following symlinks), return the real path.
- * Returns undefined otherwise.
+ * If `socketPath` exists (following symlinks) and is accessible, return the
+ * real path.  Returns undefined otherwise so the caller can keep searching.
  */
 function resolveIfExists(socketPath: string): string | undefined {
   try {
     // fs.realpathSync follows symlinks and throws if the target doesn't exist
-    return fs.realpathSync(socketPath);
+    const resolved = fs.realpathSync(socketPath);
+    // Verify we can actually connect — the socket may exist but be owned by
+    // root:docker with 660 perms (common on Linux with Docker Desktop).
+    fs.accessSync(resolved, fs.constants.R_OK | fs.constants.W_OK);
+    return resolved;
   } catch {
     return undefined;
   }

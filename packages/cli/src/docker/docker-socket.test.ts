@@ -26,6 +26,7 @@ describe("resolveDockerSocket", () => {
   it("uses DOCKER_HOST when set to a unix socket that exists", async () => {
     process.env.DOCKER_HOST = "unix:///tmp/test-docker.sock";
     vi.spyOn(fs, "realpathSync").mockReturnValue("/tmp/test-docker.sock");
+    vi.spyOn(fs, "accessSync").mockReturnValue(undefined);
 
     const { resolveDockerSocket } = await importFresh();
     const result = resolveDockerSocket();
@@ -54,12 +55,43 @@ describe("resolveDockerSocket", () => {
       }
       throw new Error("ENOENT");
     });
+    vi.spyOn(fs, "accessSync").mockReturnValue(undefined);
 
     const { resolveDockerSocket } = await importFresh();
     const result = resolveDockerSocket();
 
     expect(result.socketPath).toBe("/Users/test/.orbstack/run/docker.sock");
     expect(result.uri).toBe("unix:///Users/test/.orbstack/run/docker.sock");
+  });
+
+  // ── EACCES fallthrough ─────────────────────────────────────────────────
+
+  it("falls through to docker context when default socket is not accessible", async () => {
+    delete process.env.DOCKER_HOST;
+    // Socket exists but is not accessible (e.g. root:docker 660 on Linux)
+    vi.spyOn(fs, "realpathSync").mockReturnValue("/var/run/docker.sock");
+    vi.spyOn(fs, "accessSync").mockImplementation(() => {
+      throw Object.assign(new Error("EACCES"), { code: "EACCES" });
+    });
+    vi.spyOn(fs, "existsSync").mockImplementation((p) => {
+      return String(p) === "/home/user/.docker/desktop/docker.sock";
+    });
+    mockedExecSync.mockReturnValue(
+      JSON.stringify([
+        {
+          Endpoints: {
+            docker: {
+              Host: "unix:///home/user/.docker/desktop/docker.sock",
+            },
+          },
+        },
+      ]),
+    );
+
+    const { resolveDockerSocket } = await importFresh();
+    const result = resolveDockerSocket();
+
+    expect(result.socketPath).toBe("/home/user/.docker/desktop/docker.sock");
   });
 
   // ── Docker context fallback ─────────────────────────────────────────────

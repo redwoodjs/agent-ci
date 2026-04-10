@@ -40,6 +40,23 @@ function formatDuration(ms: number): string {
 
 // ─── Failures-first summary (emitted after all jobs complete) ─────────────────
 
+function getErrorContent(f: JobResult): string {
+  if (f.failedStepLogPath && fs.existsSync(f.failedStepLogPath)) {
+    return fs.readFileSync(f.failedStepLogPath, "utf-8");
+  }
+  if (f.lastOutputLines && f.lastOutputLines.length > 0) {
+    return f.lastOutputLines.join("\n") + "\n";
+  }
+  return "";
+}
+
+function formatFailureHeader(f: JobResult): string {
+  if (f.failedStep) {
+    return `  ✗ ${f.workflow} > ${f.taskId} > "${f.failedStep}"`;
+  }
+  return `  ✗ ${f.workflow} > ${f.taskId}`;
+}
+
 export function printSummary(results: JobResult[], runDir?: string): void {
   const failures = results.filter((r) => !r.succeeded);
   const passes = results.filter((r) => r.succeeded);
@@ -47,17 +64,29 @@ export function printSummary(results: JobResult[], runDir?: string): void {
 
   if (failures.length > 0) {
     process.stdout.write("\n━━━ FAILURES ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n");
+
+    // Group failures by error content to avoid repeating identical errors
+    const groups: { failures: JobResult[]; errorContent: string }[] = [];
+    const seen = new Map<string, (typeof groups)[number]>();
+
     for (const f of failures) {
-      if (f.failedStep) {
-        process.stdout.write(`  ✗ ${f.workflow} > ${f.taskId} > "${f.failedStep}"\n`);
+      const content = getErrorContent(f);
+      const existing = seen.get(content);
+      if (existing) {
+        existing.failures.push(f);
       } else {
-        process.stdout.write(`  ✗ ${f.workflow} > ${f.taskId}\n`);
+        const group = { failures: [f], errorContent: content };
+        groups.push(group);
+        seen.set(content, group);
       }
-      if (f.failedStepLogPath && fs.existsSync(f.failedStepLogPath)) {
-        const content = fs.readFileSync(f.failedStepLogPath, "utf-8");
-        process.stdout.write("\n" + content);
-      } else if (f.lastOutputLines && f.lastOutputLines.length > 0) {
-        process.stdout.write("\n" + f.lastOutputLines.join("\n") + "\n");
+    }
+
+    for (const group of groups) {
+      for (const f of group.failures) {
+        process.stdout.write(formatFailureHeader(f) + "\n");
+      }
+      if (group.errorContent) {
+        process.stdout.write("\n" + group.errorContent);
       }
       process.stdout.write("\n");
     }

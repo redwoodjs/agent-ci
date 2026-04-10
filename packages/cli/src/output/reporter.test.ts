@@ -78,6 +78,56 @@ describe("printSummary", () => {
     expect(output).toContain('✗ retry-proof.yml > test > "Run assertion test"');
   });
 
+  it("deduplicates failures with identical error content", () => {
+    printSummary([
+      makeResult({
+        taskId: "test (1)",
+        failedStep: "[Job startup failed]",
+        lastOutputLines: ["Missing secrets"],
+      }),
+      makeResult({
+        taskId: "test (2)",
+        failedStep: "[Job startup failed]",
+        lastOutputLines: ["Missing secrets"],
+      }),
+      makeResult({
+        taskId: "test (3)",
+        failedStep: "[Job startup failed]",
+        lastOutputLines: ["Missing secrets"],
+      }),
+    ]);
+
+    // Error content should appear only once
+    const matches = output.match(/Missing secrets/g);
+    expect(matches).toHaveLength(1);
+
+    // All job headers should still appear
+    expect(output).toContain('test (1) > "[Job startup failed]"');
+    expect(output).toContain('test (2) > "[Job startup failed]"');
+    expect(output).toContain('test (3) > "[Job startup failed]"');
+
+    // Summary should show correct count
+    expect(output).toContain("3 failed");
+  });
+
+  it("keeps distinct errors separate", () => {
+    printSummary([
+      makeResult({
+        taskId: "build",
+        failedStep: "Compile",
+        lastOutputLines: ["syntax error"],
+      }),
+      makeResult({
+        taskId: "lint",
+        failedStep: "ESLint",
+        lastOutputLines: ["unused variable"],
+      }),
+    ]);
+
+    expect(output).toContain("syntax error");
+    expect(output).toContain("unused variable");
+  });
+
   it("shows pass count in summary for a successful run", () => {
     printSummary([makeResult({ succeeded: true })]);
 

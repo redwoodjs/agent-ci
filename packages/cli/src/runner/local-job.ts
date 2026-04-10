@@ -20,7 +20,7 @@ import { startEphemeralDtu } from "dtu-github-actions/ephemeral";
 import { type JobResult, tailLogFile } from "../output/reporter.js";
 import { RunStateStore, type StepState } from "../output/run-state.js";
 
-import { writeJobMetadata, findRepoRoot } from "./metadata.js";
+import { writeJobMetadata } from "./metadata.js";
 import { computeFakeSha, writeGitShim } from "./git-shim.js";
 import { prepareWorkspace } from "./workspace.js";
 import { createRunDirectories } from "./directory-setup.js";
@@ -35,15 +35,42 @@ import {
 import { buildJobResult, sanitizeStepName } from "./result-builder.js";
 import { wrapJobSteps, appendOutputCaptureStep } from "./step-wrapper.js";
 import { syncWorkspaceForRetry } from "./sync.js";
+import { resolveDockerSocket, type DockerSocket } from "../docker/docker-socket.js";
 
 // ─── Docker setup ─────────────────────────────────────────────────────────────
 
-const dockerHost = process.env.DOCKER_HOST || "unix:///var/run/docker.sock";
-const dockerConfig = dockerHost.startsWith("unix://")
-  ? { socketPath: dockerHost.replace("unix://", "") }
-  : { host: dockerHost, protocol: "ssh" as const };
+let _resolvedSocket: DockerSocket | null = null;
+let _docker: Docker | null = null;
 
-const docker = new Docker(dockerConfig);
+function getDockerSocket(): DockerSocket {
+  if (!_resolvedSocket) {
+    _resolvedSocket = resolveDockerSocket();
+  }
+  return _resolvedSocket;
+}
+
+function getDocker(): Docker {
+  if (!_docker) {
+    const socket = getDockerSocket();
+    if (socket.socketPath) {
+      _docker = new Docker({ socketPath: socket.socketPath });
+    } else if (socket.uri.startsWith("ssh://")) {
+      _docker = new Docker({ host: socket.uri, protocol: "ssh" as const });
+    } else {
+      // Let dockerode/docker-modem parse non-unix, non-ssh DOCKER_HOST values
+      // from the environment. This preserves tcp:// support without changing the
+      // existing unix:// or ssh:// behavior.
+      _docker = new Docker();
+    }
+  }
+  return _docker;
+}
+
+export function __test_createDockerClient(socket: DockerSocket): Docker {
+  _resolvedSocket = socket;
+  _docker = null;
+  return getDocker();
+}
 
 const IMAGE = "ghcr.io/actions/actions-runner:latest";
 
@@ -120,7 +147,7 @@ export async function executeLocalJob(
 
   // ── Pre-flight: verify Docker is reachable ────────────────────────────────
   try {
-    await docker.ping();
+    await getDocker().ping();
   } catch (err: any) {
     const isSocket = err?.code === "ECONNREFUSED" || err?.code === "ENOENT";
     const hint = isSocket
@@ -205,7 +232,7 @@ export async function executeLocalJob(
   // ── Create run directories ────────────────────────────────────────────────
   const dirs = createRunDirectories({
     runDir,
-    githubRepo: job.githubRepo,
+    githubRepo: job.githubRepo!,
     workflowPath: job.workflowPath,
   });
 
@@ -340,7 +367,7 @@ export async function executeLocalJob(
     const parsedDockerApiUrl = new URL(dockerApiUrl);
     const dtuPort =
       parsedDockerApiUrl.port || (parsedDockerApiUrl.protocol === "https:" ? "443" : "80");
-    const githubRepo = job.githubRepo || config.GITHUB_REPO;
+    const githubRepo = job.githubRepo || config.GITHUB_REPO!;
     const repoUrl = `${dockerApiUrl}/${githubRepo}`;
 
     debugRunner(`Spawning container ${containerName}...`);
@@ -349,7 +376,7 @@ export async function executeLocalJob(
 
     // Pre-cleanup: remove any stale container with the same name
     try {
-      const stale = docker.getContainer(containerName);
+      const stale = getDocker().getContainer(containerName);
       await stale.remove({ force: true });
     } catch {
       // Ignore - container doesn't exist
@@ -360,7 +387,7 @@ export async function executeLocalJob(
     if (job.services && job.services.length > 0) {
       const svcStart = Date.now();
       debugRunner(`Starting ${job.services.length} service container(s)...`);
-      serviceCtx = await startServiceContainers(docker, job.services, containerName, (line) =>
+      serviceCtx = await startServiceContainers(getDocker(), job.services, containerName, (line) =>
         debugRunner(line),
       );
       bt("service-containers", svcStart);
@@ -385,7 +412,7 @@ export async function executeLocalJob(
       } catch {
         debugRunner(`Extracting runner binary to host (one-time)...`);
         const tmpName = `agent-ci-seed-runner-${Date.now()}`;
-        const seedContainer = await docker.createContainer({
+        const seedContainer = await getDocker().createContainer({
           Image: IMAGE,
           name: tmpName,
           Cmd: ["true"],
@@ -419,11 +446,11 @@ export async function executeLocalJob(
     if (useDirectContainer) {
       debugRunner(`Pulling ${containerImage}...`);
       await new Promise<void>((resolve, reject) => {
-        docker.pull(containerImage, (err: Error | null, stream: NodeJS.ReadableStream) => {
+        getDocker().pull(containerImage, (err: Error | null, stream: NodeJS.ReadableStream) => {
           if (err) {
             return reject(err);
           }
-          docker.modem.followProgress(stream, (err: Error | null) => {
+          getDocker().modem.followProgress(stream, (err: Error | null) => {
             if (err) {
               return reject(err);
             }
@@ -432,9 +459,6 @@ export async function executeLocalJob(
         });
       });
     }
-
-    // Determine repo root for Yarn Berry detection
-    const repoRoot = job.workflowPath ? findRepoRoot(job.workflowPath) : undefined;
 
     const containerEnv = buildContainerEnv({
       containerName,
@@ -445,8 +469,6 @@ export async function executeLocalJob(
       headSha: job.headSha,
       dtuHost,
       useDirectContainer,
-      repoRoot,
-      maxConcurrency: containerCpus,
     });
 
     const containerBinds = buildContainerBinds({
@@ -483,7 +505,7 @@ export async function executeLocalJob(
     );
 
     t0 = Date.now();
-    const container = await docker.createContainer({
+    const container = await getDocker().createContainer({
       Image: containerImage,
       name: containerName,
       Env: containerEnv,
@@ -920,7 +942,7 @@ export async function executeLocalJob(
     try {
       const hostUid = process.getuid?.() || 1000;
       const hostGid = process.getgid?.() || 1000;
-      const cleanupContainer = await docker.createContainer({
+      const cleanupContainer = await getDocker().createContainer({
         Image: "alpine:latest",
         Cmd: ["sh", "-c", `chown -R ${hostUid}:${hostGid} /work /diag`],
         HostConfig: {
@@ -940,7 +962,7 @@ export async function executeLocalJob(
       /* already removed */
     }
     if (serviceCtx) {
-      await cleanupServiceContainers(docker, serviceCtx, (line) => debugRunner(line));
+      await cleanupServiceContainers(getDocker(), serviceCtx, (line) => debugRunner(line));
     }
     try {
       if (fs.existsSync(dirs.shimsDir)) {

@@ -1,3 +1,173 @@
+export interface ContainerEnvOpts {
+  containerName: string;
+  registrationToken: string;
+  repoUrl: string;
+  dockerApiUrl: string;
+  githubRepo: string;
+  headSha?: string;
+  dtuHost: string;
+  useDirectContainer: boolean;
+}
+
+export interface ContainerBindsOpts {
+  hostWorkDir: string;
+  shimsDir: string;
+  signalsDir?: string;
+  diagDir: string;
+  toolCacheDir: string;
+  pnpmStoreDir?: string;
+  npmCacheDir?: string;
+  bunCacheDir?: string;
+  playwrightCacheDir: string;
+  warmModulesDir: string;
+  hostRunnerDir: string;
+  useDirectContainer: boolean;
+  /** Host-side Docker socket path (resolved by resolveDockerSocket). */
+  dockerSocketPath?: string;
+}
+
+export interface ContainerCmdOpts {
+  svcPortForwardSnippet: string;
+  dtuPort: string;
+  dtuHost: string;
+  useDirectContainer: boolean;
+  containerName: string;
+}
+
+// ─── Environment variables ────────────────────────────────────────────────────
+
+/**
+ * Build the Env array for `docker.createContainer()`.
+ */
+export function buildContainerEnv(opts: ContainerEnvOpts): string[] {
+  const {
+    containerName,
+    registrationToken,
+    repoUrl,
+    dockerApiUrl,
+    githubRepo,
+    headSha,
+    dtuHost,
+    useDirectContainer,
+  } = opts;
+
+  return [
+    `RUNNER_NAME=${containerName}`,
+    `RUNNER_TOKEN=${registrationToken}`,
+    `RUNNER_REPOSITORY_URL=${repoUrl}`,
+    `GITHUB_API_URL=${dockerApiUrl}`,
+    `GITHUB_SERVER_URL=${repoUrl}`,
+    `GITHUB_REPOSITORY=${githubRepo}`,
+    `AGENT_CI_LOCAL=true`,
+    `AGENT_CI_LOCAL_SYNC=true`,
+    `AGENT_CI_HEAD_SHA=${headSha || "HEAD"}`,
+    `AGENT_CI_DTU_HOST=${dtuHost}`,
+    `ACTIONS_CACHE_URL=${dockerApiUrl}/`,
+    `ACTIONS_RESULTS_URL=${dockerApiUrl}/`,
+    `ACTIONS_RUNTIME_TOKEN=mock_cache_token_123`,
+    `RUNNER_TOOL_CACHE=/opt/hostedtoolcache`,
+    `PATH=/home/runner/externals/node24/bin:/home/runner/externals/node20/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin`,
+    // Force colour output in all child processes (pnpm, Node, etc.)
+    `FORCE_COLOR=1`,
+    // Custom containers may run as root and lack libicu — configure accordingly
+    ...(useDirectContainer
+      ? [`RUNNER_ALLOW_RUNASROOT=1`, `DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1`]
+      : []),
+  ];
+}
+
+// ─── Bind mounts ──────────────────────────────────────────────────────────────
+
+/**
+ * Build the Binds array for `docker.createContainer()`.
+ */
+export function buildContainerBinds(opts: ContainerBindsOpts): string[] {
+  const {
+    hostWorkDir,
+    shimsDir,
+    signalsDir,
+    diagDir,
+    toolCacheDir,
+    pnpmStoreDir,
+    npmCacheDir,
+    bunCacheDir,
+    playwrightCacheDir,
+    warmModulesDir,
+    hostRunnerDir,
+    useDirectContainer,
+    dockerSocketPath = "/var/run/docker.sock",
+  } = opts;
+
+  const h = toHostPath;
+  return [
+    // When using a custom container, bind-mount the extracted runner
+    ...(useDirectContainer ? [`${h(hostRunnerDir)}:/home/runner`] : []),
+    `${h(hostWorkDir)}:/home/runner/_work`,
+    `${dockerSocketPath}:/var/run/docker.sock`,
+    `${h(shimsDir)}:/tmp/agent-ci-shims`,
+    // Pause-on-failure IPC: signal files (paused, retry, abort)
+    ...(signalsDir ? [`${h(signalsDir)}:/tmp/agent-ci-signals`] : []),
+    `${h(diagDir)}:/home/runner/_diag`,
+    `${h(toolCacheDir)}:/opt/hostedtoolcache`,
+    // Package manager caches (persist across runs, only for detected PM)
+    ...(pnpmStoreDir ? [`${h(pnpmStoreDir)}:/home/runner/_work/.pnpm-store`] : []),
+    ...(npmCacheDir ? [`${h(npmCacheDir)}:/home/runner/.npm`] : []),
+    ...(bunCacheDir ? [`${h(bunCacheDir)}:/home/runner/.bun/install/cache`] : []),
+    `${h(playwrightCacheDir)}:/home/runner/.cache/ms-playwright`,
+    // Warm node_modules: mounted outside the workspace so actions/checkout can
+    // delete the symlink without EBUSY. A symlink in the entrypoint points
+    // workspace/node_modules → /tmp/warm-modules.
+    `${h(warmModulesDir)}:/tmp/warm-modules`,
+  ];
+}
+
+// ─── Container command ────────────────────────────────────────────────────────
+
+/**
+ * Build the long entrypoint command string for the container.
+ */
+export function buildContainerCmd(opts: ContainerCmdOpts): string[] {
+  const { svcPortForwardSnippet, dtuPort, dtuHost, useDirectContainer, containerName } = opts;
+
+  // The runner connects directly to the DTU host (no in-container proxy needed).
+  // The DTU listens on 0.0.0.0 so it's reachable from the container network.
+  const dtuBaseUrl = `http://${dtuHost}:${dtuPort}`;
+
+  // For direct containers, credentials are pre-baked on the host and bind-mounted
+  // into /home/runner. For the default image, we write them inline in the
+  // entrypoint since /home/runner is baked into the image.
+  const credentialSnippet = useDirectContainer
+    ? ""
+    : `echo '{"agentId":1,"agentName":"${containerName}","poolId":1,"poolName":"Default","serverUrl":"${dtuBaseUrl}","gitHubUrl":"${dtuBaseUrl}/'$GITHUB_REPOSITORY'","workFolder":"_work","ephemeral":true}' > /home/runner/.runner && echo '{"scheme":"OAuth","data":{"clientId":"00000000-0000-0000-0000-000000000000","authorizationUrl":"${dtuBaseUrl}/_apis/oauth2/token","oAuthEndpointUrl":"${dtuBaseUrl}/_apis/oauth2/token","requireFipsCryptography":"False"}}' > /home/runner/.credentials && echo '{"d":"CQpCI+sO2GD1N/JsHHI9zEhMlu5Fcc8mU4O2bO6iscOsagFjvEnTesJgydC/Go1HuOBlx+GT9EG2h7+juS0z2o5n8Mvt5BBxlK+tqoDOs8VfQ9CSUl3hqYRPeNdBfnA1w8ovLW0wqfPO08FWTLI0urYsnwjZ5BQrBM+D7zYeA0aCsKdo75bKmaEKnmqrtIEhb7hE45XQa32Yt0RPCPi8QcQAY2HLHbdWdZYDj6k/UuDvz9H/xlDzwYq6Yikk2RSMArFzaufxCGS9tBZNEACDPYgnZnEMXRcvsnZ9FYbq81KOSifCmq7Yocq+j3rY5zJCD+PIDY9QJwPxB4PGasRKAQ==","dp":"A0sY1oOz1+3uUMiy+I5xGuHGHOrEQPYspd1xGClBYYsa/Za0UDWS7V0Tn1cbRWfWtNe5vTpxcvwQd6UZBwrtHF6R2zyXFhE++PLPhCe0tH4C5FY9i9jUw9Vo8t44i/s5JUHU2B1mEptXFUA0GcVrLKS8toZSgqELSS2Q/YLRxoE=","dq":"GrLC9dPJ5n3VYw51ghCH7tybUN9/Oe4T8d9v4dLQ34RQEWHwRd4g3U3zkvuhpXFPloUTMmkxS7MF5pS1evrtzkay4QUTDv+28s0xRuAsw5qNTzuFygg8t93MvpvTVZ2TNApW6C7NFvkL9NbxAnU8+I61/3ow7i6a7oYJJ0hWAxE=","exponent":"AQAB","inverseQ":"8DVz9FSvEdt5W4B9OjgakZHwGfnhn2VLDUxrsR5ilC5tPC/IgA8C2xEfKQM1t+K/N3pAYHBYQ6EPgtW4kquBS/Sy102xbRI7GSCnUbRtTpWYPOaCn6EaxBNzwWzbp5vCbCGvFqlSu4+OBYRVe+iCj+gAnkmT/TKPhHHbTjJHvw==","modulus":"x0eoW2DD7xsW5YiorMN8pNHVvZk4ED1SHlA/bmVnRz5FjEDnQloMn0nBgIUHxoNArksknrp/FOVJv5sJHJTiRZkOp+ZmH7d3W3gmw63IxK2C5pV+6xfav9jR2+Wt/6FMYMgG2utBdF95oif1f2XREFovHoXkWms2l0CPLLHVPO44Hh9EEmBmjOeMJEZkulHJ44z9y8e+GZ2nYqO0ZiRWQcRObZ0vlRaGg6PPOl4ltay0BfNksMB3NDtlhkdVkAEFQxEaZZDK9NtkvNljXCioP3TyTAbqNUGsYCA5D+IHGZT9An99J9vUqTFP6TKjqUvy9WNiIzaUksCySA0a4SVBkQ==","p":"8fgAdmWy+sTzAN19fYkWMQqeC7t1BCQMo5z5knfVLg8TtwP9ZGqDtoe+r0bGv3UgVsvvDdP/QwRvRVP+5G9l999Y6b4VbSdUbrfPfOgjpPDmRTQzHDve5jh5xBENQoRXYm7PMgHGmjwuFsE/tKtSGTrvt2Z3qcYAo0IOqLLhYmE=","q":"0tXx4+P7gUWePf92UJLkzhNBClvdnmDbIt52Lui7YCARczbN/asCDJxcMy6Bh3qmIx/bNuOUrfzHkYZHfnRw8AGEK80qmiLLPI6jrUBOGRajmzemGQx0W8FWalEQfGdNIv9R2nsegDRoMq255Zo/qX60xQ6abpp0c6UNhVYSjTE="}' > /home/runner/.credentials_rsaparams && `;
+
+  // Timing helper: date +%s%3N gives epoch milliseconds
+  const T = (label: string) =>
+    `T1=$(date +%s%3N); echo "[agent-ci:boot] ${label}: $((T1-T0))ms"; T0=$T1`;
+
+  const cmdScript = [
+    `MAYBE_SUDO() { if command -v sudo >/dev/null 2>&1; then sudo -n "$@"; else "$@"; fi; }`,
+    `BOOT_T0=$(date +%s%3N); T0=$BOOT_T0`,
+    // chmod is done host-side in workspacePrepPromise — skip it here
+    `if [ -f /usr/bin/git ]; then MAYBE_SUDO mv /usr/bin/git /usr/bin/git.real 2>/dev/null; MAYBE_SUDO cp -p /tmp/agent-ci-shims/git /usr/bin/git 2>/dev/null; MAYBE_SUDO chmod +x /usr/bin/git 2>/dev/null; fi`,
+    T("git-shim"),
+    `${svcPortForwardSnippet}chmod 666 /var/run/docker.sock 2>/dev/null || true`,
+    T("docker-sock"),
+    `cd /home/runner`,
+    `${credentialSnippet}true`,
+    T("credentials"),
+    `REPO_NAME=$(basename $GITHUB_REPOSITORY)`,
+    `WORKSPACE_PATH=/home/runner/_work/$REPO_NAME/$REPO_NAME`,
+    `mkdir -p $WORKSPACE_PATH`,
+    `ln -sfn /tmp/warm-modules $WORKSPACE_PATH/node_modules`,
+    T("workspace-setup"),
+    `echo "[agent-ci:boot] total: $(($(date +%s%3N)-BOOT_T0))ms"`,
+    `echo "[agent-ci:boot] starting run.sh --once"`,
+    `./run.sh --once`,
+  ].join(" && ");
+
+  return [...(useDirectContainer ? ["-c"] : ["bash", "-c"]), cmdScript];
+}
+
 // ─── DTU host resolution ──────────────────────────────────────────────────────
 
 import fs from "fs";

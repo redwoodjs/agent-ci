@@ -186,7 +186,7 @@ async function run() {
       if (results.length > 0) {
         printSummary(results);
       }
-      postCommitStatus(results, sha);
+      postCommitStatus(results, sha, githubToken);
       const anyFailed = results.length === 0 || results.some((r) => !r.succeeded);
       process.exit(anyFailed ? 1 : 0);
     }
@@ -224,7 +224,7 @@ async function run() {
     if (results.length > 0) {
       printSummary(results);
     }
-    postCommitStatus(results, sha);
+    postCommitStatus(results, sha, githubToken);
     if (results.length === 0 || results.some((r) => !r.succeeded)) {
       process.exit(1);
     }

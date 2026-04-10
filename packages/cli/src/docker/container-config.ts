@@ -24,7 +24,7 @@ export interface ContainerBindsOpts {
   useDirectContainer: boolean;
   /** GitHub repository slug (e.g. "org/repo"), used to compute workspace node_modules mount. */
   githubRepo: string;
-  /** Host-side Docker socket path (resolved by resolveDockerSocket). */
+  /** Host-side Docker socket path to use as the bind-mount source (use DockerSocket.bindMountPath, not socketPath). */
   dockerSocketPath?: string;
 }
 

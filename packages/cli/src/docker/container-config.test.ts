@@ -118,7 +118,7 @@ describe("buildContainerBinds", () => {
     expect(binds.some((b) => b.includes(".bun"))).toBe(false);
   });
 
-  it("uses resolved dockerSocketPath for bind mount when provided", async () => {
+  it("uses the given dockerSocketPath as the bind-mount source", async () => {
     const { buildContainerBinds } = await import("./container-config.js");
     const binds = buildContainerBinds({
       hostWorkDir: "/tmp/work",

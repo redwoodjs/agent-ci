@@ -69,7 +69,7 @@ describe("buildContainerBinds", () => {
     expect(binds).toContain("/tmp/work:/home/runner/_work");
     expect(binds).toContain("/var/run/docker.sock:/var/run/docker.sock"); // default when dockerSocketPath is not set
     expect(binds).toContain("/tmp/shims:/tmp/agent-ci-shims");
-    expect(binds).toContain("/tmp/warm:/tmp/warm-modules");
+    expect(binds).toContain("/tmp/warm:/tmp/node_modules");
     expect(binds).toContain("/tmp/pnpm:/home/runner/_work/.pnpm-store");
     expect(binds).toContain("/tmp/npm:/home/runner/.npm");
     expect(binds).toContain("/tmp/bun:/home/runner/.bun/install/cache");

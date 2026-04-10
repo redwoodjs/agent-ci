@@ -116,8 +116,10 @@ export function buildContainerBinds(opts: ContainerBindsOpts): string[] {
     `${h(playwrightCacheDir)}:/home/runner/.cache/ms-playwright`,
     // Warm node_modules: mounted outside the workspace so actions/checkout can
     // delete the symlink without EBUSY. A symlink in the entrypoint points
-    // workspace/node_modules → /tmp/warm-modules.
-    `${h(warmModulesDir)}:/tmp/warm-modules`,
+    // workspace/node_modules → /tmp/node_modules.
+    // Mounted at /tmp/node_modules (not /tmp/warm-modules) so that TypeScript's
+    // upward @types walk from .pnpm realpath finds /tmp/node_modules/@types.
+    `${h(warmModulesDir)}:/tmp/node_modules`,
   ];
 }
 
@@ -158,7 +160,7 @@ export function buildContainerCmd(opts: ContainerCmdOpts): string[] {
     `REPO_NAME=$(basename $GITHUB_REPOSITORY)`,
     `WORKSPACE_PATH=/home/runner/_work/$REPO_NAME/$REPO_NAME`,
     `mkdir -p $WORKSPACE_PATH`,
-    `ln -sfn /tmp/warm-modules $WORKSPACE_PATH/node_modules`,
+    `ln -sfn /tmp/node_modules $WORKSPACE_PATH/node_modules`,
     T("workspace-setup"),
     `echo "[agent-ci:boot] total: $(($(date +%s%3N)-BOOT_T0))ms"`,
     `echo "[agent-ci:boot] starting run.sh --once"`,

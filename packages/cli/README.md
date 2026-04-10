@@ -72,6 +72,7 @@ Run GitHub Actions workflow jobs locally.
 | `--quiet`                  | `-q`  | Suppress animated rendering (also enabled by `AI_AGENT=1`)                                                                                                   |
 | `--no-matrix`              |       | Collapse all matrix combinations into a single job (uses first value of each key)                                                                            |
 | `--github-token [<token>]` |       | GitHub token for fetching remote reusable workflows (auto-resolves via `gh auth token` if no value given). Also available as `AGENT_CI_GITHUB_TOKEN` env var |
+| `--commit-status`          |       | Post a GitHub commit status after the run (requires `--github-token`)                                                                                        |
 
 ### `agent-ci retry`
 

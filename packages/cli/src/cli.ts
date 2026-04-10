@@ -74,6 +74,7 @@ async function run() {
     let runAll = false;
     let noMatrix = false;
     let githubToken: string | undefined;
+    let commitStatus = false;
 
     for (let i = 1; i < args.length; i++) {
       if ((args[i] === "--workflow" || args[i] === "-w") && args[i + 1]) {
@@ -87,6 +88,8 @@ async function run() {
         setQuietMode(true);
       } else if (args[i] === "--no-matrix") {
         noMatrix = true;
+      } else if (args[i] === "--commit-status") {
+        commitStatus = true;
       } else if (args[i] === "--github-token") {
         // If the next arg looks like a token value (not another flag), use it.
         // Otherwise, auto-resolve via `gh auth token`.
@@ -186,7 +189,9 @@ async function run() {
       if (results.length > 0) {
         printSummary(results);
       }
-      postCommitStatus(results, sha, githubToken);
+      if (commitStatus) {
+        postCommitStatus(results, sha, githubToken);
+      }
       const anyFailed = results.length === 0 || results.some((r) => !r.succeeded);
       process.exit(anyFailed ? 1 : 0);
     }
@@ -224,7 +229,9 @@ async function run() {
     if (results.length > 0) {
       printSummary(results);
     }
-    postCommitStatus(results, sha, githubToken);
+    if (commitStatus) {
+      postCommitStatus(results, sha, githubToken);
+    }
     if (results.length === 0 || results.some((r) => !r.succeeded)) {
       process.exit(1);
     }
@@ -1085,6 +1092,9 @@ function printUsage() {
     "                                (auto-resolves via `gh auth token` if no value given)",
   );
   console.log("                                Or set: AGENT_CI_GITHUB_TOKEN env var");
+  console.log(
+    "      --commit-status           Post a GitHub commit status after the run (requires --github-token)",
+  );
 }
 
 function resolveRepoRoot() {

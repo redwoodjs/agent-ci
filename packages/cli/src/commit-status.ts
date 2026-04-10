@@ -4,12 +4,12 @@ import type { JobResult } from "./output/reporter.js";
 
 /**
  * Post a GitHub commit status via the `gh` CLI.
- * Requires a GitHub token (opt-in). Prints a warning and skips if no token is provided.
+ * Only called when --commit-status is passed. Requires a GitHub token.
  */
 export function postCommitStatus(results: JobResult[], sha?: string, githubToken?: string): void {
   if (!githubToken) {
     console.warn(
-      "[Agent CI] Skipping commit status — no GitHub token provided. Use --github-token or set AGENT_CI_GITHUB_TOKEN to post commit statuses.",
+      "[Agent CI] --commit-status requires a GitHub token. Use --github-token or set AGENT_CI_GITHUB_TOKEN.",
     );
     return;
   }

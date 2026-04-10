@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
@@ -114,6 +114,99 @@ describe("Stale workspace pruning", () => {
 
     expect(pruned).toEqual([]);
     expect(fs.existsSync(otherDir)).toBe(true);
+  });
+});
+
+// ── Orphaned container cleanup ────────────────────────────────────────────────
+
+describe("killOrphanedContainers", () => {
+  const execSyncMock = vi.fn();
+  const killSpy = vi.spyOn(process, "kill");
+
+  beforeEach(() => {
+    vi.resetModules();
+    vi.doMock("node:child_process", () => ({
+      execSync: execSyncMock,
+    }));
+    execSyncMock.mockReset();
+    killSpy.mockReset();
+  });
+
+  afterEach(() => {
+    killSpy.mockRestore();
+  });
+
+  it("kills containers whose parent PID is dead", async () => {
+    execSyncMock.mockImplementation((cmd: string) => {
+      if (cmd.startsWith("docker ps")) {
+        return "abc123 agent-ci-runner-1 99999\n";
+      }
+      return "";
+    });
+    killSpy.mockImplementation(((pid: number, signal?: string | number) => {
+      if (signal === 0 && pid === 99999) {
+        throw new Error("ESRCH");
+      }
+      return true;
+    }) as typeof process.kill);
+
+    const { killOrphanedContainers } = await import("./shutdown.js");
+    killOrphanedContainers();
+
+    const rmCalls = execSyncMock.mock.calls.filter(([cmd]: string[]) =>
+      cmd.includes("docker rm -f agent-ci-runner-1"),
+    );
+    expect(rmCalls.length).toBeGreaterThan(0);
+  });
+
+  it("leaves containers whose parent PID is alive", async () => {
+    const myPid = process.pid;
+    execSyncMock.mockImplementation((cmd: string) => {
+      if (cmd.startsWith("docker ps")) {
+        return `abc123 agent-ci-runner-2 ${myPid}\n`;
+      }
+      return "";
+    });
+    killSpy.mockImplementation(((pid: number, signal?: string | number) => {
+      if (signal === 0 && pid === myPid) {
+        return true;
+      }
+      throw new Error("ESRCH");
+    }) as typeof process.kill);
+
+    const { killOrphanedContainers } = await import("./shutdown.js");
+    killOrphanedContainers();
+
+    const rmCalls = execSyncMock.mock.calls.filter(([cmd]: string[]) =>
+      cmd.includes("docker rm -f"),
+    );
+    expect(rmCalls).toEqual([]);
+  });
+
+  it("skips containers without a PID label", async () => {
+    execSyncMock.mockImplementation((cmd: string) => {
+      if (cmd.startsWith("docker ps")) {
+        return "abc123 agent-ci-runner-3 \n";
+      }
+      return "";
+    });
+
+    const { killOrphanedContainers } = await import("./shutdown.js");
+    killOrphanedContainers();
+
+    const rmCalls = execSyncMock.mock.calls.filter(([cmd]: string[]) =>
+      cmd.includes("docker rm -f"),
+    );
+    expect(rmCalls).toEqual([]);
+  });
+
+  it("handles Docker not reachable gracefully", async () => {
+    execSyncMock.mockImplementation(() => {
+      throw new Error("Cannot connect to Docker daemon");
+    });
+
+    const { killOrphanedContainers } = await import("./shutdown.js");
+    expect(() => killOrphanedContainers()).not.toThrow();
   });
 });
 

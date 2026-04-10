@@ -105,6 +105,55 @@ export function pruneOrphanedDockerResources(): void {
   }
 }
 
+// ─── Orphaned container cleanup ───────────────────────────────────────────────
+
+/**
+ * Find and kill running `agent-ci-*` containers whose parent process is dead.
+ *
+ * Every container created by `executeLocalJob` is labelled with
+ * `agent-ci.pid=<PID>`. If the process that spawned the container is no
+ * longer alive, the container is an orphan and should be killed — along with
+ * its svc-* sidecars and bridge network (via `killRunnerContainers`).
+ *
+ * Containers without the label (created before this feature) are skipped.
+ */
+export function killOrphanedContainers(): void {
+  let lines: string[];
+  try {
+    // Format: "containerId containerName pid-label"
+    const raw = execSync(
+      `docker ps --filter "name=agent-ci-" --filter "status=running" --format "{{.ID}} {{.Names}} {{.Label \\"agent-ci.pid\\"}}"`,
+      { encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] },
+    ).trim();
+    if (!raw) {
+      return;
+    }
+    lines = raw.split("\n");
+  } catch {
+    // Docker not reachable — skip
+    return;
+  }
+
+  for (const line of lines) {
+    const [, containerName, pidStr] = line.split(" ");
+    if (!containerName || !pidStr) {
+      continue;
+    }
+
+    const pid = Number(pidStr);
+    if (!Number.isFinite(pid) || pid <= 0) {
+      continue;
+    }
+
+    try {
+      process.kill(pid, 0); // signal 0 = liveness check, throws if dead
+    } catch {
+      // Parent is dead — this container is an orphan.
+      killRunnerContainers(containerName);
+    }
+  }
+}
+
 // ─── Workspace pruning ────────────────────────────────────────────────────────
 
 /**

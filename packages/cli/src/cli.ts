@@ -33,7 +33,11 @@ import { Job } from "./types.js";
 import { createConcurrencyLimiter, getDefaultMaxConcurrentJobs } from "./output/concurrency.js";
 import { isWarmNodeModules, computeLockfileHash } from "./output/cleanup.js";
 import { getWorkingDirectory } from "./output/working-directory.js";
-import { pruneOrphanedDockerResources } from "./docker/shutdown.js";
+import {
+  pruneOrphanedDockerResources,
+  killOrphanedContainers,
+  pruneStaleWorkspaces,
+} from "./docker/shutdown.js";
 import { topoSort } from "./workflow/job-scheduler.js";
 import { expandReusableJobs } from "./workflow/reusable-workflow.js";
 import { prefetchRemoteWorkflows } from "./workflow/remote-workflow-fetch.js";
@@ -817,6 +821,8 @@ async function handleWorkflow(options: {
   };
 
   pruneOrphanedDockerResources();
+  killOrphanedContainers();
+  pruneStaleWorkspaces(getWorkingDirectory(), 24 * 60 * 60 * 1000);
 
   const limiter = createConcurrencyLimiter(maxJobs);
   const allResults: JobResult[] = [];

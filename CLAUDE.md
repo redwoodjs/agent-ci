@@ -10,10 +10,9 @@
 
 Before completing any work, you MUST run and pass:
 
-1. Unit tests: `npx vitest run`
-2. E2E test: `npx agent-ci run --workflow .github/workflows/e2e.yml --quiet`
+`npx agent-ci run --all --quiet --pause-on-failure`
 
-If either fails, fix the issue and re-run. Do not tell the user work is done until both pass.
+If it fails, fix the issue and re-run. Do not tell the user work is done until it passes.
 
 ## CI
 

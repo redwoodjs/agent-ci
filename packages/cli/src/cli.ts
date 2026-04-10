@@ -44,6 +44,7 @@ import { expandReusableJobs } from "./workflow/reusable-workflow.js";
 import { prefetchRemoteWorkflows } from "./workflow/remote-workflow-fetch.js";
 import { printSummary, type JobResult } from "./output/reporter.js";
 import { syncWorkspaceForRetry } from "./runner/sync.js";
+import { computeDirtySha } from "./runner/dirty-sha.js";
 import { RunStateStore } from "./output/run-state.js";
 import { renderRunState } from "./output/state-renderer.js";
 import { isAgentMode, setQuietMode } from "./output/agent-mode.js";
@@ -556,9 +557,13 @@ async function handleWorkflow(options: {
   const { headSha, shaRef } = sha
     ? resolveHeadSha(repoRoot, sha)
     : { headSha: undefined, shaRef: undefined };
-  // Always resolve the real HEAD SHA for the push event context (before/after).
-  // This is separate from headSha which may be undefined for dirty workspace copies.
-  const realHeadSha = headSha ?? resolveHeadSha(repoRoot, "HEAD").headSha;
+  // Always resolve a SHA that represents the code being executed.
+  // When the working tree is dirty and no explicit --sha was given, compute an
+  // ephemeral commit SHA that captures the dirty state (including untracked files).
+  // This is purely informational — actions/checkout is always stubbed, so no
+  // workflow will ever try to fetch this SHA from a remote.
+  const realHeadSha =
+    headSha ?? computeDirtySha(repoRoot) ?? resolveHeadSha(repoRoot, "HEAD").headSha;
   const baseSha = resolveBaseSha(repoRoot, realHeadSha);
   const githubRepo = config.GITHUB_REPO ?? resolveRepoSlug(repoRoot);
   config.GITHUB_REPO = githubRepo;

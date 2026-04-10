@@ -828,7 +828,7 @@ export function validateSecrets(
   }
   throw new Error(
     `[Agent CI] Missing secrets required by workflow job "${taskName}".\n` +
-      `Add the following to ${secretsFilePath}:\n\n` +
+      `Add the following to ${secretsFilePath} or set them as environment variables:\n\n` +
       missing.map((n) => `${n}=`).join("\n") +
       "\n",
   );

@@ -127,6 +127,28 @@ For default behavior, env overrides, and remote-daemon caveats, see the CLI pack
 
 ---
 
+## Secrets
+
+Workflow secrets (`${{ secrets.FOO }}`) are resolved in order:
+
+1. **`.env.agent-ci`** file in the repo root (`KEY=VALUE` syntax, `#` comments supported)
+2. **Shell environment variables** — any env var matching a required secret name acts as a fallback
+3. **`--github-token`** — automatically provides `secrets.GITHUB_TOKEN`
+
+```bash
+# All three approaches work:
+# 1. .env.agent-ci file
+echo "CLOUDFLARE_API_TOKEN=xxx" >> .env.agent-ci
+
+# 2. Inline env vars
+CLOUDFLARE_API_TOKEN=xxx agent-ci run -w .github/workflows/deploy.yml
+
+# 3. --github-token for GITHUB_TOKEN specifically
+agent-ci run -w .github/workflows/ci.yml --github-token
+```
+
+---
+
 ## Environment variables
 
 All configuration is available via environment variables. For persistent machine-local overrides, create a `.env.agent-ci` file in your project root — Agent CI loads it automatically (`KEY=VALUE` syntax, `#` comments supported).

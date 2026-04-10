@@ -3,7 +3,13 @@ import fs from "fs";
 import os from "os";
 import path from "path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { config, getFirstRemoteUrl, parseRepoSlug, resolveRepoSlug } from "./config.js";
+import {
+  config,
+  getFirstRemoteUrl,
+  loadMachineSecrets,
+  parseRepoSlug,
+  resolveRepoSlug,
+} from "./config.js";
 
 describe("parseRepoSlug", () => {
   it.each([
@@ -179,5 +185,98 @@ describe("GITHUB_REPO env var override priority", () => {
     expect(() => {
       return config.GITHUB_REPO ?? resolveRepoSlug(tmpDir);
     }).toThrow(/Could not detect GitHub repository/);
+  });
+});
+
+// ─── loadMachineSecrets ──────────────────────────────────────────────────────
+
+describe("loadMachineSecrets", () => {
+  let tmpDir: string;
+  const savedEnv: Record<string, string | undefined> = {};
+
+  function saveEnv(...keys: string[]) {
+    for (const k of keys) {
+      savedEnv[k] = process.env[k];
+    }
+  }
+
+  afterEach(() => {
+    if (tmpDir) {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+    for (const [k, v] of Object.entries(savedEnv)) {
+      if (v === undefined) {
+        delete process.env[k];
+      } else {
+        process.env[k] = v;
+      }
+    }
+  });
+
+  function writeEnvFile(content: string): string {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "secrets-test-"));
+    fs.writeFileSync(path.join(tmpDir, ".env.agent-ci"), content);
+    return tmpDir;
+  }
+
+  function makeTmpDir(): string {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "secrets-test-"));
+    return tmpDir;
+  }
+
+  it("returns empty object when .env.agent-ci does not exist", () => {
+    const dir = makeTmpDir();
+    expect(loadMachineSecrets(dir)).toEqual({});
+  });
+
+  it("parses KEY=VALUE pairs from file", () => {
+    const dir = writeEnvFile("FOO=bar\nBAZ=qux\n");
+    expect(loadMachineSecrets(dir)).toEqual({ FOO: "bar", BAZ: "qux" });
+  });
+
+  it("fills missing secrets from process.env when envFallbackKeys provided", () => {
+    const dir = makeTmpDir();
+    saveEnv("TEST_SECRET_ABC");
+    process.env.TEST_SECRET_ABC = "from-env";
+
+    const secrets = loadMachineSecrets(dir, ["TEST_SECRET_ABC"]);
+    expect(secrets.TEST_SECRET_ABC).toBe("from-env");
+  });
+
+  it("file values take precedence over process.env", () => {
+    const dir = writeEnvFile("MY_TOKEN=from-file\n");
+    saveEnv("MY_TOKEN");
+    process.env.MY_TOKEN = "from-env";
+
+    const secrets = loadMachineSecrets(dir, ["MY_TOKEN"]);
+    expect(secrets.MY_TOKEN).toBe("from-file");
+  });
+
+  it("does not pull from process.env for keys not in envFallbackKeys", () => {
+    const dir = makeTmpDir();
+    saveEnv("UNRELATED_VAR");
+    process.env.UNRELATED_VAR = "should-not-appear";
+
+    const secrets = loadMachineSecrets(dir, ["OTHER_KEY"]);
+    expect(secrets.UNRELATED_VAR).toBeUndefined();
+    expect(secrets.OTHER_KEY).toBeUndefined();
+  });
+
+  it("does not pull from process.env when envFallbackKeys is omitted", () => {
+    const dir = makeTmpDir();
+    saveEnv("SOME_SECRET");
+    process.env.SOME_SECRET = "env-value";
+
+    const secrets = loadMachineSecrets(dir);
+    expect(secrets.SOME_SECRET).toBeUndefined();
+  });
+
+  it("merges file secrets and env fallbacks", () => {
+    const dir = writeEnvFile("FROM_FILE=file-val\n");
+    saveEnv("FROM_ENV");
+    process.env.FROM_ENV = "env-val";
+
+    const secrets = loadMachineSecrets(dir, ["FROM_FILE", "FROM_ENV"]);
+    expect(secrets).toEqual({ FROM_FILE: "file-val", FROM_ENV: "env-val" });
   });
 });

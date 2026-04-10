@@ -1,6 +1,7 @@
 {
   "name": "@redwoodjs/ts-runner",
   "version": "0.7.0",
+  "private": true,
   "description": "TypeScript GitHub Actions step runner — no Docker, no .NET binary.",
   "keywords": [
     "ci",
@@ -26,9 +27,6 @@
   "main": "./dist/index.js",
   "exports": {
     ".": "./dist/index.js"
-  },
-  "publishConfig": {
-    "access": "public"
   },
   "scripts": {
     "build": "tsgo",

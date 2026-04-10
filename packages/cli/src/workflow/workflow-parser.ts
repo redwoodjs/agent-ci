@@ -41,6 +41,7 @@ export function expandExpressions(
   secrets?: Record<string, string>,
   matrixContext?: Record<string, string>,
   needsContext?: Record<string, Record<string, string>>,
+  inputsContext?: Record<string, string>,
 ): string {
   return value.replace(/\$\{\{([\s\S]*?)\}\}/g, (_match, expr: string) => {
     const trimmed = expr.trim();
@@ -102,6 +103,7 @@ export function expandExpressions(
           secrets,
           matrixContext,
           needsContext,
+          inputsContext,
         );
       }
       try {
@@ -132,6 +134,7 @@ export function expandExpressions(
           secrets,
           matrixContext,
           needsContext,
+          inputsContext,
         );
       }
       return JSON.stringify(rawValue);
@@ -148,7 +151,14 @@ export function expandExpressions(
         const i = parseInt(idx, 10);
         if (i < args.length) {
           // Recursively expand the arg value in case it's a context reference
-          return expandExpressions(`\${{ ${args[i]} }}`, repoPath);
+          return expandExpressions(
+            `\${{ ${args[i]} }}`,
+            repoPath,
+            secrets,
+            matrixContext,
+            needsContext,
+            inputsContext,
+          );
         }
         return "";
       });
@@ -224,6 +234,10 @@ export function expandExpressions(
     }
     if (trimmed.startsWith("needs.")) {
       return "";
+    }
+    if (trimmed.startsWith("inputs.")) {
+      const key = trimmed.slice("inputs.".length);
+      return inputsContext?.[key] ?? "";
     }
 
     // Unknown expressions — return empty string (safe: no commas injected)

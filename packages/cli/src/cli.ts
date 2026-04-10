@@ -2,7 +2,7 @@
 import { execSync } from "child_process";
 import path from "path";
 import fs from "fs";
-import { config, loadMachineSecrets } from "./config.js";
+import { config, loadMachineSecrets, resolveRepoSlug } from "./config.js";
 import { getNextLogNum } from "./output/logger.js";
 import {
   setWorkingDirectory,
@@ -886,8 +886,8 @@ function resolveRepoRootFromWorkflow(workflowPath: string): string {
   return repoRoot === "/" ? resolveRepoRoot() : repoRoot;
 }
 
-function resolveRepoInfo(repoRoot: string) {
-  let githubRepo = config.GITHUB_REPO;
+function resolveRepoInfo(repoRoot: string): string {
+  let githubRepo = config.GITHUB_REPO ?? resolveRepoSlug(repoRoot);
   try {
     const remoteUrl = execSync("git remote get-url origin", { cwd: repoRoot }).toString().trim();
     const match = remoteUrl.match(/[:/]([^/]+\/[^/]+)\.git$/);

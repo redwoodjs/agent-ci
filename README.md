@@ -81,13 +81,14 @@ npx agent-ci retry --name <runner-name>
 
 Run GitHub Actions workflow jobs locally.
 
-| Flag                 | Short | Description                                                                       |
-| -------------------- | ----- | --------------------------------------------------------------------------------- |
-| `--workflow <path>`  | `-w`  | Path to the workflow file                                                         |
-| `--all`              | `-a`  | Discover and run all relevant workflows for the current branch                    |
-| `--pause-on-failure` | `-p`  | Pause on step failure for interactive debugging                                   |
-| `--quiet`            | `-q`  | Suppress animated rendering (also enabled by `AI_AGENT=1`)                        |
-| `--no-matrix`        |       | Collapse all matrix combinations into a single job (uses first value of each key) |
+| Flag                       | Short | Description                                                                                                                                                  |
+| -------------------------- | ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `--workflow <path>`        | `-w`  | Path to the workflow file                                                                                                                                    |
+| `--all`                    | `-a`  | Discover and run all relevant workflows for the current branch                                                                                               |
+| `--pause-on-failure`       | `-p`  | Pause on step failure for interactive debugging                                                                                                              |
+| `--quiet`                  | `-q`  | Suppress animated rendering (also enabled by `AI_AGENT=1`)                                                                                                   |
+| `--no-matrix`              |       | Collapse all matrix combinations into a single job (uses first value of each key)                                                                            |
+| `--github-token [<token>]` |       | GitHub token for fetching remote reusable workflows (auto-resolves via `gh auth token` if no value given). Also available as `AGENT_CI_GITHUB_TOKEN` env var |
 
 ### `agent-ci retry`
 
@@ -131,11 +132,12 @@ All configuration is available via environment variables. For persistent machine
 
 ### General
 
-| Variable      | Default                         | Description                                                                                                               |
-| ------------- | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| `GITHUB_REPO` | auto-detected from `git remote` | Override the `owner/repo` used when emulating the GitHub API. Useful when the remote URL can't be detected automatically. |
-| `AI_AGENT`    | unset                           | Set to `1` to enable quiet mode (suppress animated rendering). Same effect as `--quiet`.                                  |
-| `DEBUG`       | unset                           | Enable verbose debug logging. See [Debugging](#debugging) for supported namespaces.                                       |
+| Variable                | Default                         | Description                                                                                                               |
+| ----------------------- | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `GITHUB_REPO`           | auto-detected from `git remote` | Override the `owner/repo` used when emulating the GitHub API. Useful when the remote URL can't be detected automatically. |
+| `AI_AGENT`              | unset                           | Set to `1` to enable quiet mode (suppress animated rendering). Same effect as `--quiet`.                                  |
+| `DEBUG`                 | unset                           | Enable verbose debug logging. See [Debugging](#debugging) for supported namespaces.                                       |
+| `AGENT_CI_GITHUB_TOKEN` | unset                           | GitHub token for fetching remote reusable workflows. Alternative to the `--github-token` CLI flag.                        |
 
 ### Docker
 

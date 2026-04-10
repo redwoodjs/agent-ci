@@ -1,5 +1,19 @@
 # @redwoodjs/agent-ci
 
+## 0.8.2
+
+### Patch Changes
+
+- f7e42f0: Fix signal handler to clean up runner directory on Ctrl+C. Add parent-PID liveness tracking to detect and kill orphaned Docker containers on startup. Wire up pruneStaleWorkspaces to clean up old run directories.
+- cd24a04: Fix actions/checkout@v6 compatibility by using the real HEAD SHA instead of a fake placeholder.
+- e42f4a9: Fix Docker socket detection on Linux when /var/run/docker.sock exists but is not accessible (EACCES).
+- 02741dc: Mount warm node_modules directly at workspace path instead of symlinking via /tmp
+- Updated dependencies [f7e42f0]
+- Updated dependencies [cd24a04]
+- Updated dependencies [e42f4a9]
+- Updated dependencies [02741dc]
+  - dtu-github-actions@0.8.2
+
 ## 0.8.1
 
 ### Patch Changes

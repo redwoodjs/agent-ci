@@ -22,6 +22,8 @@ export interface ContainerBindsOpts {
   warmModulesDir: string;
   hostRunnerDir: string;
   useDirectContainer: boolean;
+  /** GitHub repository slug (e.g. "org/repo"), used to compute workspace node_modules mount. */
+  githubRepo: string;
   /** Host-side Docker socket path (resolved by resolveDockerSocket). */
   dockerSocketPath?: string;
 }
@@ -95,9 +97,11 @@ export function buildContainerBinds(opts: ContainerBindsOpts): string[] {
     warmModulesDir,
     hostRunnerDir,
     useDirectContainer,
+    githubRepo,
     dockerSocketPath = "/var/run/docker.sock",
   } = opts;
 
+  const repoName = githubRepo.split("/").pop() || "repo";
   const h = toHostPath;
   return [
     // When using a custom container, bind-mount the extracted runner
@@ -114,12 +118,11 @@ export function buildContainerBinds(opts: ContainerBindsOpts): string[] {
     ...(npmCacheDir ? [`${h(npmCacheDir)}:/home/runner/.npm`] : []),
     ...(bunCacheDir ? [`${h(bunCacheDir)}:/home/runner/.bun/install/cache`] : []),
     `${h(playwrightCacheDir)}:/home/runner/.cache/ms-playwright`,
-    // Warm node_modules: mounted outside the workspace so actions/checkout can
-    // delete the symlink without EBUSY. A symlink in the entrypoint points
-    // workspace/node_modules → /tmp/node_modules.
-    // Mounted at /tmp/node_modules (not /tmp/warm-modules) so that TypeScript's
-    // upward @types walk from .pnpm realpath finds /tmp/node_modules/@types.
-    `${h(warmModulesDir)}:/tmp/node_modules`,
+    // Warm node_modules: mounted directly at the workspace node_modules path
+    // so pnpm/esbuild path resolution sees a real directory (not a symlink).
+    // The git shim blocks `git clean` and checkout is patched with clean:false,
+    // so EBUSY on this bind mount is not a concern.
+    `${h(warmModulesDir)}:/home/runner/_work/${repoName}/${repoName}/node_modules`,
   ];
 }
 
@@ -160,7 +163,6 @@ export function buildContainerCmd(opts: ContainerCmdOpts): string[] {
     `REPO_NAME=$(basename $GITHUB_REPOSITORY)`,
     `WORKSPACE_PATH=/home/runner/_work/$REPO_NAME/$REPO_NAME`,
     `mkdir -p $WORKSPACE_PATH`,
-    `ln -sfn /tmp/node_modules $WORKSPACE_PATH/node_modules`,
     T("workspace-setup"),
     `echo "[agent-ci:boot] total: $(($(date +%s%3N)-BOOT_T0))ms"`,
     `echo "[agent-ci:boot] starting run.sh --once"`,

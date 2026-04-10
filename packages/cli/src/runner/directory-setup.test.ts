@@ -191,6 +191,7 @@ describe("buildContainerBinds — PM-scoped mounts", () => {
       warmModulesDir: "/tmp/warm",
       hostRunnerDir: "/tmp/runner",
       useDirectContainer: false,
+      githubRepo: "org/repo",
     });
 
     expect(binds).toContain("/tmp/npm-cache:/home/runner/.npm");
@@ -212,6 +213,7 @@ describe("buildContainerBinds — PM-scoped mounts", () => {
       warmModulesDir: "/tmp/warm",
       hostRunnerDir: "/tmp/runner",
       useDirectContainer: false,
+      githubRepo: "org/repo",
     });
 
     expect(binds).toContain("/tmp/pnpm-store:/home/runner/_work/.pnpm-store");
@@ -233,6 +235,7 @@ describe("buildContainerBinds — PM-scoped mounts", () => {
       warmModulesDir: "/tmp/warm",
       hostRunnerDir: "/tmp/runner",
       useDirectContainer: false,
+      githubRepo: "org/repo",
     });
 
     expect(binds).toContain("/tmp/bun-cache:/home/runner/.bun/install/cache");
@@ -253,6 +256,7 @@ describe("buildContainerBinds — PM-scoped mounts", () => {
       warmModulesDir: "/tmp/warm",
       hostRunnerDir: "/tmp/runner",
       useDirectContainer: false,
+      githubRepo: "org/repo",
     });
 
     expect(binds.some((b) => b.includes(".pnpm-store"))).toBe(false);

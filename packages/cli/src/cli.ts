@@ -982,6 +982,8 @@ async function handleWorkflow(options: {
     return result;
   };
 
+  const seenErrorMessages = new Set<string>();
+
   for (let wi = 0; wi < filteredWaves.length; wi++) {
     const waveJobIds = new Set(filteredWaves[wi]);
     const waveJobs = expandedJobs.filter((j) => waveJobIds.has(j.taskName));
@@ -1011,8 +1013,11 @@ async function handleWorkflow(options: {
         } else {
           const taskName = isJobError(r.reason) ? r.reason.taskName : "unknown";
           const errorMessage = isJobError(r.reason) ? r.reason.message : String(r.reason);
-          console.error(`\n[Agent CI] Job failed with error: ${taskName}`);
-          console.error(`  Error: ${errorMessage}`);
+          if (!seenErrorMessages.has(errorMessage)) {
+            seenErrorMessages.add(errorMessage);
+            console.error(`\n[Agent CI] Job failed with error: ${taskName}`);
+            console.error(`  Error: ${errorMessage}`);
+          }
           allResults.push(createFailedJobResult(taskName, workflowPath, r.reason));
         }
       }
@@ -1033,8 +1038,11 @@ async function handleWorkflow(options: {
         } else {
           const taskName = isJobError(r.reason) ? r.reason.taskName : "unknown";
           const errorMessage = isJobError(r.reason) ? r.reason.message : String(r.reason);
-          console.error(`\n[Agent CI] Job failed with error: ${taskName}`);
-          console.error(`  Error: ${errorMessage}`);
+          if (!seenErrorMessages.has(errorMessage)) {
+            seenErrorMessages.add(errorMessage);
+            console.error(`\n[Agent CI] Job failed with error: ${taskName}`);
+            console.error(`  Error: ${errorMessage}`);
+          }
           allResults.push(createFailedJobResult(taskName, workflowPath, r.reason));
         }
       }

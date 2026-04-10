@@ -174,16 +174,16 @@ export function renderRunState(state: RunState): string {
   const singleJobMode = state.workflows.length === 1 && totalJobs === 1;
 
   const roots: TreeNode[] = [];
-  let pausedSingleJob: JobState | undefined;
+  let pausedJob: JobState | undefined;
 
   for (const wf of state.workflows) {
     const children: TreeNode[] = [];
     for (const job of wf.jobs) {
       children.push(...buildJobNodes(job, singleJobMode));
 
-      // Capture the first paused job for single-job trailing output
-      if (singleJobMode && job.status === "paused" && !pausedSingleJob) {
-        pausedSingleJob = job;
+      // Capture the first paused job for trailing output
+      if (job.status === "paused" && !pausedJob) {
+        pausedJob = job;
       }
     }
     roots.push({ label: path.basename(wf.path), children });
@@ -191,9 +191,9 @@ export function renderRunState(state: RunState): string {
 
   let output = renderTree(roots);
 
-  // ── Single-job pause: append last output + retry/abort hints below tree ────
-  if (pausedSingleJob) {
-    const { lastOutputLines, runnerId } = pausedSingleJob;
+  // ── Paused job: append last output + retry/abort hints below tree ──────────
+  if (pausedJob) {
+    const { lastOutputLines, runnerId } = pausedJob;
     if (lastOutputLines && lastOutputLines.length > 0) {
       output += `\n\n  ${DIM}Last output:${RESET}`;
       for (const line of lastOutputLines) {

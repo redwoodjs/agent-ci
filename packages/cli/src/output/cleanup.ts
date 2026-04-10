@@ -14,21 +14,59 @@ import { execFileSync, execSync, spawnSync } from "node:child_process";
  * passed as arrays to avoid shell injection.
  */
 export function copyWorkspace(repoRoot: string, dest: string): void {
-  // Get the list of files to copy from git (NUL-separated for safety with
+  const maxBuffer = 100 * 1024 * 1024; // 100MB — default 1MB overflows in large monorepos
+
+  // Identify git-tracked symlinks (mode 120000) upfront via a single git call
+  // so we can handle them without per-file lstat syscalls.
+  const symlinks = new Set<string>();
+  const staged = execSync("git ls-files -s -z", {
+    stdio: "pipe",
+    cwd: repoRoot,
+    maxBuffer,
+  })
+    .toString()
+    .split("\0")
+    .filter(Boolean);
+  for (const entry of staged) {
+    // Format: "<mode> <hash> <stage>\t<path>"
+    if (entry.startsWith("120000 ")) {
+      const tabIdx = entry.indexOf("\t");
+      if (tabIdx !== -1) {
+        symlinks.add(entry.slice(tabIdx + 1));
+      }
+    }
+  }
+
+  // Get the full list of files to copy (NUL-separated for safety with
   // paths that contain spaces or special characters).
   const files = execSync("git ls-files --cached --others --exclude-standard -z", {
     stdio: "pipe",
     cwd: repoRoot,
-    maxBuffer: 100 * 1024 * 1024, // 100MB — default 1MB overflows in large monorepos
+    maxBuffer,
   })
     .toString()
     .split("\0")
     .filter(Boolean);
 
+  // Recreate symlinks in dest (cheap: no disk I/O beyond the link inode).
+  for (const file of symlinks) {
+    const src = path.join(repoRoot, file);
+    const fileDest = path.join(dest, file);
+    try {
+      fs.mkdirSync(path.dirname(fileDest), { recursive: true });
+      fs.symlinkSync(fs.readlinkSync(src), fileDest);
+    } catch {
+      // Skip broken symlinks
+    }
+  }
+
+  // Copy regular files (excluding symlinks already handled above).
+  const regularFiles = symlinks.size > 0 ? files.filter((f) => !symlinks.has(f)) : files;
+
   if (process.platform === "darwin") {
     // On macOS with APFS, use per-file cp -c (CoW clone) via execFileSync so
     // file names are never interpreted by a shell.
-    for (const file of files) {
+    for (const file of regularFiles) {
       const src = path.join(repoRoot, file);
       const fileDest = path.join(dest, file);
       try {
@@ -46,7 +84,7 @@ export function copyWorkspace(repoRoot: string, dest: string): void {
     // Linux/other: pass the file list to rsync via stdin (--files-from=-)
     // with --from0 so NUL-delimited names are handled correctly.
     // dest is passed as a positional argument, never shell-interpolated.
-    const input = files.join("\0");
+    const input = regularFiles.join("\0");
     const result = spawnSync("rsync", ["-a", "--files-from=-", "--from0", "./", dest + "/"], {
       input,
       stdio: ["pipe", "pipe", "pipe"],
@@ -54,12 +92,13 @@ export function copyWorkspace(repoRoot: string, dest: string): void {
     });
     if (result.status !== 0) {
       // rsync not available — fall through to Node.js fallback
-      copyViaNodeFs(repoRoot, dest, files);
+      copyViaNodeFs(repoRoot, dest, regularFiles);
     }
   }
 }
 
-/** Node.js fallback: copy each file individually using fs.cpSync. */
+/** Node.js fallback: copy each file individually using fs.cpSync.
+ *  Callers must pre-filter symlinks — this only handles regular files. */
 function copyViaNodeFs(repoRoot: string, dest: string, files: string[]): void {
   for (const file of files) {
     const src = path.join(repoRoot, file);

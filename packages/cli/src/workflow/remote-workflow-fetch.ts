@@ -1,6 +1,5 @@
 import fs from "node:fs";
 import path from "node:path";
-import { execSync } from "node:child_process";
 import { parse as parseYaml } from "yaml";
 
 export interface RemoteWorkflowRef {
@@ -53,38 +52,20 @@ export function remoteCachePath(cacheDir: string, ref: RemoteWorkflowRef): strin
 }
 
 /**
- * Resolve a GitHub token for API access.
- * Tries `gh auth token` first (real user credentials), then falls back to
- * GITHUB_TOKEN env var. This ordering matters because agent-ci injects a
- * fake token as GITHUB_TOKEN for the runner context.
- */
-function resolveGitHubToken(): string | null {
-  try {
-    const token = execSync("gh auth token", {
-      encoding: "utf-8",
-      stdio: ["pipe", "pipe", "pipe"],
-    }).trim();
-    if (token) {
-      return token;
-    }
-  } catch {
-    // gh not installed or not authenticated
-  }
-  return process.env.GITHUB_TOKEN || null;
-}
-
-/**
  * Scan a workflow YAML and prefetch all remote reusable workflow refs.
  * Downloaded files are written to cacheDir.
  *
  * - SHA refs: cached forever (immutable)
  * - Tag/branch refs: always re-fetched (mutable)
  *
- * Throws on fetch failures (404, auth errors, network errors).
+ * Authentication is opt-in via the `githubToken` parameter.
+ * Public repos may work without auth (within rate limits).
+ * On 401/403 responses, throws with instructions for how to authenticate.
  */
 export async function prefetchRemoteWorkflows(
   workflowPath: string,
   cacheDir: string,
+  githubToken?: string,
 ): Promise<Map<string, string>> {
   const resolved = new Map<string, string>();
 
@@ -106,8 +87,6 @@ export async function prefetchRemoteWorkflows(
     return resolved;
   }
 
-  const token = resolveGitHubToken();
-
   const errors: string[] = [];
 
   await Promise.all(
@@ -126,15 +105,15 @@ export async function prefetchRemoteWorkflows(
           Accept: "application/vnd.github.v3+json",
           "User-Agent": "agent-ci/1.0",
         };
-        if (token) {
-          headers["Authorization"] = `token ${token}`;
+        if (githubToken) {
+          headers["Authorization"] = `token ${githubToken}`;
         }
 
         const response = await fetch(url, { headers });
         if (!response.ok) {
           const hint =
             response.status === 401 || response.status === 403
-              ? " Ensure GITHUB_TOKEN is set or run `gh auth login`."
+              ? ` Run with: agent-ci run --github-token\n  Or set: export AGENT_CI_GITHUB_TOKEN=$(gh auth token)`
               : "";
           errors.push(
             `Failed to fetch remote workflow ${ref.raw} (HTTP ${response.status}).${hint}`,

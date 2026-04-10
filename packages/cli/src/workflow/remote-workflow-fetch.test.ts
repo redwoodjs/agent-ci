@@ -243,7 +243,51 @@ jobs:
     uses: org/private-repo/.github/workflows/lint.yml@v1
 `);
 
-    await expect(prefetchRemoteWorkflows(wf, cacheDir)).rejects.toThrow(/gh auth login/);
+    await expect(prefetchRemoteWorkflows(wf, cacheDir)).rejects.toThrow(/--github-token/);
+  });
+
+  it("sends Authorization header when githubToken is provided", async () => {
+    const remoteYaml = `
+on: workflow_call
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo lint
+`;
+    mockFetchSuccess(remoteYaml);
+
+    const wf = writeWorkflow(`
+jobs:
+  lint:
+    uses: org/repo/.github/workflows/lint.yml@v1
+`);
+
+    await prefetchRemoteWorkflows(wf, cacheDir, "ghp_test123");
+    const fetchCall = (globalThis.fetch as any).mock.calls[0];
+    expect(fetchCall[1].headers["Authorization"]).toBe("token ghp_test123");
+  });
+
+  it("does not send Authorization header when no token provided", async () => {
+    const remoteYaml = `
+on: workflow_call
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo lint
+`;
+    mockFetchSuccess(remoteYaml);
+
+    const wf = writeWorkflow(`
+jobs:
+  lint:
+    uses: org/repo/.github/workflows/lint.yml@v1
+`);
+
+    await prefetchRemoteWorkflows(wf, cacheDir);
+    const fetchCall = (globalThis.fetch as any).mock.calls[0];
+    expect(fetchCall[1].headers["Authorization"]).toBeUndefined();
   });
 
   it("fetches multiple remote refs in parallel", async () => {

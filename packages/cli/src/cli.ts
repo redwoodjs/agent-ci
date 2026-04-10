@@ -73,6 +73,7 @@ async function run() {
     let pauseOnFailure = false;
     let runAll = false;
     let noMatrix = false;
+    let githubToken: string | undefined;
 
     for (let i = 1; i < args.length; i++) {
       if ((args[i] === "--workflow" || args[i] === "-w") && args[i + 1]) {
@@ -86,9 +87,33 @@ async function run() {
         setQuietMode(true);
       } else if (args[i] === "--no-matrix") {
         noMatrix = true;
+      } else if (args[i] === "--github-token") {
+        // If the next arg looks like a token value (not another flag), use it.
+        // Otherwise, auto-resolve via `gh auth token`.
+        if (args[i + 1] && !args[i + 1].startsWith("-")) {
+          githubToken = args[i + 1];
+          i++;
+        } else {
+          try {
+            githubToken = execSync("gh auth token", {
+              encoding: "utf-8",
+              stdio: ["pipe", "pipe", "pipe"],
+            }).trim();
+          } catch {
+            console.error(
+              "[Agent CI] Error: --github-token requires `gh` CLI to be installed and authenticated, or pass a token value: --github-token <value>",
+            );
+            process.exit(1);
+          }
+        }
       } else if (!args[i].startsWith("-")) {
         sha = args[i];
       }
+    }
+
+    // Also accept AGENT_CI_GITHUB_TOKEN env var (CLI flag takes precedence)
+    if (!githubToken && process.env.AGENT_CI_GITHUB_TOKEN) {
+      githubToken = process.env.AGENT_CI_GITHUB_TOKEN;
     }
 
     let workingDir = process.env.AGENT_CI_WORKING_DIR;
@@ -156,6 +181,7 @@ async function run() {
         sha,
         pauseOnFailure,
         noMatrix,
+        githubToken,
       });
       if (results.length > 0) {
         printSummary(results);
@@ -193,6 +219,7 @@ async function run() {
       sha,
       pauseOnFailure,
       noMatrix,
+      githubToken,
     });
     if (results.length > 0) {
       printSummary(results);
@@ -278,8 +305,9 @@ async function runWorkflows(options: {
   sha?: string;
   pauseOnFailure: boolean;
   noMatrix?: boolean;
+  githubToken?: string;
 }): Promise<JobResult[]> {
-  const { workflowPaths, sha, pauseOnFailure, noMatrix = false } = options;
+  const { workflowPaths, sha, pauseOnFailure, noMatrix = false, githubToken } = options;
 
   // Suppress EventEmitter MaxListenersExceeded warnings when running many
   // parallel jobs (each job adds SIGINT/SIGTERM listeners).
@@ -382,6 +410,7 @@ async function runWorkflows(options: {
         pauseOnFailure,
         noMatrix,
         store,
+        githubToken,
       });
       allResults.push(...results);
     } else {
@@ -419,6 +448,7 @@ async function runWorkflows(options: {
           noMatrix,
           store,
           baseRunNum: runNums[0],
+          githubToken,
         });
         allResults.push(...firstResults);
 
@@ -431,6 +461,7 @@ async function runWorkflows(options: {
               noMatrix,
               store,
               baseRunNum: runNums[i + 1],
+              githubToken,
             }),
           ),
         );
@@ -451,6 +482,7 @@ async function runWorkflows(options: {
               noMatrix,
               store,
               baseRunNum: runNums[i],
+              githubToken,
             }),
           ),
         );
@@ -494,8 +526,9 @@ async function handleWorkflow(options: {
   noMatrix?: boolean;
   store: RunStateStore;
   baseRunNum?: number;
+  githubToken?: string;
 }): Promise<JobResult[]> {
-  const { sha, pauseOnFailure, noMatrix = false, store } = options;
+  const { sha, pauseOnFailure, noMatrix = false, store, githubToken } = options;
   let workflowPath = options.workflowPath;
 
   if (!fs.existsSync(workflowPath)) {
@@ -520,7 +553,7 @@ async function handleWorkflow(options: {
   const [owner, name] = githubRepo.split("/");
 
   const remoteCacheDir = path.resolve(getWorkingDirectory(), "cache", "remote-workflows");
-  const remoteCache = await prefetchRemoteWorkflows(workflowPath, remoteCacheDir);
+  const remoteCache = await prefetchRemoteWorkflows(workflowPath, remoteCacheDir, githubToken);
   const expandedEntries = expandReusableJobs(workflowPath, repoRoot, remoteCache);
 
   if (expandedEntries.length === 0) {
@@ -1045,6 +1078,13 @@ function printUsage() {
   console.log(
     "      --no-matrix               Collapse all matrix combinations into a single job (uses first value of each key)",
   );
+  console.log(
+    "      --github-token [<token>]  GitHub token for fetching remote reusable workflows",
+  );
+  console.log(
+    "                                (auto-resolves via `gh auth token` if no value given)",
+  );
+  console.log("                                Or set: AGENT_CI_GITHUB_TOKEN env var");
 }
 
 function resolveRepoRoot() {

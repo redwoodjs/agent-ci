@@ -402,11 +402,56 @@ describe("renderRunState", () => {
       });
 
       const output = renderRunState(state);
-      // Retry hint is a child node (not trailing output like single-job mode)
+      // Retry hint is a child node in the tree
       expect(output).toContain("↻ retry: agent-ci retry --runner agent-ci-5-j2");
-      // No trailing "To retry:" / "To abort:" lines in multi-job mode
-      expect(output).not.toContain("↻ To retry:");
-      expect(output).not.toContain("■ To abort:");
+      // Trailing "To retry:" / "To abort:" lines also shown in multi-job mode
+      expect(output).toContain("↻ To retry:");
+      expect(output).toContain("■ To abort:");
+    });
+
+    it("shows last output lines for paused job in multi-job mode", () => {
+      const state = makeState({
+        workflows: [
+          {
+            id: "ci.yml",
+            path: "/repo/.github/workflows/ci.yml",
+            status: "running",
+            jobs: [
+              {
+                id: "build",
+                runnerId: "agent-ci-5-j1",
+                status: "completed",
+                durationMs: 5000,
+                steps: [],
+              },
+              {
+                id: "test",
+                runnerId: "agent-ci-5-j2",
+                status: "paused",
+                pausedAtStep: "Run tests",
+                pausedAtMs: "1970-01-01T00:00:05.000Z",
+                attempt: 1,
+                lastOutputLines: ["FAIL src/app.test.ts", "  Expected: true", "  Received: false"],
+                bootDurationMs: 1000,
+                steps: [
+                  {
+                    name: "Run tests",
+                    index: 1,
+                    status: "paused",
+                    startedAt: "1970-01-01T00:00:03.000Z",
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      });
+
+      const output = renderRunState(state);
+      expect(output).toContain("Last output:");
+      expect(output).toContain("FAIL src/app.test.ts");
+      expect(output).toContain("Expected: true");
+      expect(output).toContain("Received: false");
     });
   });
 

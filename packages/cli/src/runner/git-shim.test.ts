@@ -3,25 +3,6 @@ import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
 
-// ── computeFakeSha ────────────────────────────────────────────────────────────
-
-describe("computeFakeSha", () => {
-  it("returns the headSha when it is a real SHA", async () => {
-    const { computeFakeSha } = await import("./git-shim.js");
-    expect(computeFakeSha("abc123def456")).toBe("abc123def456");
-  });
-
-  it("returns the deterministic fake when headSha is HEAD", async () => {
-    const { computeFakeSha } = await import("./git-shim.js");
-    expect(computeFakeSha("HEAD")).toBe("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-  });
-
-  it("returns the deterministic fake when headSha is undefined", async () => {
-    const { computeFakeSha } = await import("./git-shim.js");
-    expect(computeFakeSha(undefined)).toBe("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-  });
-});
-
 // ── writeGitShim ──────────────────────────────────────────────────────────────
 
 describe("writeGitShim", () => {

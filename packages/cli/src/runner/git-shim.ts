@@ -1,16 +1,6 @@
 import path from "path";
 import fs from "fs";
 
-// ─── Fake SHA computation ─────────────────────────────────────────────────────
-
-/**
- * Resolve which SHA the git shim should return for ls-remote / rev-parse.
- * Uses the real SHA if provided, otherwise falls back to a deterministic fake.
- */
-export function computeFakeSha(headSha?: string): string {
-  return headSha && headSha !== "HEAD" ? headSha : "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-}
-
 // ─── Git shim script ──────────────────────────────────────────────────────────
 
 /**

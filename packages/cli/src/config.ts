@@ -64,37 +64,52 @@ export const config: {
 };
 
 /**
- * Load machine-local secrets from `.env.machine` at the agent-ci project root.
+ * Load machine-local secrets from `.env.agent-ci` at the given base directory.
  * The file uses KEY=VALUE syntax (lines starting with # are ignored).
- * Returns an empty object if the file doesn't exist.
+ *
+ * When `envFallbackKeys` is provided, any key in that list that is NOT already
+ * present in the file will be filled from `process.env` (shell environment
+ * variables act as a fallback for the .env file).
+ *
+ * Returns an empty object if the file doesn't exist and no env fallbacks match.
  */
-export function loadMachineSecrets(baseDir?: string): Record<string, string> {
+export function loadMachineSecrets(
+  baseDir?: string,
+  envFallbackKeys?: string[],
+): Record<string, string> {
   const envMachinePath = path.join(baseDir ?? PROJECT_ROOT, ".env.agent-ci");
-  if (!fs.existsSync(envMachinePath)) {
-    return {};
-  }
   const secrets: Record<string, string> = {};
-  const lines = fs.readFileSync(envMachinePath, "utf-8").split("\n");
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith("#")) {
-      continue;
+  if (fs.existsSync(envMachinePath)) {
+    const lines = fs.readFileSync(envMachinePath, "utf-8").split("\n");
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith("#")) {
+        continue;
+      }
+      const eqIdx = trimmed.indexOf("=");
+      if (eqIdx < 1) {
+        continue;
+      }
+      const key = trimmed.slice(0, eqIdx).trim();
+      let value = trimmed.slice(eqIdx + 1).trim();
+      // Strip optional surrounding quotes
+      if (
+        (value.startsWith('"') && value.endsWith('"')) ||
+        (value.startsWith("'") && value.endsWith("'"))
+      ) {
+        value = value.slice(1, -1);
+      }
+      if (key) {
+        secrets[key] = value;
+      }
     }
-    const eqIdx = trimmed.indexOf("=");
-    if (eqIdx < 1) {
-      continue;
-    }
-    const key = trimmed.slice(0, eqIdx).trim();
-    let value = trimmed.slice(eqIdx + 1).trim();
-    // Strip optional surrounding quotes
-    if (
-      (value.startsWith('"') && value.endsWith('"')) ||
-      (value.startsWith("'") && value.endsWith("'"))
-    ) {
-      value = value.slice(1, -1);
-    }
-    if (key) {
-      secrets[key] = value;
+  }
+  // Fill missing secrets from process.env (shell env vars act as fallback)
+  if (envFallbackKeys) {
+    for (const key of envFallbackKeys) {
+      if (!secrets[key] && process.env[key]) {
+        secrets[key] = process.env[key]!;
+      }
     }
   }
   return secrets;

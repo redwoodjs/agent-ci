@@ -17,6 +17,7 @@ import {
   parseWorkflowServices,
   parseWorkflowContainer,
   validateSecrets,
+  extractSecretRefs,
   parseMatrixDef,
   expandMatrixCombinations,
   collapseMatrixToSingle,
@@ -628,7 +629,11 @@ async function handleWorkflow(options: {
   if (expandedJobs.length === 1) {
     const ej = expandedJobs[0];
     const actualTaskName = ej.sourceTaskName ?? ej.taskName;
-    const secrets = loadMachineSecrets(repoRoot);
+    const requiredRefs = extractSecretRefs(ej.workflowPath, actualTaskName);
+    const secrets = loadMachineSecrets(repoRoot, requiredRefs);
+    if (githubToken && !secrets["GITHUB_TOKEN"]) {
+      secrets["GITHUB_TOKEN"] = githubToken;
+    }
     const secretsFilePath = path.join(repoRoot, ".env.agent-ci");
     validateSecrets(ej.workflowPath, actualTaskName, secrets, secretsFilePath);
 
@@ -710,7 +715,11 @@ async function handleWorkflow(options: {
 
   const buildJob = (ej: ExpandedJob): Job => {
     const actualTaskName = ej.sourceTaskName ?? ej.taskName;
-    const secrets = loadMachineSecrets(repoRoot);
+    const requiredRefs = extractSecretRefs(ej.workflowPath, actualTaskName);
+    const secrets = loadMachineSecrets(repoRoot, requiredRefs);
+    if (githubToken && !secrets["GITHUB_TOKEN"]) {
+      secrets["GITHUB_TOKEN"] = githubToken;
+    }
     const secretsFilePath = path.join(repoRoot, ".env.agent-ci");
     validateSecrets(ej.workflowPath, actualTaskName, secrets, secretsFilePath);
 
@@ -785,7 +794,11 @@ async function handleWorkflow(options: {
     debugCli(
       `Running: ${path.basename(ej.workflowPath)} | Task: ${taskName}${matrixContext ? ` | Matrix: ${JSON.stringify(Object.fromEntries(Object.entries(matrixContext).filter(([k]) => !k.startsWith("__"))))}` : ""}`,
     );
-    const secrets = loadMachineSecrets(repoRoot);
+    const requiredRefs = extractSecretRefs(ej.workflowPath, actualTaskName);
+    const secrets = loadMachineSecrets(repoRoot, requiredRefs);
+    if (githubToken && !secrets["GITHUB_TOKEN"]) {
+      secrets["GITHUB_TOKEN"] = githubToken;
+    }
     const secretsFilePath = path.join(repoRoot, ".env.agent-ci");
     validateSecrets(ej.workflowPath, actualTaskName, secrets, secretsFilePath);
     const inputsContext = resolveInputsForJob(ej, secrets, needsContext);
@@ -1101,6 +1114,12 @@ function printUsage() {
   console.log(
     "      --commit-status           Post a GitHub commit status after the run (requires --github-token)",
   );
+  console.log("");
+  console.log("Secrets:");
+  console.log("  Workflow secrets (${{ secrets.FOO }}) are resolved from:");
+  console.log("    1. .env.agent-ci file in the repo root");
+  console.log("    2. Environment variables (shell env acts as fallback)");
+  console.log("    3. --github-token automatically provides secrets.GITHUB_TOKEN");
 }
 
 function resolveRepoRoot() {

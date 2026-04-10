@@ -1,5 +1,11 @@
 # dtu-github-actions
 
+## 0.8.1
+
+### Patch Changes
+
+- 1f24fec: Make GitHub authentication opt-in for remote reusable workflow fetching. Add --github-token CLI flag and AGENT_CI_GITHUB_TOKEN env var.
+
 ## 0.8.0
 
 ### Minor Changes

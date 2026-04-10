@@ -1,5 +1,28 @@
 # dtu-github-actions
 
+## 0.8.0
+
+### Minor Changes
+
+- f660c11: Support composite action step outputs and push event context for changed-files actions
+- ba84b69: Add ts-runner: a TypeScript replacement for the GitHub Actions runner that executes workflow `run:` steps natively without Docker.
+- 6b7a95b: Support local composite actions (`uses: ./.github/actions/...`) by setting `RepositoryType: "self"` so the runner resolves them from the workspace.
+- cf31ce1: Support nested reusable workflows up to 4 levels deep, matching GitHub Actions' limit.
+- e9c5df5: Support local reusable workflows (`uses: ./.github/workflows/...`) by inlining called jobs into the caller's dependency graph.
+- 789e403: Support passing inputs and outputs through reusable workflows. Caller `with:` values are now resolved and available as `inputs.*` in called workflows, input defaults from `on.workflow_call.inputs` are respected, and `on.workflow_call.outputs` are wired back so downstream jobs can consume `needs.<callerJobId>.outputs.*`.
+
+### Patch Changes
+
+- c7d45a2: Use resolved DOCKER_HOST socket path for container bind mount instead of hardcoding /var/run/docker.sock.
+- 7a612b0: Fix duplicate error messages on workflow failure by removing the intermediate console.error in handleWorkflow's catch block.
+- fbd8dea: Fix horizontal scrolling on code blocks in mobile in-app browsers (e.g. Twitter/X).
+- 8fbe36d: Fix TypeScript @types resolution for pnpm projects using warm-modules cache.
+- 81aedf3: Fix stderr leak from git commands and support non-origin remote names.
+- 912ed83: Preserve git-tracked symlinks in workspace snapshot copies.
+- 2820b5a: Remove test script from ts-runner package to unblock release workflow.
+- 1b1c664: Guard against undefined template.jobs from workflow parser to prevent TypeError crash.
+- ed4e86c: Fix parseWorkflowSteps crash when template.jobs is undefined.
+
 ## 0.7.1
 
 ### Patch Changes

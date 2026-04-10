@@ -232,13 +232,24 @@ export async function executeLocalJob(
   // Open debug stream to capture raw container output
   const debugStream = fs.createWriteStream(debugLogPath);
 
+  // Hoisted for cleanup in `finally` — assigned inside the try block.
+  let container: Docker.Container | null = null;
+  let serviceCtx: ServiceContext | undefined;
+  const hostRunnerDir = path.resolve(runDir, "runner");
+
   // Signal handler: ensure cleanup runs even when killed.
   // Do NOT call process.exit() here — multiple jobs register handlers concurrently,
   // and an early exit would prevent other jobs' handlers from cleaning up their containers.
   // killRunnerContainers already handles the runner, its svc-* sidecars, and the network.
   const signalCleanup = () => {
     killRunnerContainers(containerName);
-    for (const d of [dirs.containerWorkDir, dirs.shimsDir, dirs.signalsDir, dirs.diagDir]) {
+    for (const d of [
+      dirs.containerWorkDir,
+      dirs.shimsDir,
+      dirs.signalsDir,
+      dirs.diagDir,
+      hostRunnerDir,
+    ]) {
       try {
         fs.rmSync(d, { recursive: true, force: true });
       } catch {}
@@ -246,11 +257,6 @@ export async function executeLocalJob(
   };
   process.on("SIGINT", signalCleanup);
   process.on("SIGTERM", signalCleanup);
-
-  // Hoisted for cleanup in `finally` — assigned inside the try block.
-  let container: Docker.Container | null = null;
-  let serviceCtx: ServiceContext | undefined;
-  const hostRunnerDir = path.resolve(runDir, "runner");
 
   try {
     // 1. Seed the job to Local DTU

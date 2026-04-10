@@ -1,0 +1,47 @@
+name: "Smoke: pnpm symlinks + TypeScript @types"
+
+# Reproduces two Khan/wonder-blocks bugs:
+#   #176 — warm-modules mount path breaks TypeScript @types resolution for pnpm
+#   #178 — workspace snapshot drops git-tracked symlinks (mode 120000)
+#
+# Fixture: .github/fixtures/pnpm-symlinks/
+#   A minimal pnpm monorepo with a git-tracked symlink
+#   (packages/pkg-a/types -> ../../types) and a TSX file
+#   that imports React and a custom-declared module.
+
+on:
+  pull_request_target:
+    types: [opened, labeled, synchronize]
+
+jobs:
+  typecheck:
+    if: '!github.event.pull_request.draft && (contains(fromJSON(''["MEMBER", "OWNER", "COLLABORATOR"]''), github.event.pull_request.author_association) || contains(github.event.pull_request.labels.*.name, ''safe-to-run''))'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # ── Verify symlinks survived the workspace snapshot (#178) ──
+      - name: Verify symlinks are present
+        working-directory: .github/fixtures/pnpm-symlinks
+        run: |
+          if [ ! -L packages/pkg-a/types ]; then
+            echo "❌ packages/pkg-a/types is not a symlink"
+            ls -la packages/pkg-a/
+            exit 1
+          fi
+          target=$(readlink packages/pkg-a/types)
+          [ "$target" = "../../types" ] || (echo "❌ symlink target is '$target', expected '../../types'" && exit 1)
+          echo "✅ Symlink preserved: packages/pkg-a/types -> $target"
+
+      - name: Install pnpm and dependencies
+        working-directory: .github/fixtures/pnpm-symlinks
+        run: |
+          npm install -g pnpm
+          pnpm install
+
+      # ── Verify TypeScript @types resolution through pnpm .pnpm (#176) ──
+      - name: TypeScript typecheck
+        working-directory: .github/fixtures/pnpm-symlinks
+        run: |
+          npx tsc -p packages/pkg-a/tsconfig.json --noEmit
+          echo "✅ TypeScript typecheck passed"

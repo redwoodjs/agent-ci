@@ -101,7 +101,12 @@ jobs:
       - run: ./deploy.sh
 ```
 
-This is portable: GitHub honors it too, so the workflow keeps the "same YAML runs locally and on GitHub" promise.
+When a job sets `container:`, agent-ci runs that image **verbatim**. It does **not** layer `.github/agent-ci.Dockerfile` on top, and it does **not** build anything. Whatever you put in `container:` is what runs, exactly as on GitHub-hosted runners. This keeps the "same YAML runs locally and on GitHub" parity promise — locally layering would silently change the environment relative to GitHub.
+
+If you want both your own base image **and** agent-ci's extras, pick one:
+
+- Skip `container:` and put everything in `.github/agent-ci.Dockerfile` (one image, applies to all jobs).
+- Or build your own image that inherits from your preferred base and adds what you need, then reference it with `container:`.
 
 ## CI escape hatch: `AGENT_CI_RUNNER_IMAGE`
 

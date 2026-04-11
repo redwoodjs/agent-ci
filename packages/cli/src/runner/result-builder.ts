@@ -1,6 +1,7 @@
 import path from "path";
 import fs from "fs";
 import { type JobResult, type StepResult, tailLogFile } from "../output/reporter.js";
+import { detectMissingToolHint, type ResolvedRunnerImage } from "./runner-image.js";
 
 // ─── Timeline parsing ─────────────────────────────────────────────────────────
 
@@ -262,6 +263,8 @@ export interface BuildJobResultOpts {
   debugLogPath: string;
   /** Raw step outputs from $GITHUB_OUTPUT files */
   stepOutputs?: Record<string, string>;
+  /** The runner image the job used — used to attach actionable failure hints */
+  resolvedRunnerImage?: ResolvedRunnerImage;
 }
 
 /**
@@ -308,6 +311,27 @@ export function buildJobResult(opts: BuildJobResultOpts): JobResult {
     } else {
       // Boot failure — no timeline, so fall back to debug.log for error context
       result.lastOutputLines = tailLogFile(debugLogPath);
+    }
+
+    // Attach an actionable hint if the failure matches a known missing-tool
+    // pattern (e.g. `cc`, `make`) and the user is still on the default runner
+    // image. Silent when they've already configured a custom image.
+    if (opts.resolvedRunnerImage) {
+      const errorContent =
+        (result.failedStepLogPath &&
+          (() => {
+            try {
+              return fs.readFileSync(result.failedStepLogPath, "utf-8");
+            } catch {
+              return "";
+            }
+          })()) ||
+        result.lastOutputLines?.join("\n") ||
+        "";
+      const hint = detectMissingToolHint(errorContent, opts.resolvedRunnerImage);
+      if (hint) {
+        result.hint = hint;
+      }
     }
   }
 

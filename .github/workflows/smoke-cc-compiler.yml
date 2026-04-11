@@ -21,14 +21,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check cc on PATH
-        run: |
-          if ! command -v cc >/dev/null 2>&1; then
-            echo "❌ cc is not available in runner image"
-            echo "PATH=$PATH"
-            exit 1
-          fi
-          cc --version
-          echo "✅ cc is available"
+        # Invoke cc directly so a missing binary produces the native shell
+        # "command not found" message — this is what the runner-image
+        # error-hint heuristic matches against.
+        run: cc --version
 
       - name: Compile a trivial C program
         run: |

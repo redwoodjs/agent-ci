@@ -34,7 +34,7 @@
     "vitest": "^4.0.18"
   },
   "lint-staged": {
-    "*.{js,ts,jsx,tsx,json,md,css,html}": [
+    "*.{js,ts,jsx,tsx,json,css,html}": [
       "oxfmt --check"
     ],
     "*.{js,ts,jsx,tsx}": [

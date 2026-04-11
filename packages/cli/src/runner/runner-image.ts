@@ -149,6 +149,15 @@ async function buildIfMissing(docker: Docker, resolved: ResolvedRunnerImage): Pr
   // when it's already cached, identical otherwise).
   await ensureImagePulled(docker, UPSTREAM_RUNNER_IMAGE);
 
+  // Announce the build to stderr so users know why the first run is slow.
+  // Written to stderr (not the log-update buffer on stdout) so the spinner
+  // can't clobber it, and it stays in the scrollback after the build ends.
+  process.stderr.write(
+    `\nBuilding runner image from ${resolved.sourceLabel}...\n` +
+      `  Tag: ${resolved.image}\n` +
+      `  First run is slow (~60s) while the image cache is built.\n` +
+      `  Subsequent runs reuse the cached image and take ~0s.\n\n`,
+  );
   debugRunner(`Building runner image ${resolved.image} from ${resolved.sourceLabel}...`);
 
   const { execSync } = await import("node:child_process");

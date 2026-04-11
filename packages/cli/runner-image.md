@@ -22,7 +22,7 @@ RUN sudo apt-get update \
 That's it. No config file. No flags.
 
 - The image is tagged `agent-ci-runner:<sha-of-Dockerfile-contents>`, so every edit forces a rebuild and identical contents reuse the cached build.
-- The first run pays the build cost (~60–90s for a common toolchain). Subsequent runs reuse the cached image.
+- **The first run is slow — agent-ci has to build the image and cache it (~60–90s for a common toolchain). Every run after that reuses the cached image and takes ~0s.** agent-ci prints a one-line notice while the build is running so you can tell why it's pausing.
 - All jobs in your repo use this image unless they set an explicit `container:` directive (which still works — see [Per-job overrides](#per-job-overrides)).
 
 ## Directory form: `.github/agent-ci/Dockerfile`

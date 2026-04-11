@@ -60,16 +60,35 @@ export interface DockerSocket {
 /**
  * Resolve the Docker daemon socket.
  *
- * Resolution order:
+ * Two decisions with different requirements:
+ *   - `socketPath` — what our Node process opens for the Docker API client.
+ *     Needs R/W access from our UID.
+ *   - `bindMountPath` — what we pass as the bind-mount *source* when mounting
+ *     the Docker socket into a runner container. Docker's VM (on macOS + Linux
+ *     Docker Desktop) validates this path against its shared-mount list. Our
+ *     process's permissions are irrelevant here — only path recognition matters.
+ *
+ * Invariant: whenever `/var/run/docker.sock` exists on the host, use it as
+ * `bindMountPath` regardless of R/W access. Every Docker provider we've seen
+ * (Docker Desktop mac + Linux, OrbStack, Colima, native dockerd) either creates
+ * it directly or symlinks to it, and Docker Desktop's mount proxy accepts it.
+ * This collapses the macOS Desktop symlink case (#197) and the Linux Desktop +
+ * non-docker-group case (#209) into one rule.
+ *
+ * Resolution order for `socketPath`:
  *  1. `DOCKER_HOST` env var (returned as-is for non-unix schemes)
- *  2. Default socket `/var/run/docker.sock` (resolves symlinks)
+ *  2. Default socket `/var/run/docker.sock` (resolves symlinks, requires R/W)
  *  3. Active Docker context (`docker context inspect`)
  *  4. Well-known macOS provider sockets
  *
  * Throws with actionable guidance when no socket can be found.
  */
 export function resolveDockerSocket(): DockerSocket {
-  // 1. Explicit DOCKER_HOST
+  // `/var/run/docker.sock` existence check is independent of R/W access —
+  // `existsSync` only needs search permission on `/var/run`, which is always granted.
+  const mountableDefault = fs.existsSync(DEFAULT_SOCKET) ? DEFAULT_SOCKET : undefined;
+
+  // 1. Explicit DOCKER_HOST — user's explicit choice wins for bindMountPath too.
   const envHost = process.env.DOCKER_HOST?.trim();
   if (envHost) {
     if (envHost.startsWith("unix://")) {
@@ -92,11 +111,6 @@ export function resolveDockerSocket(): DockerSocket {
   // 2. Default socket path (often a symlink on macOS)
   const defaultResolved = resolveIfExists(DEFAULT_SOCKET);
   if (defaultResolved) {
-    // Always use DEFAULT_SOCKET as the bind-mount path, even if it resolves to a
-    // different location. On macOS Docker Desktop, /var/run/docker.sock is a symlink
-    // to a path inside the user's home directory; using the resolved path as a bind
-    // mount source causes "error while creating mount source path" because Docker's
-    // VM cannot access that host path.
     return {
       socketPath: defaultResolved,
       uri: `unix://${defaultResolved}`,
@@ -110,7 +124,7 @@ export function resolveDockerSocket(): DockerSocket {
     return {
       socketPath: contextSocket,
       uri: `unix://${contextSocket}`,
-      bindMountPath: contextSocket,
+      bindMountPath: mountableDefault ?? contextSocket,
     };
   }
 
@@ -118,7 +132,11 @@ export function resolveDockerSocket(): DockerSocket {
   if (process.platform === "darwin") {
     for (const candidate of MACOS_PROVIDER_SOCKETS) {
       if (fs.existsSync(candidate)) {
-        return { socketPath: candidate, uri: `unix://${candidate}`, bindMountPath: candidate };
+        return {
+          socketPath: candidate,
+          uri: `unix://${candidate}`,
+          bindMountPath: mountableDefault ?? candidate,
+        };
       }
     }
   }

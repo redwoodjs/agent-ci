@@ -103,15 +103,21 @@ describe("resolveDockerSocket", () => {
 
   // ── EACCES fallthrough ─────────────────────────────────────────────────
 
-  it("falls through to docker context when default socket is not accessible", async () => {
+  it("falls through to docker context when default socket is not accessible, and uses /var/run/docker.sock for bind mount (regression #209)", async () => {
     delete process.env.DOCKER_HOST;
-    // Socket exists but is not accessible (e.g. root:docker 660 on Linux)
+    // Exact #209 cell: Linux + Docker Desktop, user not in docker group.
+    // - /var/run/docker.sock exists (owned by root:docker 660) — exists but EACCES for us
+    // - Active docker context points at the Desktop socket — what our API client must use
+    // - Bind mount must NOT be the Desktop socket (Docker Desktop rejects its own socket
+    //   path as a mount source with "mounts denied") — it must be /var/run/docker.sock,
+    //   which Docker Desktop's mount proxy accepts.
     vi.spyOn(fs, "realpathSync").mockReturnValue("/var/run/docker.sock");
     vi.spyOn(fs, "accessSync").mockImplementation(() => {
       throw Object.assign(new Error("EACCES"), { code: "EACCES" });
     });
     vi.spyOn(fs, "existsSync").mockImplementation((p) => {
-      return String(p) === "/home/user/.docker/desktop/docker.sock";
+      const s = String(p);
+      return s === "/var/run/docker.sock" || s === "/home/user/.docker/desktop/docker.sock";
     });
     mockedExecSync.mockReturnValue(
       JSON.stringify([
@@ -128,8 +134,10 @@ describe("resolveDockerSocket", () => {
     const { resolveDockerSocket } = await importFresh();
     const result = resolveDockerSocket();
 
+    // API client connects via the Desktop socket (we can't R/W /var/run/docker.sock)
     expect(result.socketPath).toBe("/home/user/.docker/desktop/docker.sock");
-    expect(result.bindMountPath).toBe("/home/user/.docker/desktop/docker.sock");
+    // Bind mount uses /var/run/docker.sock — the path Docker Desktop's mount proxy accepts
+    expect(result.bindMountPath).toBe("/var/run/docker.sock");
   });
 
   // ── Docker context fallback ─────────────────────────────────────────────

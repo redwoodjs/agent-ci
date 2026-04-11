@@ -11,7 +11,13 @@ import {
 } from "./output/working-directory.js";
 import { debugCli } from "./output/debug.js";
 
-import { executeLocalJob } from "./runner/local-job.js";
+import { executeLocalJob, getDocker } from "./runner/local-job.js";
+import {
+  discoverRunnerImage,
+  ensureRunnerImage,
+  UPSTREAM_RUNNER_IMAGE,
+} from "./runner/runner-image.js";
+import { ensureImagePulled } from "./docker/image-pull.js";
 import {
   parseWorkflowSteps,
   parseWorkflowServices,
@@ -309,6 +315,47 @@ async function run() {
   }
 }
 
+// ─── prefetchRunnerImages ──────────────────────────────────────────────────
+// Pull (and, if necessary, build) every runner image that the upcoming
+// workflows will need — once, before any job starts. Without this, each
+// parallel workflow independently races to pull/build the same image, which
+// with `--all` means dozens of concurrent `docker pull` calls on a cold
+// cache. The per-job calls in local-job.ts remain as a safety net and take
+// the inspect() fast path since images are already warm.
+async function prefetchRunnerImages(workflowPaths: string[]): Promise<void> {
+  const docker = getDocker();
+
+  // The upstream runner image is always needed: default mode uses it
+  // directly, direct-container mode uses it to seed the runner binary.
+  const pulls: Promise<unknown>[] = [ensureImagePulled(docker, UPSTREAM_RUNNER_IMAGE)];
+
+  // Additionally, each unique repo root may resolve to a custom runner
+  // image (env override or Dockerfile). Build/pull each unique one.
+  const seenRepos = new Set<string>();
+  const seenImages = new Set<string>([UPSTREAM_RUNNER_IMAGE]);
+  for (const wf of workflowPaths) {
+    const repoRoot = resolveRepoRootFromWorkflow(wf);
+    if (seenRepos.has(repoRoot)) {
+      continue;
+    }
+    seenRepos.add(repoRoot);
+    const resolved = discoverRunnerImage(repoRoot);
+    if (seenImages.has(resolved.image)) {
+      continue;
+    }
+    seenImages.add(resolved.image);
+    pulls.push(ensureRunnerImage(docker, resolved));
+  }
+
+  try {
+    await Promise.all(pulls);
+  } catch (err) {
+    // Don't block startup on prefetch failure — per-job calls will retry
+    // and produce a clearer error for the specific job that needs it.
+    debugCli(`[Agent CI] Image prefetch failed: ${(err as Error).message}`);
+  }
+}
+
 // ─── runWorkflows ──────────────────────────────────────────────────────────────
 // Single entry point for both `--workflow` and `--all`.
 // One workflow = --all with a single entry.
@@ -397,6 +444,17 @@ async function runWorkflows(options: {
   };
   process.on("SIGINT", exitOnSignal);
   process.on("SIGTERM", exitOnSignal);
+
+  // ── Session bootstrap ─────────────────────────────────────────────────────
+  // Global Docker/workspace cleanup + image prefetch run once per session
+  // instead of per-workflow. With `--all` launching many workflows in
+  // parallel, running these inside handleWorkflow() hammered the Docker
+  // daemon (N× `docker volume prune`, N× cold-start image pulls) and
+  // serialized work that should have been free. See issue #211.
+  pruneOrphanedDockerResources();
+  killOrphanedContainers();
+  pruneStaleWorkspaces(getWorkingDirectory(), 24 * 60 * 60 * 1000);
+  await prefetchRunnerImages(workflowPaths);
 
   try {
     const allResults: JobResult[] = [];
@@ -823,10 +881,6 @@ async function handleWorkflow(options: {
 
     return result;
   };
-
-  pruneOrphanedDockerResources();
-  killOrphanedContainers();
-  pruneStaleWorkspaces(getWorkingDirectory(), 24 * 60 * 60 * 1000);
 
   const limiter = createConcurrencyLimiter(maxJobs);
   const allResults: JobResult[] = [];

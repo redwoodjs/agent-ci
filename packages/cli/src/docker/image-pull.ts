@@ -1,5 +1,10 @@
 import type Docker from "dockerode";
 
+// Dedup concurrent pulls of the same image. Without this, `--all` runs racing
+// to pull the same runner image trigger N concurrent `docker pull` requests
+// for the same tag. See issue #211.
+const inflightPulls = new Map<string, Promise<void>>();
+
 /**
  * Ensures a Docker image is present locally, pulling it if not.
  *
@@ -18,7 +23,12 @@ export async function ensureImagePulled(docker: Docker, image: string): Promise<
     // Not found locally — fall through to pull
   }
 
-  await new Promise<void>((resolve, reject) => {
+  const existing = inflightPulls.get(image);
+  if (existing) {
+    return existing;
+  }
+
+  const pull = new Promise<void>((resolve, reject) => {
     docker.pull(image, (err: Error | null, stream: NodeJS.ReadableStream) => {
       if (err) {
         return reject(wrapPullError(image, err));
@@ -31,7 +41,12 @@ export async function ensureImagePulled(docker: Docker, image: string): Promise<
         }
       });
     });
+  }).finally(() => {
+    inflightPulls.delete(image);
   });
+
+  inflightPulls.set(image, pull);
+  return pull;
 }
 
 function wrapPullError(image: string, cause: Error): Error {

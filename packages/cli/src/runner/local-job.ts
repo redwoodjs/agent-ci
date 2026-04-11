@@ -32,6 +32,7 @@ import {
   resolveDockerExtraHosts,
 } from "../docker/container-config.js";
 import { buildJobResult, isJobSuccessful } from "./result-builder.js";
+import { ensureImagePulled } from "../docker/image-pull.js";
 import { wrapJobSteps, appendOutputCaptureStep } from "./step-wrapper.js";
 import { syncWorkspaceForRetry } from "./sync.js";
 
@@ -367,6 +368,11 @@ export async function executeLocalJob(
     const hostRunnerSeedDir = path.resolve(getWorkingDirectory(), "runner");
     const useDirectContainer = !!job.container;
     const containerImage = useDirectContainer ? job.container!.image : IMAGE;
+
+    // Pull the runner image if not cached locally. Required in both modes:
+    // default mode uses it directly as the container image; direct-container
+    // mode uses it to seed the runner binary. Fixes: github.com/redwoodjs/agent-ci/issues/203
+    await ensureImagePulled(getDocker(), IMAGE);
 
     if (useDirectContainer) {
       await fs.promises.mkdir(hostRunnerSeedDir, { recursive: true });

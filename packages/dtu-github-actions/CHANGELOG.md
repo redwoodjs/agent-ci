@@ -1,5 +1,18 @@
 # dtu-github-actions
 
+## 0.9.0
+
+### Minor Changes
+
+- b93ecdf: Compute dirty SHA for uncommitted worktrees so `github.sha` reflects the code actually being executed.
+- 2cf4034: Resolve workflow secrets from shell environment variables (fallback to .env.agent-ci file). Also auto-populate `secrets.GITHUB_TOKEN` from `--github-token`.
+
+### Patch Changes
+
+- 1e2714b: Fix "No such image" error on first run for users without a local Docker image cache.
+- 9ff0710: Deduplicate identical failure errors in output summary and streaming messages.
+- 68b1d14: Show failure output and retry/abort hints for paused jobs in multi-job workflows.
+
 ## 0.8.2
 
 ### Patch Changes

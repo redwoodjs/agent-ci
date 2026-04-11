@@ -337,19 +337,11 @@ async function runWorkflows(options: {
   let renderInterval: ReturnType<typeof setInterval> | null = null;
   if (isAgentMode()) {
     const reportedPauses = new Set<string>();
-    const reportedRunners = new Set<string>();
     const reportedSteps = new Map<string, Set<string>>();
     const emit = (msg: string) => process.stderr.write(msg + "\n");
     store.onUpdate((state) => {
       for (const wf of state.workflows) {
         for (const job of wf.jobs) {
-          if (job.status !== "queued" && !reportedRunners.has(job.runnerId)) {
-            reportedRunners.add(job.runnerId);
-            emit(`[Agent CI] Starting runner ${job.runnerId} (${wf.id} > ${job.id})`);
-            if (job.logDir) {
-              emit(`  Logs: ${job.logDir}`);
-            }
-          }
           if (!reportedSteps.has(job.runnerId)) {
             reportedSteps.set(job.runnerId, new Set());
           }
@@ -359,17 +351,11 @@ async function runWorkflows(options: {
             if (seen.has(key)) {
               continue;
             }
-            if (step.status === "completed") {
+            if (step.status === "completed" || step.status === "running") {
               seen.add(key);
-              const dur =
-                step.durationMs != null ? ` (${(step.durationMs / 1000).toFixed(1)}s)` : "";
-              emit(`  ✓ ${step.name}${dur}`);
             } else if (step.status === "failed") {
               seen.add(key);
               emit(`  ✗ ${step.name}`);
-            } else if (step.status === "running") {
-              seen.add(key);
-              emit(`  ▸ ${step.name}`);
             }
           }
           if (job.status === "paused" && !reportedPauses.has(job.runnerId)) {

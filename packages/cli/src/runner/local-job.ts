@@ -539,7 +539,7 @@ export async function executeLocalJob(
       hostRunnerDir,
       useDirectContainer,
       githubRepo,
-      dockerSocketPath: getDockerSocket().socketPath || undefined,
+      dockerSocketPath: getDockerSocket().bindMountPath || undefined,
     });
 
     const containerCmd = buildContainerCmd({

@@ -33,6 +33,19 @@ describe("resolveDockerSocket", () => {
 
     expect(result.socketPath).toBe("/tmp/test-docker.sock");
     expect(result.uri).toBe("unix:///tmp/test-docker.sock");
+    expect(result.bindMountPath).toBe("/tmp/test-docker.sock");
+  });
+
+  it("uses original DOCKER_HOST path as bindMountPath even when it resolves elsewhere", async () => {
+    process.env.DOCKER_HOST = "unix:///var/run/docker.sock";
+    vi.spyOn(fs, "realpathSync").mockReturnValue("/Users/test/.docker/run/docker.sock");
+    vi.spyOn(fs, "accessSync").mockReturnValue(undefined);
+
+    const { resolveDockerSocket } = await importFresh();
+    const result = resolveDockerSocket();
+
+    expect(result.socketPath).toBe("/Users/test/.docker/run/docker.sock");
+    expect(result.bindMountPath).toBe("/var/run/docker.sock");
   });
 
   it("returns non-unix DOCKER_HOST as-is (e.g. ssh://)", async () => {
@@ -43,6 +56,7 @@ describe("resolveDockerSocket", () => {
 
     expect(result.socketPath).toBe("");
     expect(result.uri).toBe("ssh://user@remote");
+    expect(result.bindMountPath).toBe("");
   });
 
   // ── Default socket path ────────────────────────────────────────────────
@@ -62,6 +76,29 @@ describe("resolveDockerSocket", () => {
 
     expect(result.socketPath).toBe("/Users/test/.orbstack/run/docker.sock");
     expect(result.uri).toBe("unix:///Users/test/.orbstack/run/docker.sock");
+    // bindMountPath must stay as /var/run/docker.sock (the symlink), not the resolved path.
+    // Using the resolved path as a bind-mount source fails on macOS Docker Desktop with
+    // "error while creating mount source path" (issue #197).
+    expect(result.bindMountPath).toBe("/var/run/docker.sock");
+  });
+
+  it("uses /var/run/docker.sock as bindMountPath when it resolves to Docker Desktop path (regression #197)", async () => {
+    delete process.env.DOCKER_HOST;
+    vi.spyOn(fs, "realpathSync").mockImplementation((p) => {
+      if (String(p) === "/var/run/docker.sock") {
+        return "/Users/username/.docker/run/docker.sock";
+      }
+      throw new Error("ENOENT");
+    });
+    vi.spyOn(fs, "accessSync").mockReturnValue(undefined);
+
+    const { resolveDockerSocket } = await importFresh();
+    const result = resolveDockerSocket();
+
+    // Docker API client uses resolved path
+    expect(result.socketPath).toBe("/Users/username/.docker/run/docker.sock");
+    // Bind mount uses the stable symlink — NOT the resolved path that caused the regression
+    expect(result.bindMountPath).toBe("/var/run/docker.sock");
   });
 
   // ── EACCES fallthrough ─────────────────────────────────────────────────
@@ -92,6 +129,7 @@ describe("resolveDockerSocket", () => {
     const result = resolveDockerSocket();
 
     expect(result.socketPath).toBe("/home/user/.docker/desktop/docker.sock");
+    expect(result.bindMountPath).toBe("/home/user/.docker/desktop/docker.sock");
   });
 
   // ── Docker context fallback ─────────────────────────────────────────────
@@ -118,6 +156,7 @@ describe("resolveDockerSocket", () => {
     const result = resolveDockerSocket();
 
     expect(result.socketPath).toBe("/Users/test/.docker/run/docker.sock");
+    expect(result.bindMountPath).toBe("/Users/test/.docker/run/docker.sock");
   });
 
   // ── macOS provider fallback ──────────────────────────────────────────────
@@ -141,6 +180,7 @@ describe("resolveDockerSocket", () => {
     const result = resolveDockerSocket();
 
     expect(result.socketPath).toBe(`${home}/.docker/run/docker.sock`);
+    expect(result.bindMountPath).toBe(`${home}/.docker/run/docker.sock`);
   });
 
   // ── Reproduction: symlink missing → clear error ─────────────────────────

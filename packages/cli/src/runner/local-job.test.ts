@@ -21,6 +21,7 @@ describe("getDocker client construction", () => {
     const socket: DockerSocket = {
       socketPath: "/tmp/docker.sock",
       uri: "unix:///tmp/docker.sock",
+      bindMountPath: "/tmp/docker.sock",
     };
 
     mod.__test_createDockerClient(socket);
@@ -33,6 +34,7 @@ describe("getDocker client construction", () => {
     const socket: DockerSocket = {
       socketPath: "",
       uri: "ssh://user@remote-host",
+      bindMountPath: "",
     };
 
     mod.__test_createDockerClient(socket);
@@ -48,6 +50,7 @@ describe("getDocker client construction", () => {
     const socket: DockerSocket = {
       socketPath: "",
       uri: "tcp://192.168.110.1:2375",
+      bindMountPath: "",
     };
 
     mod.__test_createDockerClient(socket);

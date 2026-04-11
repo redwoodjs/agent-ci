@@ -35,6 +35,13 @@ import { buildJobResult, isJobSuccessful } from "./result-builder.js";
 import { ensureImagePulled } from "../docker/image-pull.js";
 import { wrapJobSteps, appendOutputCaptureStep } from "./step-wrapper.js";
 import { syncWorkspaceForRetry } from "./sync.js";
+import {
+  discoverRunnerImage,
+  ensureRunnerImage,
+  UPSTREAM_RUNNER_IMAGE,
+  type ResolvedRunnerImage,
+} from "./runner-image.js";
+import { findRepoRoot } from "./metadata.js";
 
 // ─── Docker setup ─────────────────────────────────────────────────────────────
 
@@ -73,7 +80,12 @@ export function __test_createDockerClient(socket: DockerSocket): Docker {
   return getDocker();
 }
 
-const IMAGE = "ghcr.io/actions/actions-runner:latest";
+// The upstream runner image is always needed as the seed source when a job
+// uses a custom `container:` directive — we extract the runner binary from it
+// regardless of what image the user's steps run in. In default mode (no
+// `container:`), the actual runtime image is resolved per-job via
+// discoverRunnerImage() and may be a user-provided Dockerfile build.
+const SEED_IMAGE = UPSTREAM_RUNNER_IMAGE;
 
 // ─── Pre-baked runner credentials ─────────────────────────────────────────────
 // The GitHub Actions runner normally requires `config.sh` (a .NET binary) to
@@ -367,12 +379,28 @@ export async function executeLocalJob(
     const hostWorkDir = dirs.containerWorkDir;
     const hostRunnerSeedDir = path.resolve(getWorkingDirectory(), "runner");
     const useDirectContainer = !!job.container;
-    const containerImage = useDirectContainer ? job.container!.image : IMAGE;
 
-    // Pull the runner image if not cached locally. Required in both modes:
-    // default mode uses it directly as the container image; direct-container
-    // mode uses it to seed the runner binary. Fixes: github.com/redwoodjs/agent-ci/issues/203
-    await ensureImagePulled(getDocker(), IMAGE);
+    // Resolve the runner image for default mode (no `container:` directive).
+    // Checks AGENT_CI_RUNNER_IMAGE env var, then .github/agent-ci/Dockerfile,
+    // then .github/agent-ci.Dockerfile, then falls back to the upstream image.
+    // In direct-container mode this is unused at runtime — the user's image
+    // wins — but we still need SEED_IMAGE pulled for the runner binary seed.
+    let resolvedRunnerImage: ResolvedRunnerImage;
+    let containerImage: string;
+    if (useDirectContainer) {
+      resolvedRunnerImage = {
+        image: SEED_IMAGE,
+        source: "default",
+        sourceLabel: "built-in default",
+        needsBuild: false,
+      };
+      await ensureImagePulled(getDocker(), SEED_IMAGE);
+      containerImage = job.container!.image;
+    } else {
+      const repoRoot = (job.workflowPath && findRepoRoot(job.workflowPath)) || process.cwd();
+      resolvedRunnerImage = discoverRunnerImage(repoRoot);
+      containerImage = await ensureRunnerImage(getDocker(), resolvedRunnerImage);
+    }
 
     if (useDirectContainer) {
       await fs.promises.mkdir(hostRunnerSeedDir, { recursive: true });
@@ -387,7 +415,7 @@ export async function executeLocalJob(
         }
         const tmpName = `agent-ci-seed-runner-${Date.now()}`;
         const seedContainer = await getDocker().createContainer({
-          Image: IMAGE,
+          Image: SEED_IMAGE,
           name: tmpName,
           Cmd: ["true"],
         });
@@ -917,6 +945,7 @@ export async function executeLocalJob(
       logDir,
       debugLogPath,
       stepOutputs,
+      resolvedRunnerImage,
     });
   } finally {
     // Cleanup: always runs even when errors occur mid-run.

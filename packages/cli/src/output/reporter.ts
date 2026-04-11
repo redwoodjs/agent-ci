@@ -24,6 +24,8 @@ export interface JobResult {
   attempt?: number;
   /** Step outputs captured from $GITHUB_OUTPUT files */
   outputs?: Record<string, string>;
+  /** Optional actionable hint attached to a failure (e.g. missing system tool) */
+  hint?: string;
 }
 
 // ─── Formatting helpers ───────────────────────────────────────────────────────
@@ -87,6 +89,13 @@ export function printSummary(results: JobResult[], runDir?: string): void {
       }
       if (group.errorContent) {
         process.stdout.write("\n" + group.errorContent);
+      }
+      // Emit the hint from the first failure in the group that carries one.
+      // Hints are computed per-job when the failure is built, and duplicates
+      // within a group would just repeat the same message.
+      const hint = group.failures.find((f) => f.hint)?.hint;
+      if (hint) {
+        process.stdout.write("\n" + hint + "\n");
       }
       process.stdout.write("\n");
     }

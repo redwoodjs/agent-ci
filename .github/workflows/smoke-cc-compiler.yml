@@ -1,0 +1,37 @@
+name: "Smoke: C compiler (cc) availability"
+
+# Reproduces a failure where a workflow that needs a C compiler (`cc`)
+# fails under agent-ci because the runner image (ghcr.io/actions/actions-runner)
+# does not ship with build-essential/gcc. On GitHub-hosted ubuntu-latest, `cc`
+# is always present — users hitting Rust crates with `cc-rs` build dependencies
+# (e.g. `cargo build`) expect the same locally.
+#
+# Original failing workflow: a `cargo build --locked --no-default-features`
+# step that errored out with `linker 'cc' not found`.
+#
+# This smoke test isolates the root cause so we can assert `cc` is on PATH.
+
+on:
+  pull_request_target:
+    types: [opened, labeled, synchronize]
+
+jobs:
+  cc-available:
+    if: '!github.event.pull_request.draft && (contains(fromJSON(''["MEMBER", "OWNER", "COLLABORATOR"]''), github.event.pull_request.author_association) || contains(github.event.pull_request.labels.*.name, ''safe-to-run''))'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check cc on PATH
+        # Invoke cc directly so a missing binary produces the native shell
+        # "command not found" message — this is what the runner-image
+        # error-hint heuristic matches against.
+        run: cc --version
+
+      - name: Compile a trivial C program
+        run: |
+          cat > /tmp/hello.c <<'EOF'
+          #include <stdio.h>
+          int main(void) { puts("hello from cc"); return 0; }
+          EOF
+          cc /tmp/hello.c -o /tmp/hello
+          /tmp/hello | grep -q "hello from cc"
+          echo "✅ cc compiled and ran a trivial program"

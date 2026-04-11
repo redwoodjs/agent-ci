@@ -51,4 +51,42 @@ describe("ensureImagePulled", () => {
     // Act: calling again must not throw
     await expect(ensureImagePulled(docker, TEST_IMAGE)).resolves.toBeUndefined();
   });
+
+  it("dedupes concurrent pulls of the same image", { timeout: 60_000 }, async () => {
+    // Arrange: remove the image so all callers hit the pull path
+    try {
+      await docker.getImage(TEST_IMAGE).remove({ force: true });
+    } catch {
+      // Already absent — fine
+    }
+
+    // Spy on docker.pull so we can count invocations. The dedup cache
+    // should ensure a single pull is shared across all concurrent callers.
+    const originalPull = docker.pull.bind(docker);
+    let pullInvocations = 0;
+    (docker as unknown as { pull: Docker["pull"] }).pull = ((
+      ...args: Parameters<Docker["pull"]>
+    ) => {
+      pullInvocations++;
+      return originalPull(...args);
+    }) as Docker["pull"];
+
+    try {
+      // Act: fire 5 concurrent callers before the first pull completes
+      await Promise.all([
+        ensureImagePulled(docker, TEST_IMAGE),
+        ensureImagePulled(docker, TEST_IMAGE),
+        ensureImagePulled(docker, TEST_IMAGE),
+        ensureImagePulled(docker, TEST_IMAGE),
+        ensureImagePulled(docker, TEST_IMAGE),
+      ]);
+    } finally {
+      (docker as unknown as { pull: Docker["pull"] }).pull = originalPull;
+    }
+
+    // Assert: exactly one underlying pull, and image is now present
+    expect(pullInvocations).toBe(1);
+    const info = await docker.getImage(TEST_IMAGE).inspect();
+    expect(info.RepoTags).toContain(TEST_IMAGE);
+  });
 });

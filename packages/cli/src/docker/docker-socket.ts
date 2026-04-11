@@ -50,6 +50,7 @@ export interface DockerSocket {
   uri: string;
   /**
    * Path to use as the bind-mount source when mounting the Docker socket into a container.
+   *
    * Unlike `socketPath`, this is the pre-symlink-resolution path (e.g. `/var/run/docker.sock`)
    * so that Docker on macOS can access it through its VM without failing with
    * "error while creating mount source path".
@@ -107,10 +108,18 @@ export function resolveDockerSocket(): DockerSocket {
   // 3. Docker context
   const contextSocket = socketFromDockerContext();
   if (contextSocket) {
+    // The context socket works for API calls but may not be bind-mountable
+    // (e.g. Docker Desktop's ~/.docker/desktop/docker.sock on Linux).
+    // For bind mounts, prefer the default socket if it exists on disk — the
+    // container runs as root so the daemon-side permission check succeeds
+    // even when this process cannot read the socket directly.
+    const bindMountPath = socketExistsOnDisk(DEFAULT_SOCKET)
+      ? DEFAULT_SOCKET
+      : contextSocket;
     return {
       socketPath: contextSocket,
       uri: `unix://${contextSocket}`,
-      bindMountPath: contextSocket,
+      bindMountPath,
     };
   }
 
@@ -154,5 +163,19 @@ function resolveIfExists(socketPath: string): string | undefined {
     return resolved;
   } catch {
     return undefined;
+  }
+}
+
+/**
+ * Check if a socket path exists on disk without verifying R_OK|W_OK permissions.
+ * Used to determine if the default socket can be used as a bind-mount source
+ * even when this process lacks direct access (e.g. user not in docker group).
+ */
+function socketExistsOnDisk(socketPath: string): boolean {
+  try {
+    fs.realpathSync(socketPath);
+    return true;
+  } catch {
+    return false;
   }
 }

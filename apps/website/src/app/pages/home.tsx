@@ -475,22 +475,25 @@ export const Home = () => {
             </div>
 
             <p className="text-[#9bc5b3] mb-6 leading-relaxed">
-              Agent CI is designed for AI-agent-driven development loops. Add this snippet to your
-              project's{" "}
+              Add this snippet to your project's agent instructions (
               <code className="bg-[#161b18] border border-[#2b483e] px-1.5 py-0.5 rounded text-[#c2ddd0] font-mono text-sm">
                 CLAUDE.md
-              </code>{" "}
-              or{" "}
+              </code>
+              ,{" "}
+              <code className="bg-[#161b18] border border-[#2b483e] px-1.5 py-0.5 rounded text-[#c2ddd0] font-mono text-sm">
+                .cursorrules
+              </code>
+              ,{" "}
               <code className="bg-[#161b18] border border-[#2b483e] px-1.5 py-0.5 rounded text-[#c2ddd0] font-mono text-sm">
                 AGENTS.md
               </code>
-              :
+              ) so your AI agent validates changes before pushing:
             </p>
 
             <Terminal
-              title="AGENTS.md"
+              title="Agent Instructions"
               language="markdown"
-              code={`## agent-ci\n\n- Use \`npx @redwoodjs/agent-ci run --quiet --all\` to run CI locally\n- When a step fails, the run pauses automatically. Use \`npx @redwoodjs/agent-ci retry --name <runner>\` to retry after fixing the failure\n- Do NOT push to trigger remote CI when agent-ci can run it locally — it's instant and free\n- CI was green before you started. Any failure is caused by your changes — do not assume pre-existing failures\n- Use \`--no-matrix\` to collapse matrix jobs into a single run when you don't need full matrix coverage`}
+              code={`## CI\n\nBefore completing any work, you MUST run and pass CI locally:\n\n- Run: \`npx @redwoodjs/agent-ci run --quiet --all --pause-on-failure\`\n- When a step fails, the run pauses automatically. Fix the issue and retry: \`npx @redwoodjs/agent-ci retry --name <runner>\`\n- CI was green before you started. Any failure is caused by your changes — do not assume pre-existing failures\n- Do NOT push to trigger remote CI when agent-ci can run it locally`}
             />
           </div>
         </main>

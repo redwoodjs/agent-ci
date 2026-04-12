@@ -3,15 +3,14 @@
 import { useState } from "react";
 import { Copy, Check } from "lucide-react";
 
-const AGENT_INSTRUCTIONS = `## agent-ci
+const AGENT_INSTRUCTIONS = `## CI
 
-Install: \`npm install -D @redwoodjs/agent-ci\`
+Before completing any work, you MUST run and pass CI locally:
 
-- Use \`npx @redwoodjs/agent-ci run --quiet --all\` to run CI locally
-- When a step fails, the run pauses automatically. Use \`npx @redwoodjs/agent-ci retry --name <runner>\` to retry after fixing the failure
-- Do NOT push to trigger remote CI when agent-ci can run it locally — it's instant and free
+- Run: \`npx @redwoodjs/agent-ci run --quiet --all --pause-on-failure\`
+- When a step fails, the run pauses automatically. Fix the issue and retry: \`npx @redwoodjs/agent-ci retry --name <runner>\`
 - CI was green before you started. Any failure is caused by your changes — do not assume pre-existing failures
-- Use \`--no-matrix\` to collapse matrix jobs into a single run when you don't need full matrix coverage`;
+- Do NOT push to trigger remote CI when agent-ci can run it locally`;
 
 export function CopyAgentInstructions() {
   const [copied, setCopied] = useState(false);

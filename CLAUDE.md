@@ -4,20 +4,9 @@
 
 - [Changeset Required](.claude/rules/changeset-required.md) — Every PR must include a changeset and update the root CHANGELOG.md
 
-# Machinen — Agent Rules
-
-## Testing
-
-Before completing any work, you MUST run and pass:
-
-`npx agent-ci run --all --quiet --pause-on-failure`
-
-If it fails, fix the issue and re-run. Do not tell the user work is done until it passes.
-
 ## CI
 
-- Always use `--quiet` (`-q`) when running agent-ci.
-- Run `/validate` to check all workflows: `npx agent-ci run --all -q -p`
+Before completing any work, run `/validate` to check all workflows. If it fails, fix the issue and re-run. Do not tell the user work is done until it passes.
 
 ## Code
 

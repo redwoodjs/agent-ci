@@ -11,7 +11,7 @@ export function Blog() {
       <div className="absolute inset-0 bg-[linear-gradient(rgba(43,72,62,0.1)_1px,transparent_1px),linear-gradient(90deg,rgba(43,72,62,0.1)_1px,transparent_1px)] bg-[size:40px_40px] [mask-image:radial-gradient(ellipse_80%_80%_at_50%_50%,#000_20%,transparent_100%)] pointer-events-none" />
 
       <nav className="sticky top-0 z-50 border-b border-[#2b483e] bg-[#0d110f]/80 backdrop-blur-md">
-        <div className="max-w-6xl mx-auto px-6 h-16 flex justify-between items-center">
+        <div className="max-w-6xl mx-auto px-6 py-3 md:py-0 md:h-16 flex flex-wrap md:flex-nowrap justify-between items-center gap-2">
           <a href="/" className="flex items-center gap-3">
             <div className="w-8 h-8 bg-[#12211c] border border-[#528b76] flex items-center justify-center rounded-sm shadow-[0_0_10px_rgba(82,139,118,0.3)]">
               <TerminalIcon className="text-[#9bc5b3]" size={16} />
@@ -21,7 +21,7 @@ export function Blog() {
             </span>
           </a>
 
-          <div className="hidden md:flex items-center gap-8 text-sm font-medium text-[#9bc5b3]">
+          <div className="flex items-center gap-4 md:gap-8 text-xs md:text-sm font-medium text-[#9bc5b3] order-last md:order-none w-full md:w-auto">
             <a href="/#quick-start" className="hover:text-[#e0eee5] transition-colors">
               Docs
             </a>

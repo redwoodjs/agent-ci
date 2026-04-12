@@ -16,12 +16,22 @@ export const Home = () => {
 
       {/* Sticky Navbar */}
       <nav className="sticky top-0 z-50 border-b border-[#2b483e] bg-[#0d110f]/80 backdrop-blur-md">
-        <div className="max-w-6xl mx-auto px-6 h-16 flex justify-between items-center">
+        <div className="max-w-6xl mx-auto px-6 py-3 md:py-0 md:h-16 flex flex-wrap md:flex-nowrap justify-between items-center gap-2">
           <span className="text-xl font-bold tracking-tight text-[#e0eee5] font-sans">
             AGENT-CI
           </span>
 
-          <div className="hidden md:flex items-center gap-8 text-sm font-medium text-[#9bc5b3]">
+          <a
+            href="https://github.com/redwoodjs/agent-ci"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-2 px-3 py-1.5 md:px-4 md:py-2 bg-[#161b18] border border-[#3f6f5e] text-[#9bc5b3] hover:bg-[#243c34] hover:text-[#e0eee5] transition-all rounded-sm font-mono text-xs md:text-sm uppercase tracking-wider"
+          >
+            <StarIcon size={16} />
+            Star us
+          </a>
+
+          <div className="flex items-center gap-4 md:gap-8 text-xs md:text-sm font-medium text-[#9bc5b3] order-last md:order-none w-full md:w-auto">
             <a href="#quick-start" className="hover:text-[#e0eee5] transition-colors">
               Docs
             </a>
@@ -43,16 +53,6 @@ export const Home = () => {
               GitHub
             </a>
           </div>
-
-          <a
-            href="https://github.com/redwoodjs/agent-ci"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center gap-2 px-4 py-2 bg-[#161b18] border border-[#3f6f5e] text-[#9bc5b3] hover:bg-[#243c34] hover:text-[#e0eee5] transition-all rounded-sm font-mono text-sm uppercase tracking-wider"
-          >
-            <StarIcon size={16} />
-            <span className="hidden sm:inline">Star us</span>
-          </a>
         </div>
       </nav>
 
@@ -386,10 +386,30 @@ export const Home = () => {
                 </div>
               </Panel>
 
+              <Panel title="x.com/penberg" className="bg-[#12211c]">
+                <QuoteIcon className="text-[#34594c] mb-4" size={32} />
+                <p className="text-[#e0eee5] text-xl leading-relaxed mb-6 font-serif">
+                  "You can run Github actions workflows fully locally with Agent CI. Such a crazy
+                  good unlock for coding agents!"
+                </p>
+                <div className="flex items-center gap-3">
+                  <img
+                    src="https://unavatar.io/x/penberg"
+                    alt="Pekka Enberg"
+                    className="w-10 h-10 rounded-full border border-[#3f6f5e]"
+                    referrerPolicy="no-referrer"
+                  />
+                  <div>
+                    <p className="text-[#e0eee5] font-bold text-sm">Pekka Enberg</p>
+                    <p className="text-[#71a792] text-xs font-mono">@penberg</p>
+                  </div>
+                </div>
+              </Panel>
+
               <Panel title="x.com/bebraw" className="bg-[#12211c]">
                 <QuoteIcon className="text-[#34594c] mb-4" size={32} />
                 <p className="text-[#e0eee5] text-xl leading-relaxed mb-6 font-serif">
-                  "Nice! Exactly what I needed."
+                  "It's great."
                 </p>
                 <div className="flex items-center gap-3">
                   <img
@@ -475,23 +495,64 @@ export const Home = () => {
             </div>
 
             <p className="text-[#9bc5b3] mb-6 leading-relaxed">
-              Agent CI is designed for AI-agent-driven development loops. Add this snippet to your
-              project's{" "}
-              <code className="bg-[#161b18] border border-[#2b483e] px-1.5 py-0.5 rounded text-[#c2ddd0] font-mono text-sm">
-                CLAUDE.md
-              </code>{" "}
-              or{" "}
-              <code className="bg-[#161b18] border border-[#2b483e] px-1.5 py-0.5 rounded text-[#c2ddd0] font-mono text-sm">
-                AGENTS.md
-              </code>
+              Install the agent skill — works with Claude Code, Cursor, Codex, and{" "}
+              <a
+                href="https://agentskills.io"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-[#9bc5b3] hover:text-[#e0eee5] transition-colors underline decoration-[#34594c] underline-offset-4"
+              >
+                40+ other agents
+              </a>
               :
             </p>
 
             <Terminal
-              title="AGENTS.md"
-              language="markdown"
-              code={`## agent-ci\n\n- Use \`npx @redwoodjs/agent-ci run --quiet --all\` to run CI locally\n- When a step fails, the run pauses automatically. Use \`npx @redwoodjs/agent-ci retry --name <runner>\` to retry after fixing the failure\n- Do NOT push to trigger remote CI when agent-ci can run it locally — it's instant and free\n- CI was green before you started. Any failure is caused by your changes — do not assume pre-existing failures\n- Use \`--no-matrix\` to collapse matrix jobs into a single run when you don't need full matrix coverage`}
+              title="Terminal"
+              language="bash"
+              code="npx skills add redwoodjs/agent-ci --skill agent-ci"
             />
+
+            <p className="text-[#9bc5b3] mt-6 mb-6 leading-relaxed">
+              Then add to your agent instructions (
+              <code className="bg-[#161b18] border border-[#2b483e] px-1.5 py-0.5 rounded text-[#c2ddd0] font-mono text-sm">
+                CLAUDE.md
+              </code>
+              ,{" "}
+              <code className="bg-[#161b18] border border-[#2b483e] px-1.5 py-0.5 rounded text-[#c2ddd0] font-mono text-sm">
+                .cursorrules
+              </code>
+              ,{" "}
+              <code className="bg-[#161b18] border border-[#2b483e] px-1.5 py-0.5 rounded text-[#c2ddd0] font-mono text-sm">
+                AGENTS.md
+              </code>
+              ):
+            </p>
+
+            <Terminal
+              title="Agent Instructions"
+              language="markdown"
+              code={`## CI\n\nBefore completing any work, run the \`agent-ci\` skill to validate your changes locally. If it fails, fix the issue and re-run. Do not report work as done until it passes.`}
+            />
+
+            <p className="text-[#9bc5b3] mt-6 leading-relaxed">
+              <strong className="text-[#e0eee5]">Claude Code:</strong> Agent CI also ships a{" "}
+              <code className="bg-[#161b18] border border-[#2b483e] px-1.5 py-0.5 rounded text-[#c2ddd0] font-mono text-sm">
+                /validate
+              </code>{" "}
+              skill. Copy{" "}
+              <a
+                href="https://github.com/redwoodjs/agent-ci/blob/main/.claude/commands/validate.md"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-[#9bc5b3] hover:text-[#e0eee5] transition-colors underline decoration-[#34594c] underline-offset-4"
+              >
+                <code className="bg-[#161b18] border border-[#2b483e] px-1.5 py-0.5 rounded text-[#c2ddd0] font-mono text-sm">
+                  .claude/commands/validate.md
+                </code>
+              </a>{" "}
+              into your project for automatic background execution with monitoring and retry.
+            </p>
           </div>
         </main>
 

@@ -202,14 +202,16 @@ Output goes to **stderr**. If `DEBUG` is unset, debug loggers are no-ops with ze
 
 ## Using with AI coding agents
 
-Agent CI is designed for AI-agent-driven development loops. Add the following snippet to your project's `CLAUDE.md` (for Claude Code) or `.cursorrules` (for Cursor) so your AI agent automatically discovers and uses agent-ci:
+Install the agent skill:
+
+```bash
+npx skills add redwoodjs/agent-ci --skill agent-ci
+```
+
+This works with Claude Code, Cursor, Codex, and [40+ other agents](https://agentskills.io). Then add to your agent instructions (`CLAUDE.md`, `.cursorrules`, `AGENTS.md`, etc.):
 
 ```markdown
-## agent-ci
+## CI
 
-- Use `npx @redwoodjs/agent-ci run --quiet --workflow .github/workflows/ci.yml` to run CI locally
-- When a step fails, the run pauses automatically. Use `npx @redwoodjs/agent-ci retry --name <runner>` to retry after fixing the failure
-- Do NOT push to trigger remote CI when agent-ci can run it locally — it's instant and free
-- CI was green before you started. Any failure is caused by your changes — do not assume pre-existing failures
-- Use `--no-matrix` to collapse matrix jobs into a single run when you don't need full matrix coverage
+Before completing any work, run the `agent-ci` skill to validate your changes locally. If it fails, fix the issue and re-run. Do not report work as done until it passes.
 ```

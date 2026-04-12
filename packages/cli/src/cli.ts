@@ -444,6 +444,7 @@ async function runWorkflows(options: {
   };
   process.on("SIGINT", exitOnSignal);
   process.on("SIGTERM", exitOnSignal);
+  process.on("SIGHUP", exitOnSignal);
 
   // ── Session bootstrap ─────────────────────────────────────────────────────
   // Global Docker/workspace cleanup + image prefetch run once per session
@@ -558,6 +559,7 @@ async function runWorkflows(options: {
   } finally {
     process.removeListener("SIGINT", exitOnSignal);
     process.removeListener("SIGTERM", exitOnSignal);
+    process.removeListener("SIGHUP", exitOnSignal);
     if (renderInterval) {
       clearInterval(renderInterval);
     }

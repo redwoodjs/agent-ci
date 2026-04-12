@@ -56,11 +56,12 @@ export function killRunnerContainers(runnerName: string): void {
  * exhausting its address pool ("all predefined address pools have been fully subnetted").
  */
 export function pruneOrphanedDockerResources(): void {
-  // 1. Remove stopped agent-ci-* containers (runners + sidecars) so their
+  // 1. Remove stopped/stale agent-ci-* containers (runners + sidecars) so their
   //    network references are released before we try to prune networks.
+  //    Includes both "exited" and "created" (never started) containers.
   try {
     const stoppedIds = execSync(
-      `docker ps -aq --filter "name=agent-ci-" --filter "status=exited"`,
+      `docker ps -aq --filter "name=agent-ci-" --filter "status=exited" --filter "status=created"`,
       { encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] },
     ).trim();
     if (stoppedIds) {
@@ -110,12 +111,14 @@ export function pruneOrphanedDockerResources(): void {
 /**
  * Find and kill running `agent-ci-*` containers whose parent process is dead.
  *
- * Every container created by `executeLocalJob` is labelled with
- * `agent-ci.pid=<PID>`. If the process that spawned the container is no
- * longer alive, the container is an orphan and should be killed — along with
- * its svc-* sidecars and bridge network (via `killRunnerContainers`).
+ * Every container created by `executeLocalJob` (and its service containers)
+ * is labelled with `agent-ci.pid=<PID>`. If the process that spawned the
+ * container is no longer alive, the container is an orphan and should be
+ * killed — along with its svc-* sidecars and bridge network (via
+ * `killRunnerContainers`).
  *
- * Containers without the label (created before this feature) are skipped.
+ * Containers without the label are also cleaned up — they're either pre-label
+ * containers or service containers created before the label was added.
  */
 export function killOrphanedContainers(): void {
   let lines: string[];
@@ -134,22 +137,38 @@ export function killOrphanedContainers(): void {
     return;
   }
 
+  // Track runner names we've already cleaned up to avoid double-cleaning
+  const cleaned = new Set<string>();
+
   for (const line of lines) {
     const [, containerName, pidStr] = line.split(" ");
-    if (!containerName || !pidStr) {
+    if (!containerName) {
       continue;
     }
 
-    const pid = Number(pidStr);
-    if (!Number.isFinite(pid) || pid <= 0) {
-      continue;
+    // Containers with the pid label: check if the parent is still alive
+    if (pidStr) {
+      const pid = Number(pidStr);
+      if (!Number.isFinite(pid) || pid <= 0) {
+        continue;
+      }
+
+      try {
+        process.kill(pid, 0); // signal 0 = liveness check, throws if dead
+        continue; // Parent alive — not an orphan
+      } catch {
+        // Parent is dead — this container is an orphan.
+      }
     }
 
-    try {
-      process.kill(pid, 0); // signal 0 = liveness check, throws if dead
-    } catch {
-      // Parent is dead — this container is an orphan.
-      killRunnerContainers(containerName);
+    // Derive the runner name: for svc containers (e.g. "agent-ci-2307-j2-svc-cache-db"),
+    // extract the runner prefix before "-svc-"; for runner containers, use the name as-is.
+    const svcIdx = containerName.indexOf("-svc-");
+    const runnerName = svcIdx !== -1 ? containerName.substring(0, svcIdx) : containerName;
+
+    if (!cleaned.has(runnerName)) {
+      cleaned.add(runnerName);
+      killRunnerContainers(runnerName);
     }
   }
 }

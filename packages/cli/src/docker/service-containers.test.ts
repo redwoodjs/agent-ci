@@ -191,6 +191,16 @@ describe("startServiceContainers", () => {
     expect(call.Healthcheck.Retries).toBe(10);
   });
 
+  it("labels service containers with agent-ci.pid for orphan cleanup", async () => {
+    const docker = makeMockDocker({ healthStatus: "healthy" });
+    await startServiceContainers(docker, [MYSQL_SERVICE, REDIS_SERVICE], "agent-ci-42");
+
+    for (const call of docker.createContainer.mock.calls) {
+      expect(call[0].Labels).toBeDefined();
+      expect(call[0].Labels["agent-ci.pid"]).toBe(String(process.pid));
+    }
+  });
+
   it("does not set Healthcheck when options are absent", async () => {
     const docker = makeMockDocker();
     await startServiceContainers(docker, [REDIS_SERVICE], "agent-ci-42");

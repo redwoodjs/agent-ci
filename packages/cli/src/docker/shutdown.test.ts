@@ -350,7 +350,7 @@ describe.skipIf(!dockerAvailable())("killOrphanedContainers (Docker integration)
   // so exercising the real module resolution path is a feature, not a hack.
   function runKillOrphanedContainers() {
     execSync(
-      `npx tsx -e "import { killOrphanedContainers } from './packages/cli/src/docker/shutdown.ts'; killOrphanedContainers();"`,
+      `npx tsx -e "import { killOrphanedContainers } from './src/docker/shutdown.ts'; killOrphanedContainers();"`,
       { stdio: "pipe" },
     );
   }

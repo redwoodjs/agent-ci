@@ -129,6 +129,10 @@ export function BlogPost({ params, ctx }: RequestInfo) {
           className="blog-content text-[#c2ddd0] leading-relaxed"
           dangerouslySetInnerHTML={{ __html: post.html }}
         />
+
+        <div className="mt-12 px-4 py-3 border border-[#2b483e] rounded-sm bg-[#12211c] text-[#71a792] text-xs font-mono">
+          This post was written with the help of AI.
+        </div>
       </article>
 
       <footer className="border-t border-[#2b483e] pt-8 mt-12 flex flex-col md:flex-row justify-between items-center gap-4">

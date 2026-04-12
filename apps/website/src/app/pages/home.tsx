@@ -386,10 +386,30 @@ export const Home = () => {
                 </div>
               </Panel>
 
+              <Panel title="x.com/penberg" className="bg-[#12211c]">
+                <QuoteIcon className="text-[#34594c] mb-4" size={32} />
+                <p className="text-[#e0eee5] text-xl leading-relaxed mb-6 font-serif">
+                  "You can run Github actions workflows fully locally with Agent CI. Such a crazy
+                  good unlock for coding agents!"
+                </p>
+                <div className="flex items-center gap-3">
+                  <img
+                    src="https://unavatar.io/x/penberg"
+                    alt="Pekka Enberg"
+                    className="w-10 h-10 rounded-full border border-[#3f6f5e]"
+                    referrerPolicy="no-referrer"
+                  />
+                  <div>
+                    <p className="text-[#e0eee5] font-bold text-sm">Pekka Enberg</p>
+                    <p className="text-[#71a792] text-xs font-mono">@penberg</p>
+                  </div>
+                </div>
+              </Panel>
+
               <Panel title="x.com/bebraw" className="bg-[#12211c]">
                 <QuoteIcon className="text-[#34594c] mb-4" size={32} />
                 <p className="text-[#e0eee5] text-xl leading-relaxed mb-6 font-serif">
-                  "Nice! Exactly what I needed."
+                  "It's great."
                 </p>
                 <div className="flex items-center gap-3">
                   <img

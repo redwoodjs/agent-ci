@@ -183,9 +183,10 @@ describe("killOrphanedContainers", () => {
     expect(rmCalls).toEqual([]);
   });
 
-  it("skips containers without a PID label", async () => {
+  it("kills unlabeled containers as orphans", async () => {
     execSyncMock.mockImplementation((cmd: string) => {
       if (cmd.startsWith("docker ps")) {
+        // Empty pid label — unlabeled container
         return "abc123 agent-ci-runner-3 \n";
       }
       return "";
@@ -195,9 +196,58 @@ describe("killOrphanedContainers", () => {
     killOrphanedContainers();
 
     const rmCalls = execSyncMock.mock.calls.filter(([cmd]: string[]) =>
-      cmd.includes("docker rm -f"),
+      cmd.includes("docker rm -f agent-ci-runner-3"),
     );
-    expect(rmCalls).toEqual([]);
+    expect(rmCalls.length).toBeGreaterThan(0);
+  });
+
+  it("derives runner name from svc container and cleans both", async () => {
+    execSyncMock.mockImplementation((cmd: string) => {
+      if (cmd.startsWith("docker ps")) {
+        // An unlabeled svc container whose runner is already gone
+        return "def456 agent-ci-2307-j2-svc-cache-db \n";
+      }
+      return "";
+    });
+
+    const { killOrphanedContainers } = await import("./shutdown.js");
+    killOrphanedContainers();
+
+    // Should call killRunnerContainers with the runner name (without -svc-cache-db)
+    const rmCalls = execSyncMock.mock.calls.filter(([cmd]: string[]) =>
+      cmd.includes("docker rm -f agent-ci-2307-j2"),
+    );
+    expect(rmCalls.length).toBeGreaterThan(0);
+  });
+
+  it("deduplicates cleanup when runner and svc containers share a PID", async () => {
+    execSyncMock.mockImplementation((cmd: string) => {
+      if (cmd.startsWith("docker ps")) {
+        // Both runner and its svc container listed, both with dead PID
+        return (
+          ["aaa111 agent-ci-500-j1 99999", "bbb222 agent-ci-500-j1-svc-redis 99999"].join("\n") +
+          "\n"
+        );
+      }
+      return "";
+    });
+    killSpy.mockImplementation(((pid: number, signal?: string | number) => {
+      if (signal === 0 && pid === 99999) {
+        throw new Error("ESRCH");
+      }
+      return true;
+    }) as typeof process.kill);
+
+    const { killOrphanedContainers } = await import("./shutdown.js");
+    killOrphanedContainers();
+
+    // killRunnerContainers should only be called once for the runner name
+    const rmCalls = execSyncMock.mock.calls.filter(([cmd]: string[]) =>
+      cmd.includes("docker rm -f agent-ci-500-j1"),
+    );
+    // One call for the runner rm, one for the svc filter — but NOT a second
+    // full killRunnerContainers pass for the svc container
+    expect(rmCalls.length).toBe(1);
   });
 
   it("handles Docker not reachable gracefully", async () => {

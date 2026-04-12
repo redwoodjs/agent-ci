@@ -16,7 +16,7 @@ Agent CI runs on any machine that can run a container. When a step fails the run
 
 - **Docker** — A running Docker provider:
   - **macOS:** [OrbStack](https://orbstack.dev/) (recommended) or Docker Desktop
-  - **Linux:** Native Docker Engine
+  - **Linux:** Native Docker Engine or Docker Desktop
 
 ## Installation
 

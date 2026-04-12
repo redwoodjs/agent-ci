@@ -162,6 +162,9 @@ export async function startServiceContainers(
     const container = await docker.createContainer({
       Image: svc.image,
       name: containerName,
+      Labels: {
+        "agent-ci.pid": String(process.pid),
+      },
       Env: envArr,
       ExposedPorts: exposedPorts,
       Healthcheck: healthConfig,

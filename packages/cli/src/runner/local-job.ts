@@ -270,6 +270,7 @@ export async function executeLocalJob(
   };
   process.on("SIGINT", signalCleanup);
   process.on("SIGTERM", signalCleanup);
+  process.on("SIGHUP", signalCleanup);
 
   try {
     // 1. Seed the job to Local DTU
@@ -972,5 +973,6 @@ export async function executeLocalJob(
     await ephemeralDtu?.close().catch(() => {});
     process.removeListener("SIGINT", signalCleanup);
     process.removeListener("SIGTERM", signalCleanup);
+    process.removeListener("SIGHUP", signalCleanup);
   }
 }

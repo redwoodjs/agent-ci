@@ -1,0 +1,100 @@
+name: "Smoke: oven-sh/setup-bun cache collision"
+
+# Reproduces #212 — oven-sh/setup-bun@v2 fails in bun projects because
+# virtualCachePatterns returns a fake cache hit for setup-bun's binary cache.
+#
+# When a project uses bun (bun.lock detected), virtualCachePatterns is set to
+# ["bun"]. The setup-bun action uses cache keys of the form `bun-<sha1>`, and
+# since "bun" is a substring of that key, the DTU returns a synthetic 45-byte
+# cache hit. The action thinks the binary is cached but no bun executable
+# exists, so it fails with:
+#
+#   Error: Unable to locate executable file: /home/runner/.bun/bin/bun.
+#
+# A second issue compounds the failure: the bind mount for
+# .bun/install/cache creates /home/runner/.bun as root, so even if the
+# virtual cache issue were bypassed, setup-bun would fail with EACCES
+# when trying to mkdir /home/runner/.bun/bin.
+#
+# This smoke test creates a temporary bun project (with bun.lock at the
+# repo root so PM detection returns "bun") and runs agent-ci against a
+# workflow that uses oven-sh/setup-bun@v2.
+
+on:
+  pull_request_target:
+    types: [opened, labeled, synchronize]
+
+jobs:
+  bun-setup:
+    if: '!github.event.pull_request.draft && (contains(fromJSON(''["MEMBER", "OWNER", "COLLABORATOR"]''), github.event.pull_request.author_association) || contains(github.event.pull_request.labels.*.name, ''safe-to-run''))'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.30.1
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: "pnpm"
+
+      - run: pnpm install
+
+      - name: Build agent-ci
+        run: pnpm --filter @redwoodjs/agent-ci... -r build
+
+      - name: Create temp bun project
+        run: |
+          mkdir -p /tmp/bun-repro/.github/workflows
+
+          # Minimal bun.lock so detectPackageManager() returns "bun"
+          cat > /tmp/bun-repro/bun.lock << 'LOCK'
+          {
+            "lockfileVersion": 1,
+            "workspaces": {
+              "": { "name": "bun-repro" }
+            },
+            "packages": {}
+          }
+          LOCK
+
+          cat > /tmp/bun-repro/package.json << 'PKG'
+          { "name": "bun-repro", "private": true }
+          PKG
+
+          # Inner workflow: the one agent-ci will execute inside a container
+          cat > /tmp/bun-repro/.github/workflows/test.yml << 'WF'
+          name: Test
+          on: push
+          jobs:
+            test:
+              runs-on: ubuntu-latest
+              steps:
+                - uses: oven-sh/setup-bun@v2
+                  with:
+                    bun-version: "1.2.12"
+                - name: Verify bun
+                  run: |
+                    bun --version
+                    echo "bun is working"
+          WF
+
+          # agent-ci needs a git repo with a remote to resolve the repo slug
+          cd /tmp/bun-repro
+          git init
+          git remote add origin https://github.com/test-org/bun-repro.git
+          git add -A
+          git -c user.name="test" -c user.email="test@test.com" commit -m "init"
+
+      - name: Run agent-ci against bun project
+        working-directory: /tmp/bun-repro
+        run: |
+          node "$GITHUB_WORKSPACE/packages/cli/dist/cli.js" \
+            run --workflow .github/workflows/test.yml --quiet

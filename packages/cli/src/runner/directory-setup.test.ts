@@ -196,7 +196,7 @@ describe("buildContainerBinds — PM-scoped mounts", () => {
 
     expect(binds).toContain("/tmp/npm-cache:/home/runner/.npm");
     expect(binds.some((b) => b.includes(".pnpm-store"))).toBe(false);
-    expect(binds.some((b) => b.includes(".bun/install"))).toBe(false);
+    expect(binds.some((b) => b.includes("/.bun"))).toBe(false);
   });
 
   it("pnpm project: only mounts .pnpm-store, no .npm or .bun", async () => {
@@ -218,7 +218,7 @@ describe("buildContainerBinds — PM-scoped mounts", () => {
 
     expect(binds).toContain("/tmp/pnpm-store:/home/runner/_work/.pnpm-store");
     expect(binds.some((b) => b.includes("/.npm"))).toBe(false);
-    expect(binds.some((b) => b.includes(".bun/install"))).toBe(false);
+    expect(binds.some((b) => b.includes("/.bun"))).toBe(false);
   });
 
   it("bun project: only mounts .bun, no .pnpm-store or .npm", async () => {
@@ -238,7 +238,7 @@ describe("buildContainerBinds — PM-scoped mounts", () => {
       githubRepo: "org/repo",
     });
 
-    expect(binds).toContain("/tmp/bun-cache:/home/runner/.bun/install/cache");
+    expect(binds).toContain("/tmp/bun-cache:/home/runner/.bun");
     expect(binds.some((b) => b.includes(".pnpm-store"))).toBe(false);
     expect(binds.some((b) => b.includes("/.npm"))).toBe(false);
   });
@@ -261,6 +261,6 @@ describe("buildContainerBinds — PM-scoped mounts", () => {
 
     expect(binds.some((b) => b.includes(".pnpm-store"))).toBe(false);
     expect(binds.some((b) => b.includes("/.npm"))).toBe(false);
-    expect(binds.some((b) => b.includes(".bun/install"))).toBe(false);
+    expect(binds.some((b) => b.includes("/.bun"))).toBe(false);
   });
 });

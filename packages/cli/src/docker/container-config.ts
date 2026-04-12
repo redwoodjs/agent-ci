@@ -116,7 +116,7 @@ export function buildContainerBinds(opts: ContainerBindsOpts): string[] {
     // Package manager caches (persist across runs, only for detected PM)
     ...(pnpmStoreDir ? [`${h(pnpmStoreDir)}:/home/runner/_work/.pnpm-store`] : []),
     ...(npmCacheDir ? [`${h(npmCacheDir)}:/home/runner/.npm`] : []),
-    ...(bunCacheDir ? [`${h(bunCacheDir)}:/home/runner/.bun/install/cache`] : []),
+    ...(bunCacheDir ? [`${h(bunCacheDir)}:/home/runner/.bun`] : []),
     `${h(playwrightCacheDir)}:/home/runner/.cache/ms-playwright`,
     // Warm node_modules: mounted directly at the workspace node_modules path
     // so pnpm/esbuild path resolution sees a real directory (not a symlink).

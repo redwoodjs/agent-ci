@@ -232,7 +232,13 @@ export async function executeLocalJob(
       // no need for the runner to tar/gzip them. Tell the DTU to return a
       // synthetic hit for any cache key matching these patterns — skipping the
       // 60s+ tar entirely.
-      virtualCachePatterns: dirs.detectedPM ? [dirs.detectedPM] : ["pnpm", "npm", "yarn", "bun"],
+      // "bun" is excluded: it collides with oven-sh/setup-bun cache keys
+      // (format `bun-<sha1>`), causing a fake hit that hides the real binary.
+      virtualCachePatterns: dirs.detectedPM
+        ? dirs.detectedPM === "bun"
+          ? []
+          : [dirs.detectedPM]
+        : ["pnpm", "npm", "yarn"],
     }),
   }).catch(() => {
     /* non-fatal */

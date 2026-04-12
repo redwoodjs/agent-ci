@@ -27,6 +27,8 @@ The fix is conceptually simple: give the agent access to the same CI it would se
 
 That's what agent-ci does. It runs your `.github/workflows` locally, in Docker — not a wrapper around an existing tool, but a new runtime built to be a faithful local alternative to GitHub Actions. The GitHub Actions runner binary is open source. It already knows how to execute workflows; all it expects is an HTTP control plane to coordinate jobs and report results. agent-ci provides that locally. The runner doesn't know the difference. You get the exact same binary GitHub uses, talking to a local service instead of GitHub's servers. Claude Code can call it the same way you can.
 
+One thing we deliberately avoid: GitHub's full VM image. It's ~30 GB, packed with pre-installed tools you probably don't need. Instead, agent-ci uses the official runner binary (~400 MB) inside a clean container. Your workflow's `setup-*` actions install exactly what you need, the same way they do on GitHub — but without the multi-gigabyte baseline.
+
 It took a month of iteration before it felt right — edge cases in the runner protocol, cache invalidation, container lifecycle, retry semantics. The kind of work that doesn't show up in a demo but determines whether a tool holds up under real use.
 
 ## The Speed Problem

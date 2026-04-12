@@ -11,7 +11,6 @@
   This closes the long-standing gap where the minimal `ghcr.io/actions/actions-runner:latest` image lacks `build-essential`, `python3`, and other toolchains that GitHub's hosted `ubuntu-latest` VM ships preinstalled. Workflows that run green on GitHub but fail locally with `linker 'cc' not found` or similar can now opt into a richer image by dropping a 5-line Dockerfile into `.github/`.
 
   Resolution order (highest wins):
-
   1. Per-job `container:` directive (unchanged)
   2. `AGENT_CI_RUNNER_IMAGE` environment variable
   3. `.github/agent-ci/Dockerfile` (directory form, supports COPY)

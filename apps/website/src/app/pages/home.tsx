@@ -21,7 +21,7 @@ export const Home = () => {
             AGENT-CI
           </span>
 
-          <div className="hidden md:flex items-center gap-8 text-sm font-medium text-[#9bc5b3]">
+          <div className="flex items-center gap-4 md:gap-8 text-xs md:text-sm font-medium text-[#9bc5b3]">
             <a href="#quick-start" className="hover:text-[#e0eee5] transition-colors">
               Docs
             </a>
@@ -48,7 +48,7 @@ export const Home = () => {
             href="https://github.com/redwoodjs/agent-ci"
             target="_blank"
             rel="noopener noreferrer"
-            className="flex items-center gap-2 px-4 py-2 bg-[#161b18] border border-[#3f6f5e] text-[#9bc5b3] hover:bg-[#243c34] hover:text-[#e0eee5] transition-all rounded-sm font-mono text-sm uppercase tracking-wider"
+            className="hidden md:flex items-center gap-2 px-4 py-2 bg-[#161b18] border border-[#3f6f5e] text-[#9bc5b3] hover:bg-[#243c34] hover:text-[#e0eee5] transition-all rounded-sm font-mono text-sm uppercase tracking-wider"
           >
             <StarIcon size={16} />
             <span className="hidden sm:inline">Star us</span>

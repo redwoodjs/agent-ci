@@ -21,7 +21,7 @@ export function Blog() {
             </span>
           </a>
 
-          <div className="hidden md:flex items-center gap-8 text-sm font-medium text-[#9bc5b3]">
+          <div className="flex items-center gap-4 md:gap-8 text-xs md:text-sm font-medium text-[#9bc5b3]">
             <a href="/#quick-start" className="hover:text-[#e0eee5] transition-colors">
               Docs
             </a>

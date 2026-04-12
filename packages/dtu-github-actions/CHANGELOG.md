@@ -1,5 +1,11 @@
 # dtu-github-actions
 
+## 0.10.1
+
+### Patch Changes
+
+- 71a3ebb: Exclude test files from published dist by adding tsconfig exclude for `*.test.ts`.
+
 ## 0.10.0
 
 ### Minor Changes

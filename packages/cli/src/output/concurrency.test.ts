@@ -106,10 +106,10 @@ describe("getDefaultMaxConcurrentJobs", () => {
     expect(result).toBeGreaterThanOrEqual(1);
   });
 
-  it("returns a reasonable number for the current host", () => {
+  it("returns at most floor(cpuCount / 2)", () => {
     const result = getDefaultMaxConcurrentJobs();
     const os = require("os");
-    const expected = Math.max(1, Math.floor(os.cpus().length / 2));
-    expect(result).toBe(expected);
+    const cpuLimit = Math.max(1, Math.floor(os.cpus().length / 2));
+    expect(result).toBeLessThanOrEqual(cpuLimit);
   });
 });

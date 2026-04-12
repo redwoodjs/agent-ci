@@ -1,4 +1,5 @@
 import os from "node:os";
+import { execSync } from "node:child_process";
 
 /**
  * A simple Promise-based semaphore that limits how many async tasks
@@ -52,10 +53,66 @@ export function createConcurrencyLimiter(max: number) {
 }
 
 /**
- * Determine the default max concurrent jobs based on the host CPU count.
- * Returns floor(cpuCount / 2), with a minimum of 1.
+ * Read MemAvailable from inside the Docker VM via /proc/meminfo.
+ * This reflects actual free memory accounting for kernel, daemon, caches,
+ * and any already-running containers — no hardcoded reserve needed.
+ *
+ * Falls back to `docker info` MemTotal with a conservative reserve if
+ * the busybox approach fails (e.g. busybox not pulled).
+ */
+function getDockerAvailableMemoryBytes(): number | undefined {
+  try {
+    const raw = execSync("docker run --rm busybox grep MemAvailable /proc/meminfo", {
+      encoding: "utf8",
+      stdio: ["pipe", "pipe", "pipe"],
+      timeout: 10_000,
+    }).trim();
+    const match = raw.match(/MemAvailable:\s+(\d+)\s+kB/);
+    if (match) {
+      return Number(match[1]) * 1024;
+    }
+  } catch {
+    // busybox not available — fall back to docker info
+  }
+
+  try {
+    const raw = execSync("docker info --format '{{.MemTotal}}'", {
+      encoding: "utf8",
+      stdio: ["pipe", "pipe", "pipe"],
+      timeout: 5_000,
+    }).trim();
+    const bytes = Number(raw);
+    if (Number.isFinite(bytes) && bytes > 0) {
+      return Math.max(0, bytes - 4 * 1024 * 1024 * 1024);
+    }
+  } catch {
+    // Docker not reachable
+  }
+
+  return undefined;
+}
+
+/** Estimated memory per container: runner binary + Ubuntu + typical workload. */
+const BYTES_PER_CONTAINER = 3 * 1024 * 1024 * 1024; // 3 GB
+
+/**
+ * Determine the default max concurrent jobs based on CPU count and available
+ * Docker memory. Takes the minimum of both to avoid OOM kills.
+ *
+ * - CPU-based: floor(cpuCount / 2)
+ * - Memory-based: floor(availableMemory / perContainer)
+ *
+ * Minimum of 1.
  */
 export function getDefaultMaxConcurrentJobs(): number {
   const cpuCount = os.cpus().length;
-  return Math.max(1, Math.floor(cpuCount / 2));
+  const cpuLimit = Math.floor(cpuCount / 2);
+
+  const availableMem = getDockerAvailableMemoryBytes();
+  if (availableMem == null) {
+    return Math.max(1, cpuLimit);
+  }
+
+  const memLimit = Math.floor(availableMem / BYTES_PER_CONTAINER);
+  return Math.max(1, Math.min(cpuLimit, memLimit));
 }

@@ -532,7 +532,7 @@ export const Home = () => {
             <Terminal
               title="Agent Instructions"
               language="markdown"
-              code={`## CI\n\nBefore completing any work, you MUST run and pass CI locally:\n\n- Run: \`npx @redwoodjs/agent-ci run --quiet --all --pause-on-failure\`\n- When a step fails, the run pauses automatically. Fix the issue and retry: \`npx @redwoodjs/agent-ci retry --name <runner>\`\n- CI was green before you started. Any failure is caused by your changes — do not assume pre-existing failures\n- Do NOT push to trigger remote CI when agent-ci can run it locally`}
+              code={`## CI\n\nBefore completing any work, run the \`agent-ci\` skill to validate your changes locally. If it fails, fix the issue and re-run. Do not report work as done until it passes.`}
             />
 
             <p className="text-[#9bc5b3] mt-6 leading-relaxed">

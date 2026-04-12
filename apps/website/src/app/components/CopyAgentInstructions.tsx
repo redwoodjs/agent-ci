@@ -5,12 +5,7 @@ import { Copy, Check } from "lucide-react";
 
 const AGENT_INSTRUCTIONS = `## CI
 
-Before completing any work, you MUST run and pass CI locally:
-
-- Run: \`npx @redwoodjs/agent-ci run --quiet --all --pause-on-failure\`
-- When a step fails, the run pauses automatically. Fix the issue and retry: \`npx @redwoodjs/agent-ci retry --name <runner>\`
-- CI was green before you started. Any failure is caused by your changes — do not assume pre-existing failures
-- Do NOT push to trigger remote CI when agent-ci can run it locally`;
+Before completing any work, run the \`agent-ci\` skill to validate your changes locally. If it fails, fix the issue and re-run. Do not report work as done until it passes.`;
 
 export function CopyAgentInstructions() {
   const [copied, setCopied] = useState(false);

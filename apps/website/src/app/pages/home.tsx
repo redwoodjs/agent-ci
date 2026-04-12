@@ -16,12 +16,22 @@ export const Home = () => {
 
       {/* Sticky Navbar */}
       <nav className="sticky top-0 z-50 border-b border-[#2b483e] bg-[#0d110f]/80 backdrop-blur-md">
-        <div className="max-w-6xl mx-auto px-6 h-16 flex justify-between items-center">
+        <div className="max-w-6xl mx-auto px-6 py-3 md:py-0 md:h-16 flex flex-wrap md:flex-nowrap justify-between items-center gap-2">
           <span className="text-xl font-bold tracking-tight text-[#e0eee5] font-sans">
             AGENT-CI
           </span>
 
-          <div className="flex items-center gap-4 md:gap-8 text-xs md:text-sm font-medium text-[#9bc5b3]">
+          <a
+            href="https://github.com/redwoodjs/agent-ci"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="hidden md:flex items-center gap-2 px-4 py-2 bg-[#161b18] border border-[#3f6f5e] text-[#9bc5b3] hover:bg-[#243c34] hover:text-[#e0eee5] transition-all rounded-sm font-mono text-sm uppercase tracking-wider"
+          >
+            <StarIcon size={16} />
+            Star us
+          </a>
+
+          <div className="flex items-center gap-4 md:gap-8 text-xs md:text-sm font-medium text-[#9bc5b3] order-last md:order-none w-full md:w-auto">
             <a href="#quick-start" className="hover:text-[#e0eee5] transition-colors">
               Docs
             </a>
@@ -43,16 +53,6 @@ export const Home = () => {
               GitHub
             </a>
           </div>
-
-          <a
-            href="https://github.com/redwoodjs/agent-ci"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="hidden md:flex items-center gap-2 px-4 py-2 bg-[#161b18] border border-[#3f6f5e] text-[#9bc5b3] hover:bg-[#243c34] hover:text-[#e0eee5] transition-all rounded-sm font-mono text-sm uppercase tracking-wider"
-          >
-            <StarIcon size={16} />
-            <span className="hidden sm:inline">Star us</span>
-          </a>
         </div>
       </nav>
 

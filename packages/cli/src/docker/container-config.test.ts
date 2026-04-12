@@ -73,7 +73,7 @@ describe("buildContainerBinds", () => {
     expect(binds).toContain("/tmp/warm:/home/runner/_work/repo/repo/node_modules");
     expect(binds).toContain("/tmp/pnpm:/home/runner/_work/.pnpm-store");
     expect(binds).toContain("/tmp/npm:/home/runner/.npm");
-    expect(binds).toContain("/tmp/bun:/home/runner/.bun/install/cache");
+    expect(binds).toContain("/tmp/bun:/home/runner/.bun");
     // Standard mode should NOT include runner home bind (but _work bind is expected)
     expect(binds.some((b) => b.endsWith(":/home/runner"))).toBe(false);
   });
@@ -95,7 +95,7 @@ describe("buildContainerBinds", () => {
     expect(binds).toContain("/tmp/work:/home/runner/_work");
     expect(binds.some((b) => b.includes(".pnpm-store"))).toBe(false);
     expect(binds.some((b) => b.includes("/.npm"))).toBe(false);
-    expect(binds.some((b) => b.includes(".bun"))).toBe(false);
+    expect(binds.some((b) => b.includes("/.bun"))).toBe(false);
   });
 
   it("includes only the npm bind mount when only npmCacheDir is provided", async () => {

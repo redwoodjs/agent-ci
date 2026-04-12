@@ -495,6 +495,25 @@ export const Home = () => {
               language="markdown"
               code={`## CI\n\nBefore completing any work, you MUST run and pass CI locally:\n\n- Run: \`npx @redwoodjs/agent-ci run --quiet --all --pause-on-failure\`\n- When a step fails, the run pauses automatically. Fix the issue and retry: \`npx @redwoodjs/agent-ci retry --name <runner>\`\n- CI was green before you started. Any failure is caused by your changes — do not assume pre-existing failures\n- Do NOT push to trigger remote CI when agent-ci can run it locally`}
             />
+
+            <p className="text-[#9bc5b3] mt-6 leading-relaxed">
+              <strong className="text-[#e0eee5]">Claude Code:</strong> Agent CI also ships a{" "}
+              <code className="bg-[#161b18] border border-[#2b483e] px-1.5 py-0.5 rounded text-[#c2ddd0] font-mono text-sm">
+                /validate
+              </code>{" "}
+              skill. Copy{" "}
+              <a
+                href="https://github.com/redwoodjs/agent-ci/blob/main/.claude/commands/validate.md"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-[#9bc5b3] hover:text-[#e0eee5] transition-colors underline decoration-[#34594c] underline-offset-4"
+              >
+                <code className="bg-[#161b18] border border-[#2b483e] px-1.5 py-0.5 rounded text-[#c2ddd0] font-mono text-sm">
+                  .claude/commands/validate.md
+                </code>
+              </a>{" "}
+              into your project for automatic background execution with monitoring and retry.
+            </p>
           </div>
         </main>
 

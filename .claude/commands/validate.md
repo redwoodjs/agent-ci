@@ -5,30 +5,39 @@ aliases: [validate]
 
 // turbo-all
 
-1. Run agent-ci against all relevant workflows for the current branch:
+1. Run agent-ci in the **background** so you can monitor and react to failures:
 
 ```bash
-npx agent-ci run --all -q -p
+pnpm agent-ci-dev run --all -q -p 2>&1
 ```
 
-2. If all jobs passed, you're done.
-3. If a job fails, the runner pauses and waits. **CI was passing before your work started**, so the failure is caused by your changes. Investigate and fix it:
+Use `run_in_background: true` on the Bash tool. This returns an output file path.
 
-- Read the last output lines shown in the failure message.
-- Check the runner's log directory (printed when the runner starts) for full logs.
-- Identify and fix the issue in your code.
-- Retry the failed runner:
+2. Set up a **Monitor** on the output file to catch pass/fail events:
 
 ```bash
- npx agent-ci retry --name <runner-name>
+tail -f <output-file> 2>/dev/null | grep --line-buffered "Step failed"
+```
+
+3. Wait for either a monitor event (failure) or a background task completion notification (success). If agent-ci exits successfully, stop the monitor with `TaskStop` and you're done.
+
+4. If a step fails, the runner pauses and waits. **CI was passing before your work started**, so the failure is caused by your changes. Investigate and fix it:
+
+- Read the output file for the full failure details.
+- Identify and fix the issue in your code.
+- Retry the failed runner (run in background and monitor the output):
+
+```bash
+pnpm agent-ci-dev retry --name <runner-name>
 ```
 
 - If the fix requires re-running from an earlier step:
 
 ```bash
- npx agent-ci retry --name <runner-name> --from-step <N>
+pnpm agent-ci-dev retry --name <runner-name> --from-step <N>
 ```
 
+- Monitor the original output file for the retry results.
 - Repeat until the job passes.
 
-4. Once all jobs have passed, you're done.
+5. Once all jobs have passed, you're done.

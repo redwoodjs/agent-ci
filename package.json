@@ -17,7 +17,7 @@
     "start": "./scripts/run.sh",
     "prepare": "husky || true",
     "changeset": "changeset",
-    "version": "changeset version",
+    "version": "changeset version && oxfmt",
     "release": "pnpm -r build && changeset publish"
   },
   "devDependencies": {

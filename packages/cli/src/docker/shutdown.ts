@@ -56,6 +56,13 @@ export function killRunnerContainers(runnerName: string): void {
  * exhausting its address pool ("all predefined address pools have been fully subnetted").
  */
 export function pruneOrphanedDockerResources(): void {
+  // Skip when running inside a Docker container (e.g. nested agent-ci).
+  // We share the host's Docker socket, so pruning would remove containers
+  // and networks that belong to the host's agent-ci process.
+  if (fs.existsSync("/.dockerenv")) {
+    return;
+  }
+
   // 1. Remove stopped/stale agent-ci-* containers (runners + sidecars) so their
   //    network references are released before we try to prune networks.
   //    Includes both "exited" and "created" (never started) containers.
@@ -121,6 +128,14 @@ export function pruneOrphanedDockerResources(): void {
  * containers or service containers created before the label was added.
  */
 export function killOrphanedContainers(): void {
+  // Skip when running inside a Docker container (e.g. nested agent-ci).
+  // The pid labels reference host PIDs which don't exist in the container's
+  // PID namespace — every container would look like an orphan, and we'd
+  // kill our own parent container.
+  if (fs.existsSync("/.dockerenv")) {
+    return;
+  }
+
   let lines: string[];
   try {
     // Format: "containerId containerName pid-label"

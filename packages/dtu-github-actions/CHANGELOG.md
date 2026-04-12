@@ -1,5 +1,44 @@
 # dtu-github-actions
 
+## 0.10.0
+
+### Minor Changes
+
+- 66ac2a4: Add pluggable runner image via `.github/agent-ci.Dockerfile` convention (#208).
+
+  agent-ci now discovers a user-provided Dockerfile at `.github/agent-ci.Dockerfile` (or `.github/agent-ci/Dockerfile` for builds with a COPY context), hashes its contents, builds it locally via `docker build`, and uses the resulting `agent-ci-runner:<hash>` tag as the default runner image. Edits to the Dockerfile produce a new hash and trigger an automatic rebuild; identical contents reuse the cached image.
+
+  This closes the long-standing gap where the minimal `ghcr.io/actions/actions-runner:latest` image lacks `build-essential`, `python3`, and other toolchains that GitHub's hosted `ubuntu-latest` VM ships preinstalled. Workflows that run green on GitHub but fail locally with `linker 'cc' not found` or similar can now opt into a richer image by dropping a 5-line Dockerfile into `.github/`.
+
+  Resolution order (highest wins):
+
+  1. Per-job `container:` directive (unchanged)
+  2. `AGENT_CI_RUNNER_IMAGE` environment variable
+  3. `.github/agent-ci/Dockerfile` (directory form, supports COPY)
+  4. `.github/agent-ci.Dockerfile` (simple form, empty context)
+  5. `ghcr.io/actions/actions-runner:latest` (unchanged default)
+
+  Also adds an error-hint heuristic: when a step fails with a "command not found" pattern for common tools (`cc`, `gcc`, `make`, `python3`, `pkg-config`) and the user is still on the default image, the failure summary includes a ready-to-paste Dockerfile snippet pointing at the fix. See `packages/cli/runner-image.md` for full documentation.
+
+### Patch Changes
+
+- 1c7e663: Fix Docker socket bind mount on Linux + Docker Desktop when user is not in the docker group (#209). `resolveDockerSocket()` now treats `socketPath` (API client) and `bindMountPath` (container mount source) as independent decisions: whenever `/var/run/docker.sock` exists on the host, it is used as the bind-mount source regardless of our process's R/W access. This collapses the macOS Docker Desktop symlink case (#197) and the Linux Docker Desktop non-docker-group case (#209) into one rule.
+- 38994c8: Fix service container and runner leak on unclean shutdown.
+- 1a92bbd: Fix Docker socket bind-mount failure on macOS Docker Desktop (#197).
+
+  When `/var/run/docker.sock` is a symlink (common with Docker Desktop), the resolved real path was being used as the container bind-mount source. Docker's VM cannot access that host path, causing "error while creating mount source path". Now `resolveDockerSocket()` returns a separate `bindMountPath` (the pre-symlink path, e.g. `/var/run/docker.sock`) for use in bind mounts, while `socketPath` (the resolved path) continues to be used for the Docker API client connection.
+
+- cf18585: perf: hoist docker cleanup and image prefetch to session bootstrap
+
+  `agent-ci run --all` now runs global Docker cleanup (prune orphans, kill
+  stale containers, prune stale workspaces) and runner image prefetch exactly
+  once per session instead of once per workflow. Also dedupes concurrent
+  `ensureImagePulled` calls so parallel workflows share a single in-flight
+  `docker pull`. Eliminates cold-start thundering herd and the N× `docker
+volume prune` storm that was serializing multi-workflow runs. See #211.
+
+- 38994c8: fix: use XDG cache dir on Linux + Docker Desktop instead of /tmp (#215)
+
 ## 0.9.0
 
 ### Minor Changes

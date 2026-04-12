@@ -452,8 +452,14 @@ async function runWorkflows(options: {
   // parallel, running these inside handleWorkflow() hammered the Docker
   // daemon (N× `docker volume prune`, N× cold-start image pulls) and
   // serialized work that should have been free. See issue #211.
-  pruneOrphanedDockerResources();
-  killOrphanedContainers();
+  // Skip Docker cleanup when running nested inside a container (e.g.
+  // smoke-bun-setup step 8). The shared Docker socket exposes the host's
+  // containers, and killOrphanedContainers would kill our parent container
+  // because host PIDs don't exist in the container's PID namespace.
+  if (!fs.existsSync("/.dockerenv")) {
+    pruneOrphanedDockerResources();
+    killOrphanedContainers();
+  }
   pruneStaleWorkspaces(getWorkingDirectory(), 24 * 60 * 60 * 1000);
   await prefetchRunnerImages(workflowPaths);
 

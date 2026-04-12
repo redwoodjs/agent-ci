@@ -25,7 +25,7 @@ export const Home = () => {
             href="https://github.com/redwoodjs/agent-ci"
             target="_blank"
             rel="noopener noreferrer"
-            className="hidden md:flex items-center gap-2 px-4 py-2 bg-[#161b18] border border-[#3f6f5e] text-[#9bc5b3] hover:bg-[#243c34] hover:text-[#e0eee5] transition-all rounded-sm font-mono text-sm uppercase tracking-wider"
+            className="flex items-center gap-2 px-3 py-1.5 md:px-4 md:py-2 bg-[#161b18] border border-[#3f6f5e] text-[#9bc5b3] hover:bg-[#243c34] hover:text-[#e0eee5] transition-all rounded-sm font-mono text-xs md:text-sm uppercase tracking-wider"
           >
             <StarIcon size={16} />
             Star us

@@ -475,7 +475,26 @@ export const Home = () => {
             </div>
 
             <p className="text-[#9bc5b3] mb-6 leading-relaxed">
-              Add this snippet to your project's agent instructions (
+              Install the agent skill — works with Claude Code, Cursor, Codex, and{" "}
+              <a
+                href="https://agentskills.io"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-[#9bc5b3] hover:text-[#e0eee5] transition-colors underline decoration-[#34594c] underline-offset-4"
+              >
+                40+ other agents
+              </a>
+              :
+            </p>
+
+            <Terminal
+              title="Terminal"
+              language="bash"
+              code="npx skills add redwoodjs/agent-ci --skill agent-ci"
+            />
+
+            <p className="text-[#9bc5b3] mt-6 mb-6 leading-relaxed">
+              Then add to your agent instructions (
               <code className="bg-[#161b18] border border-[#2b483e] px-1.5 py-0.5 rounded text-[#c2ddd0] font-mono text-sm">
                 CLAUDE.md
               </code>
@@ -487,7 +506,7 @@ export const Home = () => {
               <code className="bg-[#161b18] border border-[#2b483e] px-1.5 py-0.5 rounded text-[#c2ddd0] font-mono text-sm">
                 AGENTS.md
               </code>
-              ) so your AI agent validates changes before pushing:
+              ):
             </p>
 
             <Terminal

@@ -202,7 +202,13 @@ Output goes to **stderr**. If `DEBUG` is unset, debug loggers are no-ops with ze
 
 ## Using with AI coding agents
 
-Agent CI is designed for AI-agent-driven development loops. Add the following snippet to your project's agent instructions (`CLAUDE.md`, `.cursorrules`, `AGENTS.md`, etc.) so your AI agent automatically validates changes before pushing:
+Install the agent skill:
+
+```bash
+npx skills add redwoodjs/agent-ci --skill agent-ci
+```
+
+This works with Claude Code, Cursor, Codex, and [40+ other agents](https://agentskills.io). Then add to your agent instructions (`CLAUDE.md`, `.cursorrules`, `AGENTS.md`, etc.):
 
 ```markdown
 ## CI
@@ -215,4 +221,4 @@ Before completing any work, you MUST run and pass CI locally:
 - Do NOT push to trigger remote CI when agent-ci can run it locally
 ```
 
-**Claude Code:** Agent CI also ships a `/validate` skill. Copy [`.claude/commands/validate.md`](.claude/commands/validate.md) into your project for automatic background execution with monitoring and retry.
+**Claude Code:** Agent CI also ships a `/validate` command. Copy [`.claude/commands/validate.md`](.claude/commands/validate.md) into your project for automatic background execution with monitoring and retry.

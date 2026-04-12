@@ -463,6 +463,12 @@ async function runWorkflows(options: {
   pruneStaleWorkspaces(getWorkingDirectory(), 24 * 60 * 60 * 1000);
   await prefetchRunnerImages(workflowPaths);
 
+  // Global concurrency limiter shared across all workflows. Without this,
+  // --all mode launches every workflow in parallel — leading to 20+
+  // simultaneous containers that exhaust available memory and trigger
+  // OOM kills (exit 137). See issue #225.
+  const globalLimiter = createConcurrencyLimiter(getDefaultMaxConcurrentJobs());
+
   try {
     const allResults: JobResult[] = [];
 
@@ -475,6 +481,7 @@ async function runWorkflows(options: {
         noMatrix,
         store,
         githubToken,
+        globalLimiter,
       });
       allResults.push(...results);
     } else {
@@ -513,6 +520,7 @@ async function runWorkflows(options: {
           store,
           baseRunNum: runNums[0],
           githubToken,
+          globalLimiter,
         });
         allResults.push(...firstResults);
 
@@ -526,6 +534,7 @@ async function runWorkflows(options: {
               store,
               baseRunNum: runNums[i + 1],
               githubToken,
+              globalLimiter,
             }),
           ),
         );
@@ -547,6 +556,7 @@ async function runWorkflows(options: {
               store,
               baseRunNum: runNums[i],
               githubToken,
+              globalLimiter,
             }),
           ),
         );
@@ -592,6 +602,7 @@ async function handleWorkflow(options: {
   store: RunStateStore;
   baseRunNum?: number;
   githubToken?: string;
+  globalLimiter: ReturnType<typeof createConcurrencyLimiter>;
 }): Promise<JobResult[]> {
   const { sha, pauseOnFailure, noMatrix = false, store, githubToken } = options;
   let workflowPath = options.workflowPath;
@@ -744,12 +755,14 @@ async function handleWorkflow(options: {
       taskId: ej.taskName,
     };
 
-    const result = await executeLocalJob(job, { pauseOnFailure, store });
+    const result = await options.globalLimiter.run(() =>
+      executeLocalJob(job, { pauseOnFailure, store }),
+    );
     return [result];
   }
 
   // ── Multi-job orchestration ────────────────────────────────────────────────
-  const maxJobs = getDefaultMaxConcurrentJobs();
+  const limiter = options.globalLimiter;
 
   // ── Warm-cache check ───────────────────────────────────────────────────────
   const repoSlug = githubRepo.replace("/", "-");
@@ -890,7 +903,6 @@ async function handleWorkflow(options: {
     return result;
   };
 
-  const limiter = createConcurrencyLimiter(maxJobs);
   const allResults: JobResult[] = [];
   // Accumulate job outputs across waves for needs.*.outputs.* resolution
   const jobOutputs = new Map<string, Record<string, string>>();
@@ -1061,7 +1073,7 @@ async function handleWorkflow(options: {
     // ── Warm-cache serialization for the first wave ────────────────────────
     if (!warm && wi === 0 && waveJobs.length > 1) {
       debugCli("Cold cache — running first job to populate warm modules...");
-      const firstResult = await runOrSkipJob(waveJobs[0]);
+      const firstResult = await limiter.run(() => runOrSkipJob(waveJobs[0]));
       allResults.push(firstResult);
 
       const results = await Promise.allSettled(

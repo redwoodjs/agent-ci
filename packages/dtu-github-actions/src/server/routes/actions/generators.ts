@@ -264,6 +264,7 @@ export function createJobResponse(
         full_name: repoFullName,
         name: repoName,
         owner: { login: ownerName },
+        default_branch: payload.repository?.default_branch,
       },
       before: payload.baseSha || "0000000000000000000000000000000000000000",
       after: realHeadSha,

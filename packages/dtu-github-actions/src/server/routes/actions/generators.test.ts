@@ -77,6 +77,37 @@ describe("createJobResponse", () => {
     expect(entry.v).toEqual({ t: 0, s: "from-step" });
   });
 
+  it("includes default_branch in event.repository (issue #241)", () => {
+    const payload = {
+      ...basePayload,
+      repository: {
+        full_name: "owner/repo",
+        name: "repo",
+        owner: { login: "owner" },
+        default_branch: "develop",
+      },
+    };
+
+    const response = createJobResponse("1", payload, "http://localhost:3000", "plan-1");
+    const body = JSON.parse(response.Body);
+    const github = body.ContextData.github;
+
+    function findKey(node: any, key: string): any {
+      if (node?.t === 2 && Array.isArray(node.d)) {
+        const entry = node.d.find((e: any) => e.k === key);
+        return entry?.v;
+      }
+      return undefined;
+    }
+
+    const event = findKey(github, "event");
+    const repo = findKey(event, "repository");
+    const defaultBranch = findKey(repo, "default_branch");
+
+    expect(defaultBranch).toBeDefined();
+    expect(defaultBranch).toEqual({ t: 0, s: "develop" });
+  });
+
   it("omits env from ContextData when no env is provided", () => {
     const response = createJobResponse("1", basePayload, "http://localhost:3000", "plan-1");
     const body = JSON.parse(response.Body);

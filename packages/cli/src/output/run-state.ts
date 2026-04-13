@@ -220,10 +220,10 @@ export class RunStateStore {
    * Atomically write state to disk (async, non-blocking).
    * Uses write-tmp-then-rename to prevent corruption on concurrent reads.
    */
-  save(): void {
+  save(): Promise<void> {
     const tmp = this.filePath + ".tmp";
     const data = JSON.stringify(this.state, null, 2);
-    fsp
+    return fsp
       .writeFile(tmp, data)
       .then(() => fsp.rename(tmp, this.filePath))
       .catch(() => {

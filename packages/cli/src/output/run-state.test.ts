@@ -123,10 +123,10 @@ describe("RunStateStore", () => {
   });
 
   describe("atomic persistence", () => {
-    it("save writes a valid JSON file", () => {
+    it("save writes a valid JSON file", async () => {
       const store = makeStore("persist-test");
       store.addJob("/repo/.github/workflows/ci.yml", "test", "agent-ci-1");
-      store.save();
+      await store.save();
 
       const filePath = path.join(tmpDir, "persist-test", "run-state.json");
       expect(fs.existsSync(filePath)).toBe(true);
@@ -135,11 +135,11 @@ describe("RunStateStore", () => {
       expect(parsed.workflows).toHaveLength(1);
     });
 
-    it("load round-trips the state from disk", () => {
+    it("load round-trips the state from disk", async () => {
       const store = makeStore("roundtrip");
       store.addJob("/repo/.github/workflows/ci.yml", "test", "agent-ci-1");
       store.updateJob("agent-ci-1", { status: "running" });
-      store.save();
+      await store.save();
 
       const filePath = path.join(tmpDir, "roundtrip", "run-state.json");
       const loaded = RunStateStore.load(filePath);
@@ -147,9 +147,9 @@ describe("RunStateStore", () => {
       expect(loaded.workflows[0].jobs[0].status).toBe("running");
     });
 
-    it("save does not leave .tmp files behind", () => {
+    it("save does not leave .tmp files behind", async () => {
       const store = makeStore("no-tmp");
-      store.save();
+      await store.save();
       const dir = path.join(tmpDir, "no-tmp");
       const files = fs.readdirSync(dir);
       expect(files.some((f) => f.endsWith(".tmp"))).toBe(false);

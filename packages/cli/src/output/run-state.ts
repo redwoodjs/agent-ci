@@ -1,4 +1,5 @@
 import fs from "fs";
+import fsp from "fs/promises";
 import path from "path";
 
 // ─── Status types ─────────────────────────────────────────────────────────────
@@ -91,6 +92,8 @@ export class RunStateStore {
   private state: RunState;
   private filePath: string;
   private listeners: StoreListener[] = [];
+  private saveTimer: ReturnType<typeof setTimeout> | null = null;
+  private saveDirty = false;
 
   constructor(runId: string, filePath: string) {
     this.state = {
@@ -110,6 +113,22 @@ export class RunStateStore {
 
   getState(): RunState {
     return this.state;
+  }
+
+  /**
+   * Pre-register a workflow so it appears in the render loop immediately
+   * (e.g. as "queued") before any jobs have been added.
+   */
+  addWorkflow(workflowPath: string): void {
+    if (!this.state.workflows.some((w) => w.path === workflowPath)) {
+      this.state.workflows.push({
+        id: path.basename(workflowPath),
+        path: workflowPath,
+        status: "queued",
+        jobs: [],
+      });
+      this.notify();
+    }
   }
 
   /**
@@ -163,29 +182,53 @@ export class RunStateStore {
         break;
       }
     }
-    this.save();
+    this.debouncedSave();
     this.notify();
   }
 
-  /** Mark the overall run complete and persist. */
+  /** Mark the overall run complete and persist immediately. */
   complete(status: RunStatus): void {
     this.state.status = status;
     this.state.completedAt = new Date().toISOString();
+    // Flush any pending debounced save, then write final state
+    if (this.saveTimer) {
+      clearTimeout(this.saveTimer);
+      this.saveTimer = null;
+    }
     this.save();
   }
 
   /**
-   * Atomically write state to disk.
+   * Debounced save — coalesces rapid state updates into a single disk write.
+   * The in-memory state is always current; only the disk persistence is batched
+   * to avoid blocking the event loop (and stalling the render interval).
+   */
+  private debouncedSave(): void {
+    this.saveDirty = true;
+    if (!this.saveTimer) {
+      this.saveTimer = setTimeout(() => {
+        this.saveTimer = null;
+        if (this.saveDirty) {
+          this.saveDirty = false;
+          this.save();
+        }
+      }, 200);
+    }
+  }
+
+  /**
+   * Atomically write state to disk (async, non-blocking).
    * Uses write-tmp-then-rename to prevent corruption on concurrent reads.
    */
-  save(): void {
-    try {
-      const tmp = this.filePath + ".tmp";
-      fs.writeFileSync(tmp, JSON.stringify(this.state, null, 2));
-      fs.renameSync(tmp, this.filePath);
-    } catch {
-      // Best-effort — rendering uses in-memory state, not disk
-    }
+  save(): Promise<void> {
+    const tmp = this.filePath + ".tmp";
+    const data = JSON.stringify(this.state, null, 2);
+    return fsp
+      .writeFile(tmp, data)
+      .then(() => fsp.rename(tmp, this.filePath))
+      .catch(() => {
+        // Best-effort — rendering uses in-memory state, not disk
+      });
   }
 
   /** Load a previously-written RunState from disk. */

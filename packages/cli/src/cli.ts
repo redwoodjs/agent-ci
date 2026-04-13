@@ -54,7 +54,7 @@ import { computeDirtySha } from "./runner/dirty-sha.js";
 import { RunStateStore } from "./output/run-state.js";
 import { renderRunState } from "./output/state-renderer.js";
 import { isAgentMode, setQuietMode } from "./output/agent-mode.js";
-import logUpdate from "log-update";
+import { createDiffRenderer } from "./output/diff-renderer.js";
 import { createFailedJobResult, wrapJobError, isJobError } from "./runner/job-result.js";
 import { postCommitStatus } from "./commit-status.js";
 
@@ -393,6 +393,7 @@ async function runWorkflows(options: {
   // In agent mode (AI_AGENT=1 or --quiet), skip animated rendering to avoid token waste
   // but register a synchronous callback for important state changes.
   let renderInterval: ReturnType<typeof setInterval> | null = null;
+  let renderer: ReturnType<typeof createDiffRenderer> | null = null;
   if (isAgentMode()) {
     const reportedPauses = new Set<string>();
     const reportedSteps = new Map<string, Set<string>>();
@@ -438,10 +439,12 @@ async function runWorkflows(options: {
       }
     });
   } else {
+    renderer = createDiffRenderer();
+    const render = renderer;
     renderInterval = setInterval(() => {
       const state = store.getState();
       if (state.workflows.length > 0) {
-        logUpdate(renderRunState(state));
+        render.update(renderRunState(state));
       }
     }, 80);
   }
@@ -456,6 +459,12 @@ async function runWorkflows(options: {
   process.on("SIGINT", exitOnSignal);
   process.on("SIGTERM", exitOnSignal);
   process.on("SIGHUP", exitOnSignal);
+
+  // Pre-register all workflows so they appear immediately in the render
+  // loop (as "queued") before any bootstrap or execution starts.
+  for (const wp of workflowPaths) {
+    store.addWorkflow(wp);
+  }
 
   // ── Session bootstrap ─────────────────────────────────────────────────────
   // Global Docker/workspace cleanup + image prefetch run once per session
@@ -590,13 +599,13 @@ async function runWorkflows(options: {
     if (renderInterval) {
       clearInterval(renderInterval);
     }
-    if (!isAgentMode()) {
+    if (renderer) {
       // Final render — show the completed state
       const finalState = store.getState();
       if (finalState.workflows.length > 0) {
-        logUpdate(renderRunState(finalState));
+        renderer.update(renderRunState(finalState));
       }
-      logUpdate.done();
+      renderer.done();
     }
   }
 }
@@ -704,6 +713,29 @@ async function handleWorkflow(options: {
     }
   }
 
+  // Pre-register all jobs so they appear as "queued" in the render loop
+  // before execution starts. Uses the same naming convention as buildJob.
+  // Only in multi-workflow mode (baseRunNum is set) where naming is deterministic.
+  if (expandedJobs.length > 1 && options.baseRunNum != null) {
+    for (let i = 0; i < expandedJobs.length; i++) {
+      const ej = expandedJobs[i];
+      let suffix = `-j${i + 1}`;
+      if (ej.matrixContext) {
+        const shardIdx = parseInt(ej.matrixContext.__job_index ?? "0", 10) + 1;
+        suffix += `-m${shardIdx}`;
+      }
+      const runnerId = `agent-ci-${options.baseRunNum}${suffix}`;
+      const storeWfPath = ej.callerJobId ? workflowPath : ej.workflowPath;
+      store.addJob(storeWfPath, ej.taskName, runnerId, {
+        matrixValues: ej.matrixContext
+          ? Object.fromEntries(
+              Object.entries(ej.matrixContext).filter(([k]) => !k.startsWith("__")),
+            )
+          : undefined,
+      });
+    }
+  }
+
   // For single-job workflows, run directly without extra orchestration
   if (expandedJobs.length === 1) {
     const ej = expandedJobs[0];
@@ -763,6 +795,7 @@ async function handleWorkflow(options: {
       services,
       container: container ?? undefined,
       workflowPath: ej.workflowPath,
+      parentWorkflowPath: ej.callerJobId ? workflowPath : undefined,
       taskId: ej.taskName,
     };
 
@@ -792,7 +825,6 @@ async function handleWorkflow(options: {
 
   // Naming convention: agent-ci-<N>[-j<idx>][-m<shardIdx>]
   const baseRunNum = options.baseRunNum ?? getNextLogNum("agent-ci");
-  let globalIdx = 0;
 
   const buildJob = (ej: ExpandedJob): Job => {
     const actualTaskName = ej.sourceTaskName ?? ej.taskName;
@@ -804,7 +836,9 @@ async function handleWorkflow(options: {
     const secretsFilePath = path.join(repoRoot, ".env.agent-ci");
     validateSecrets(ej.workflowPath, actualTaskName, secrets, secretsFilePath);
 
-    const idx = globalIdx++;
+    // Use the job's position in expandedJobs (not a mutable counter) so the
+    // runnerId is deterministic and matches the pre-registration at line 716.
+    const idx = expandedJobs.indexOf(ej);
     let suffix = `-j${idx + 1}`;
     if (ej.matrixContext) {
       const shardIdx = parseInt(ej.matrixContext.__job_index ?? "0", 10) + 1;
@@ -835,6 +869,7 @@ async function handleWorkflow(options: {
       services: undefined as any,
       container: undefined,
       workflowPath: ej.workflowPath,
+      parentWorkflowPath: ej.callerJobId ? workflowPath : undefined,
       taskId: ej.taskName,
     };
   };

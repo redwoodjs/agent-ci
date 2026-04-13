@@ -1,5 +1,11 @@
 # dtu-github-actions
 
+## 0.10.4
+
+### Patch Changes
+
+- 25c1c5d: Fix Cypress install failing with EACCES on `/home/runner/.cache/Cypress`.
+
 ## 0.10.3
 
 ### Patch Changes

@@ -91,6 +91,8 @@ export class RunStateStore {
   private state: RunState;
   private filePath: string;
   private listeners: StoreListener[] = [];
+  private saveTimer: ReturnType<typeof setTimeout> | null = null;
+  private saveDirty = false;
 
   constructor(runId: string, filePath: string) {
     this.state = {
@@ -110,6 +112,22 @@ export class RunStateStore {
 
   getState(): RunState {
     return this.state;
+  }
+
+  /**
+   * Pre-register a workflow so it appears in the render loop immediately
+   * (e.g. as "queued") before any jobs have been added.
+   */
+  addWorkflow(workflowPath: string): void {
+    if (!this.state.workflows.some((w) => w.path === workflowPath)) {
+      this.state.workflows.push({
+        id: path.basename(workflowPath),
+        path: workflowPath,
+        status: "queued",
+        jobs: [],
+      });
+      this.notify();
+    }
   }
 
   /**
@@ -163,15 +181,38 @@ export class RunStateStore {
         break;
       }
     }
-    this.save();
+    this.debouncedSave();
     this.notify();
   }
 
-  /** Mark the overall run complete and persist. */
+  /** Mark the overall run complete and persist immediately. */
   complete(status: RunStatus): void {
     this.state.status = status;
     this.state.completedAt = new Date().toISOString();
+    // Flush any pending debounced save, then write final state
+    if (this.saveTimer) {
+      clearTimeout(this.saveTimer);
+      this.saveTimer = null;
+    }
     this.save();
+  }
+
+  /**
+   * Debounced save — coalesces rapid state updates into a single disk write.
+   * The in-memory state is always current; only the disk persistence is batched
+   * to avoid blocking the event loop (and stalling the render interval).
+   */
+  private debouncedSave(): void {
+    this.saveDirty = true;
+    if (!this.saveTimer) {
+      this.saveTimer = setTimeout(() => {
+        this.saveTimer = null;
+        if (this.saveDirty) {
+          this.saveDirty = false;
+          this.save();
+        }
+      }, 200);
+    }
   }
 
   /**

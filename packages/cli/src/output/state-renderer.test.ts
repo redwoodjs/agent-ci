@@ -456,13 +456,15 @@ describe("renderRunState", () => {
   });
 
   describe("multi-workflow (--all mode)", () => {
-    it("renders multiple workflow roots", () => {
+    it("collapses completed workflow to a single line with ✓ and duration", () => {
       const state = makeState({
         workflows: [
           {
             id: "ci.yml",
             path: "/repo/.github/workflows/ci.yml",
             status: "completed",
+            startedAt: "1970-01-01T00:00:00.000Z",
+            completedAt: "1970-01-01T00:00:15.000Z",
             jobs: [
               {
                 id: "test",
@@ -477,6 +479,7 @@ describe("renderRunState", () => {
             id: "deploy.yml",
             path: "/repo/.github/workflows/deploy.yml",
             status: "running",
+            startedAt: "1970-01-01T00:00:00.000Z",
             jobs: [
               {
                 id: "deploy",
@@ -491,14 +494,422 @@ describe("renderRunState", () => {
       });
 
       const output = renderRunState(state);
-      expect(output).toContain("ci.yml");
-      expect(output).toContain("deploy.yml");
-      expect(output).toContain("✓ test");
-      expect(output).toContain("agent-ci-5-j1");
-      expect(output).toContain("⠋ Starting runner agent-ci-5-j2 (0s)");
+      // Completed workflow collapsed to one line
+      expect(output).toContain("✓ ci.yml (15s)");
+      // No individual job details for either workflow
+      expect(output).not.toContain("agent-ci-5-j1");
+      expect(output).not.toContain("agent-ci-5-j2");
+      // Running workflow is a single line with spinner and booting hint
+      expect(output).toContain("⠋ deploy.yml");
+      expect(output).toContain("booting");
     });
 
-    it("groups multiple jobs under their respective workflow", () => {
+    it("collapses failed workflow to a single red line with ✗", () => {
+      const state = makeState({
+        workflows: [
+          {
+            id: "ci.yml",
+            path: "/repo/.github/workflows/ci.yml",
+            status: "failed",
+            startedAt: "1970-01-01T00:00:00.000Z",
+            completedAt: "1970-01-01T00:00:10.000Z",
+            jobs: [
+              {
+                id: "test",
+                runnerId: "agent-ci-5-j1",
+                status: "failed",
+                failedStep: "Run tests",
+                durationMs: 10000,
+                steps: [],
+              },
+            ],
+          },
+          {
+            id: "lint.yml",
+            path: "/repo/.github/workflows/lint.yml",
+            status: "completed",
+            startedAt: "1970-01-01T00:00:00.000Z",
+            completedAt: "1970-01-01T00:00:05.000Z",
+            jobs: [
+              {
+                id: "lint",
+                runnerId: "agent-ci-6-j1",
+                status: "completed",
+                durationMs: 5000,
+                steps: [],
+              },
+            ],
+          },
+        ],
+      });
+
+      const output = renderRunState(state);
+      // Single-job workflows collapse to one line (no job children)
+      expect(output).toContain("✗ ci.yml");
+      expect(output).toContain("(10s)");
+      expect(output).toContain("✓ lint.yml (5s)");
+      expect(output).not.toContain("agent-ci-5-j1");
+      expect(output).not.toContain("agent-ci-6-j1");
+    });
+
+    it("keeps completed multi-job workflow expanded to show jobs", () => {
+      const state = makeState({
+        workflows: [
+          {
+            id: "ci.yml",
+            path: "/repo/.github/workflows/ci.yml",
+            status: "completed",
+            startedAt: "1970-01-01T00:00:00.000Z",
+            completedAt: "1970-01-01T00:00:20.000Z",
+            jobs: [
+              {
+                id: "lint",
+                runnerId: "agent-ci-5-j1",
+                status: "completed",
+                durationMs: 5000,
+                steps: [],
+              },
+              {
+                id: "test",
+                runnerId: "agent-ci-5-j2",
+                status: "completed",
+                durationMs: 15000,
+                steps: [],
+              },
+            ],
+          },
+          {
+            id: "lint.yml",
+            path: "/repo/.github/workflows/lint.yml",
+            status: "completed",
+            startedAt: "1970-01-01T00:00:00.000Z",
+            completedAt: "1970-01-01T00:00:05.000Z",
+            jobs: [
+              {
+                id: "lint",
+                runnerId: "agent-ci-6-j1",
+                status: "completed",
+                durationMs: 5000,
+                steps: [],
+              },
+            ],
+          },
+        ],
+      });
+
+      const output = renderRunState(state);
+      // Multi-job workflow shows jobs even when completed
+      expect(output).toContain("✓ ci.yml (20s)");
+      expect(output).toContain("✓ lint.yml (5s)");
+      // Individual job names are visible
+      expect(output).toContain("✓ lint (5s)");
+      expect(output).toContain("✓ test (15s)");
+    });
+
+    it("shows queued jobs before workflow has started", () => {
+      const state = makeState({
+        workflows: [
+          {
+            id: "cache.yml",
+            path: "/repo/.github/workflows/cache.yml",
+            status: "queued",
+            jobs: [
+              {
+                id: "install-a",
+                runnerId: "agent-ci-5-j1",
+                status: "queued",
+                steps: [],
+              },
+              {
+                id: "install-b",
+                runnerId: "agent-ci-5-j2",
+                status: "queued",
+                steps: [],
+              },
+              {
+                id: "install-c",
+                runnerId: "agent-ci-5-j3",
+                status: "queued",
+                steps: [],
+              },
+            ],
+          },
+          {
+            id: "ci.yml",
+            path: "/repo/.github/workflows/ci.yml",
+            status: "running",
+            jobs: [
+              {
+                id: "test",
+                runnerId: "agent-ci-6-j1",
+                status: "running",
+                steps: [
+                  {
+                    name: "Run tests",
+                    index: 1,
+                    status: "running",
+                    startedAt: "1970-01-01T00:00:00.000Z",
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      });
+
+      const output = renderRunState(state);
+      // All three queued jobs visible under the queued workflow
+      expect(output).toContain("○ cache.yml");
+      expect(output).toContain("○ install-a");
+      expect(output).toContain("○ install-b");
+      expect(output).toContain("○ install-c");
+    });
+
+    it("shows queued workflow with ○ icon", () => {
+      const state = makeState({
+        workflows: [
+          {
+            id: "ci.yml",
+            path: "/repo/.github/workflows/ci.yml",
+            status: "running",
+            startedAt: "1970-01-01T00:00:00.000Z",
+            jobs: [
+              {
+                id: "test",
+                runnerId: "agent-ci-5-j1",
+                status: "running",
+                steps: [
+                  {
+                    name: "Run tests",
+                    index: 1,
+                    status: "running",
+                    startedAt: "1970-01-01T00:00:00.000Z",
+                  },
+                ],
+              },
+            ],
+          },
+          {
+            id: "deploy.yml",
+            path: "/repo/.github/workflows/deploy.yml",
+            status: "queued",
+            jobs: [],
+          },
+        ],
+      });
+
+      const output = renderRunState(state);
+      expect(output).toContain("○ deploy.yml");
+      // Running workflow shows current step hint inline
+      expect(output).toContain("⠋ ci.yml");
+      expect(output).toContain('step 1/1 "Run tests" (0s...)');
+    });
+
+    it("keeps workflow with paused job expanded (not collapsed)", () => {
+      const state = makeState({
+        workflows: [
+          {
+            id: "ci.yml",
+            path: "/repo/.github/workflows/ci.yml",
+            status: "running",
+            jobs: [
+              {
+                id: "test",
+                runnerId: "agent-ci-5-j1",
+                status: "paused",
+                pausedAtStep: "Run tests",
+                pausedAtMs: "1970-01-01T00:00:05.000Z",
+                attempt: 1,
+                lastOutputLines: ["Error: test failed"],
+                steps: [
+                  {
+                    name: "Run tests",
+                    index: 1,
+                    status: "paused",
+                    startedAt: "1970-01-01T00:00:03.000Z",
+                  },
+                ],
+              },
+            ],
+          },
+          {
+            id: "lint.yml",
+            path: "/repo/.github/workflows/lint.yml",
+            status: "completed",
+            startedAt: "1970-01-01T00:00:00.000Z",
+            completedAt: "1970-01-01T00:00:05.000Z",
+            jobs: [
+              {
+                id: "lint",
+                runnerId: "agent-ci-6-j1",
+                status: "completed",
+                durationMs: 5000,
+                steps: [],
+              },
+            ],
+          },
+        ],
+      });
+
+      const output = renderRunState(state);
+      // Paused workflow stays expanded with spinner
+      expect(output).toContain("⠋ ci.yml");
+      expect(output).toContain("⏸ 1. Run tests (2s)");
+      expect(output).toContain("↻ To retry:");
+      // Completed workflow still collapsed
+      expect(output).toContain("✓ lint.yml (5s)");
+    });
+
+    it("formats workflow duration with minutes for long runs", () => {
+      const state = makeState({
+        workflows: [
+          {
+            id: "ci.yml",
+            path: "/repo/.github/workflows/ci.yml",
+            status: "completed",
+            startedAt: "1970-01-01T00:00:00.000Z",
+            completedAt: "1970-01-01T00:01:25.000Z", // 85 seconds
+            jobs: [
+              {
+                id: "test",
+                runnerId: "agent-ci-5-j1",
+                status: "completed",
+                durationMs: 85000,
+                steps: [],
+              },
+            ],
+          },
+          {
+            id: "lint.yml",
+            path: "/repo/.github/workflows/lint.yml",
+            status: "running",
+            jobs: [
+              {
+                id: "lint",
+                runnerId: "agent-ci-6-j1",
+                status: "running",
+                steps: [
+                  {
+                    name: "Lint",
+                    index: 1,
+                    status: "running",
+                    startedAt: "1970-01-01T00:00:00.000Z",
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      });
+
+      const output = renderRunState(state);
+      expect(output).toContain("✓ ci.yml (1m 25s)");
+    });
+
+    it("sorts workflows alphabetically", () => {
+      const state = makeState({
+        workflows: [
+          {
+            id: "tests.yml",
+            path: "/repo/.github/workflows/tests.yml",
+            status: "completed",
+            startedAt: "1970-01-01T00:00:00.000Z",
+            completedAt: "1970-01-01T00:00:10.000Z",
+            jobs: [
+              {
+                id: "test",
+                runnerId: "agent-ci-5-j1",
+                status: "completed",
+                durationMs: 10000,
+                steps: [],
+              },
+            ],
+          },
+          {
+            id: "ci.yml",
+            path: "/repo/.github/workflows/ci.yml",
+            status: "completed",
+            startedAt: "1970-01-01T00:00:00.000Z",
+            completedAt: "1970-01-01T00:00:05.000Z",
+            jobs: [
+              {
+                id: "lint",
+                runnerId: "agent-ci-6-j1",
+                status: "completed",
+                durationMs: 5000,
+                steps: [],
+              },
+            ],
+          },
+        ],
+      });
+
+      const output = renderRunState(state);
+      const ciPos = output.indexOf("ci.yml");
+      const testsPos = output.indexOf("tests.yml");
+      expect(ciPos).toBeLessThan(testsPos);
+    });
+
+    it("expands running multi-job workflow to show each job", () => {
+      const state = makeState({
+        workflows: [
+          {
+            id: "ci.yml",
+            path: "/repo/.github/workflows/ci.yml",
+            status: "running",
+            startedAt: "1970-01-01T00:00:00.000Z",
+            jobs: [
+              {
+                id: "lint",
+                runnerId: "agent-ci-5-j1",
+                status: "completed",
+                durationMs: 5000,
+                steps: [],
+              },
+              {
+                id: "test",
+                runnerId: "agent-ci-5-j2",
+                status: "running",
+                steps: [
+                  { name: "Checkout", index: 1, status: "completed", durationMs: 500 },
+                  {
+                    name: "Run tests",
+                    index: 2,
+                    status: "running",
+                    startedAt: "1970-01-01T00:00:00.000Z",
+                  },
+                  { name: "Upload results", index: 3, status: "pending" },
+                ],
+              },
+              {
+                id: "build",
+                runnerId: "agent-ci-5-j3",
+                status: "queued",
+                steps: [],
+              },
+            ],
+          },
+          {
+            id: "lint.yml",
+            path: "/repo/.github/workflows/lint.yml",
+            status: "queued",
+            jobs: [],
+          },
+        ],
+      });
+
+      const output = renderRunState(state);
+      // Workflow expands with spinner
+      expect(output).toContain("⠋ ci.yml");
+      // Each job shown as a compact child
+      expect(output).toContain("✓ lint (5s)");
+      expect(output).toContain('step 2/3 "Run tests" (0s...)');
+      expect(output).toContain("○ build");
+      // No full step detail (step nodes like "1. Checkout" should not appear)
+      expect(output).not.toContain("Checkout");
+    });
+
+    it("groups multiple jobs under their respective workflow (single-workflow)", () => {
       const state = makeState({
         workflows: [
           {
@@ -526,7 +937,7 @@ describe("renderRunState", () => {
       });
 
       const output = renderRunState(state);
-      // ci.yml appears exactly once as root
+      // Single workflow — no collapsing, no status icon prefix
       expect(output.split("ci.yml").length).toBe(2); // 1 occurrence → 2 parts
       expect(output).toContain("✓ lint");
       expect(output).toContain("agent-ci-5-j1");

@@ -9,6 +9,7 @@ import type { RunState, JobState, StepState } from "./run-state.js";
 
 // ─── ANSI helpers ─────────────────────────────────────────────────────────────
 
+const RED = `${String.fromCharCode(27)}[31m`;
 const YELLOW = `${String.fromCharCode(27)}[33m`;
 const DIM = `${String.fromCharCode(27)}[2m`;
 const RESET = `${String.fromCharCode(27)}[0m`;
@@ -25,6 +26,16 @@ function getSpinnerFrame(): string {
 
 function fmtMs(ms: number): string {
   return ms >= 1000 ? `${(ms / 1000).toFixed(1)}s` : `${ms}ms`;
+}
+
+function fmtDuration(ms: number): string {
+  const s = Math.round(ms / 1000);
+  if (s < 60) {
+    return `${s}s`;
+  }
+  const m = Math.floor(s / 60);
+  const rem = s % 60;
+  return rem > 0 ? `${m}m ${rem}s` : `${m}m`;
 }
 
 function fmtBytes(bytes: number): string {
@@ -54,9 +65,13 @@ function buildStepNode(step: StepState, job: JobState, padW: number): TreeNode {
       const frame = getSpinnerFrame();
       // Retrying (was paused, now running again on same step)
       if ((job.attempt ?? 0) > 0 && job.pausedAtStep === step.name) {
-        return { label: `${frame} ${pad(step.index)}. ${step.name} — retrying (${elapsed}s...)` };
+        return {
+          label: `${frame} ${pad(step.index)}. ${step.name} — retrying (${elapsed}s...)`,
+        };
       }
-      return { label: `${frame} ${pad(step.index)}. ${step.name} (${elapsed}s...)` };
+      return {
+        label: `${frame} ${pad(step.index)}. ${step.name} (${elapsed}s...)`,
+      };
     }
 
     case "paused": {
@@ -70,7 +85,11 @@ function buildStepNode(step: StepState, job: JobState, padW: number): TreeNode {
             : 0;
       return {
         label: `⏸ ${pad(step.index)}. ${step.name} (${frozenElapsed}s)`,
-        children: [{ label: `${YELLOW}Step failed attempt #${job.attempt ?? 1}${RESET}` }],
+        children: [
+          {
+            label: `${YELLOW}Step failed attempt #${job.attempt ?? 1}${RESET}`,
+          },
+        ],
       };
     }
 
@@ -128,9 +147,15 @@ function buildJobNodes(job: JobState, singleJobMode: boolean): TreeNode[] {
 
   // ── Completed / failed in multi-job mode → collapse to one line ────────────
   if (!singleJobMode && (job.status === "completed" || job.status === "failed")) {
-    const icon = job.failedStep ? "✗" : "✓";
     const dur = job.durationMs !== undefined ? ` (${Math.round(job.durationMs / 1000)}s)` : "";
-    return [{ label: `${icon} ${job.id} ${DIM}${job.runnerId}${RESET}${dur}` }];
+    if (job.failedStep) {
+      return [
+        {
+          label: `${RED}✗ ${job.id}${RESET} ${DIM}${job.runnerId}${RESET}${dur}`,
+        },
+      ];
+    }
+    return [{ label: `✓ ${job.id} ${DIM}${job.runnerId}${RESET}${dur}` }];
   }
 
   // ── Build step nodes ───────────────────────────────────────────────────────
@@ -161,6 +186,51 @@ function buildJobNodes(job: JobState, singleJobMode: boolean): TreeNode[] {
   return [{ label: `${job.id} ${DIM}${job.runnerId}${RESET}`, children: stepNodes }];
 }
 
+// ─── Running step hint (multi-workflow mode) ─────────────────────────────────
+
+/**
+ * Build a compact one-line hint for a single job's current status.
+ * Used in multi-workflow mode to show each job with its active step.
+ */
+function getJobStepHint(job: JobState): string {
+  if (job.status === "booting") {
+    return ` ${DIM}— booting${RESET}`;
+  }
+  const runningStep = job.steps.find((s) => s.status === "running");
+  if (runningStep) {
+    const elapsed = runningStep.startedAt
+      ? Math.round((Date.now() - new Date(runningStep.startedAt).getTime()) / 1000)
+      : 0;
+    return ` ${DIM}— step ${runningStep.index}/${job.steps.length} "${runningStep.name}" (${elapsed}s...)${RESET}`;
+  }
+  return "";
+}
+
+/**
+ * Build a compact TreeNode for a job in multi-workflow mode.
+ * Each job is one line: icon + name + step hint or duration.
+ */
+function buildCompactJobNode(job: JobState): TreeNode {
+  const dur = job.durationMs !== undefined ? ` (${Math.round(job.durationMs / 1000)}s)` : "";
+  // Append matrix values to distinguish matrix-expanded jobs
+  const matrix =
+    job.matrixValues && Object.keys(job.matrixValues).length > 0
+      ? ` ${DIM}(${Object.values(job.matrixValues).join(", ")})${RESET}`
+      : "";
+  switch (job.status) {
+    case "completed":
+      return { label: `✓ ${job.id}${matrix}${dur}` };
+    case "failed":
+      return { label: `${RED}✗ ${job.id}${RESET}${matrix}${dur}` };
+    case "booting":
+    case "running":
+      return { label: `${getSpinnerFrame()} ${job.id}${matrix}${getJobStepHint(job)}` };
+    case "queued":
+    default:
+      return { label: `○ ${job.id}${matrix}` };
+  }
+}
+
 // ─── Main renderer ────────────────────────────────────────────────────────────
 
 /**
@@ -172,11 +242,71 @@ function buildJobNodes(job: JobState, singleJobMode: boolean): TreeNode[] {
 export function renderRunState(state: RunState): string {
   const totalJobs = state.workflows.reduce((sum, wf) => sum + wf.jobs.length, 0);
   const singleJobMode = state.workflows.length === 1 && totalJobs === 1;
+  const multiWorkflowMode = state.workflows.length > 1;
 
   const roots: TreeNode[] = [];
   let pausedJob: JobState | undefined;
 
-  for (const wf of state.workflows) {
+  // Sort workflows alphabetically in multi-workflow mode for stable output
+  const workflows = multiWorkflowMode
+    ? [...state.workflows].sort((a, b) =>
+        path.basename(a.path).localeCompare(path.basename(b.path)),
+      )
+    : state.workflows;
+
+  for (const wf of workflows) {
+    const wfName = path.basename(wf.path);
+    const hasPausedJob = wf.jobs.some((j) => j.status === "paused");
+
+    // ── Multi-workflow: compact GitHub Checks style ──────────────────────
+    if (multiWorkflowMode) {
+      // Paused workflows expand with full step detail for retry hints
+      if (hasPausedJob) {
+        const children: TreeNode[] = [];
+        for (const job of wf.jobs) {
+          children.push(...buildJobNodes(job, singleJobMode));
+          if (job.status === "paused" && !pausedJob) {
+            pausedJob = job;
+          }
+        }
+        roots.push({ label: `${getSpinnerFrame()} ${wfName}`, children });
+        continue;
+      }
+
+      // Build the workflow label (icon + name + optional duration)
+      let wfLabel: string;
+      if (wf.status === "completed" || wf.status === "failed") {
+        const durationMs =
+          wf.startedAt && wf.completedAt
+            ? new Date(wf.completedAt).getTime() - new Date(wf.startedAt).getTime()
+            : undefined;
+        const dur = durationMs !== undefined ? ` (${fmtDuration(durationMs)})` : "";
+        if (wf.status === "failed") {
+          wfLabel = `${RED}✗ ${wfName}${RESET}${dur}`;
+        } else {
+          wfLabel = `✓ ${wfName}${dur}`;
+        }
+      } else if (wf.status === "running") {
+        wfLabel = `${getSpinnerFrame()} ${wfName}`;
+      } else {
+        wfLabel = `○ ${wfName}`;
+      }
+
+      // Always show job children so they're visible from the start
+      // and never disappear (queued, running, completed, or failed).
+      if (wf.jobs.length > 1) {
+        const children = wf.jobs.map((job) => buildCompactJobNode(job));
+        roots.push({ label: wfLabel, children });
+      } else if (wf.jobs.length === 1) {
+        // Single-job: append step hint inline
+        roots.push({ label: `${wfLabel}${getJobStepHint(wf.jobs[0])}` });
+      } else {
+        roots.push({ label: wfLabel });
+      }
+      continue;
+    }
+
+    // ── Single-workflow mode: full expansion with job/step detail ──────────
     const children: TreeNode[] = [];
     for (const job of wf.jobs) {
       children.push(...buildJobNodes(job, singleJobMode));
@@ -186,7 +316,8 @@ export function renderRunState(state: RunState): string {
         pausedJob = job;
       }
     }
-    roots.push({ label: path.basename(wf.path), children });
+
+    roots.push({ label: wfName, children });
   }
 
   let output = renderTree(roots);

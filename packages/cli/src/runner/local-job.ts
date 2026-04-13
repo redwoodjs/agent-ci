@@ -178,13 +178,20 @@ export async function executeLocalJob(
   } = createLogContext("agent-ci", job.runnerName);
 
   // Register the job in the store so the render loop can show the boot spinner
-  store?.addJob(job.workflowPath ?? "", job.taskId ?? "job", containerName, {
-    logDir,
-    debugLogPath,
-  });
+  store?.addJob(
+    job.parentWorkflowPath ?? job.workflowPath ?? "",
+    job.taskId ?? "job",
+    containerName,
+    {
+      logDir,
+      debugLogPath,
+    },
+  );
   store?.updateJob(containerName, {
     status: "booting",
     startedAt: new Date().toISOString(),
+    logDir,
+    debugLogPath,
   });
 
   const bootStart = Date.now();

@@ -24,5 +24,7 @@ export interface Job {
   container?: WorkflowContainer;
   taskId?: string;
   workflowPath?: string;
+  /** Top-level workflow path for display grouping (when workflowPath is a reusable callee) */
+  parentWorkflowPath?: string;
   [key: string]: any;
 }

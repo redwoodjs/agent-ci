@@ -1131,6 +1131,191 @@ describe("expandExpressions with boolean operators", () => {
   });
 });
 
+// ─── expandExpressions — contains, startsWith, endsWith ──────────────────────
+
+describe("expandExpressions with contains()", () => {
+  it("returns true when string contains substring (case-insensitive)", () => {
+    expect(expandExpressions("${{ contains('Hello World', 'hello') }}")).toBe("true");
+  });
+
+  it("returns false when string does not contain substring", () => {
+    expect(expandExpressions("${{ contains('Hello World', 'goodbye') }}")).toBe("false");
+  });
+
+  it("searches a JSON array for a matching item", () => {
+    expect(
+      expandExpressions("${{ contains(fromJSON('[\"push\", \"pull_request\"]'), 'push') }}"),
+    ).toBe("true");
+  });
+
+  it("returns false when array does not contain item", () => {
+    expect(
+      expandExpressions("${{ contains(fromJSON('[\"push\", \"pull_request\"]'), 'schedule') }}"),
+    ).toBe("false");
+  });
+
+  it("works with context variables", () => {
+    expect(expandExpressions("${{ contains(github.repository, 'local') }}")).toBe("true");
+  });
+});
+
+describe("expandExpressions with startsWith()", () => {
+  it("returns true when string starts with prefix (case-insensitive)", () => {
+    expect(expandExpressions("${{ startsWith('Hello World', 'hello') }}")).toBe("true");
+  });
+
+  it("returns false when string does not start with prefix", () => {
+    expect(expandExpressions("${{ startsWith('Hello World', 'world') }}")).toBe("false");
+  });
+
+  it("works with context variables", () => {
+    expect(expandExpressions("${{ startsWith(github.ref_name, 'mai') }}")).toBe("true");
+  });
+});
+
+describe("expandExpressions with endsWith()", () => {
+  it("returns true when string ends with suffix (case-insensitive)", () => {
+    expect(expandExpressions("${{ endsWith('Hello World', 'WORLD') }}")).toBe("true");
+  });
+
+  it("returns false when string does not end with suffix", () => {
+    expect(expandExpressions("${{ endsWith('Hello World', 'Hello') }}")).toBe("false");
+  });
+});
+
+// ─── expandExpressions — join ────────────────────────────────────────────────
+
+describe("expandExpressions with join()", () => {
+  it("joins a JSON array with default separator", () => {
+    expect(expandExpressions('${{ join(fromJSON(\'["a", "b", "c"]\')) }}')).toBe("a, b, c");
+  });
+
+  it("joins a JSON array with custom separator", () => {
+    expect(expandExpressions('${{ join(fromJSON(\'["a", "b", "c"]\'), \'-\') }}')).toBe("a-b-c");
+  });
+});
+
+// ─── expandExpressions — comparison operators ────────────────────────────────
+
+describe("expandExpressions with comparison operators", () => {
+  it("== returns true for equal strings (case-insensitive)", () => {
+    expect(expandExpressions("${{ 'hello' == 'Hello' }}")).toBe("true");
+  });
+
+  it("== returns false for unequal strings", () => {
+    expect(expandExpressions("${{ 'hello' == 'world' }}")).toBe("false");
+  });
+
+  it("!= returns true for unequal strings", () => {
+    expect(expandExpressions("${{ 'hello' != 'world' }}")).toBe("true");
+  });
+
+  it("!= returns false for equal strings", () => {
+    expect(expandExpressions("${{ 'hello' != 'Hello' }}")).toBe("false");
+  });
+
+  it("== works with context variables", () => {
+    expect(expandExpressions("${{ github.actor == 'local' }}")).toBe("true");
+  });
+
+  it("!= works with context variables", () => {
+    expect(expandExpressions("${{ github.actor != 'admin' }}")).toBe("true");
+  });
+
+  it("compares numbers with <", () => {
+    expect(expandExpressions("${{ 1 < 2 }}")).toBe("true");
+  });
+
+  it("compares numbers with >", () => {
+    expect(expandExpressions("${{ 2 > 1 }}")).toBe("true");
+  });
+
+  it("compares numbers with <=", () => {
+    expect(expandExpressions("${{ 2 <= 2 }}")).toBe("true");
+  });
+
+  it("compares numbers with >=", () => {
+    expect(expandExpressions("${{ 1 >= 2 }}")).toBe("false");
+  });
+});
+
+// ─── expandExpressions — type literals ───────────────────────────────────────
+
+describe("expandExpressions with type literals", () => {
+  it("true literal is truthy", () => {
+    expect(expandExpressions("${{ true }}")).toBe("true");
+  });
+
+  it("false literal is falsy", () => {
+    expect(expandExpressions("${{ false }}")).toBe("false");
+  });
+
+  it("null literal resolves to empty string", () => {
+    expect(expandExpressions("${{ null }}")).toBe("");
+  });
+
+  it("numeric literal passes through", () => {
+    expect(expandExpressions("${{ 42 }}")).toBe("42");
+  });
+
+  it("true && value returns value", () => {
+    expect(expandExpressions("${{ true && 'yes' }}")).toBe("yes");
+  });
+
+  it("false || value returns value", () => {
+    expect(expandExpressions("${{ false || 'fallback' }}")).toBe("fallback");
+  });
+
+  it("false && value returns false", () => {
+    expect(expandExpressions("${{ false && 'yes' }}")).toBe("false");
+  });
+});
+
+// ─── expandExpressions — status functions ────────────────────────────────────
+
+describe("expandExpressions with status functions", () => {
+  it("success() returns true", () => {
+    expect(expandExpressions("${{ success() }}")).toBe("true");
+  });
+
+  it("failure() returns false", () => {
+    expect(expandExpressions("${{ failure() }}")).toBe("false");
+  });
+
+  it("always() returns true", () => {
+    expect(expandExpressions("${{ always() }}")).toBe("true");
+  });
+
+  it("cancelled() returns false", () => {
+    expect(expandExpressions("${{ cancelled() }}")).toBe("false");
+  });
+});
+
+// ─── expandExpressions — combined real-world patterns ────────────────────────
+
+describe("expandExpressions real-world patterns", () => {
+  it("contains() with fromJSON in a boolean expression", () => {
+    const result = expandExpressions(
+      "${{ contains(fromJSON('[\"MEMBER\", \"OWNER\"]'), 'OWNER') && 'allowed' || 'denied' }}",
+    );
+    expect(result).toBe("allowed");
+  });
+
+  it("comparison in a ternary-style pattern", () => {
+    const result = expandExpressions(
+      "${{ github.ref_name == 'main' && 'production' || 'staging' }}",
+    );
+    expect(result).toBe("production");
+  });
+
+  it("startsWith used as a condition", () => {
+    const result = expandExpressions(
+      "${{ startsWith(github.ref_name, 'release') && 'release' || 'dev' }}",
+    );
+    expect(result).toBe("dev");
+  });
+});
+
 // ─── Job-level if conditions ──────────────────────────────────────────────────
 
 import { evaluateJobIf, parseJobIf } from "./workflow-parser.js";

@@ -34,6 +34,78 @@ function isExprTruthy(val: string): boolean {
 }
 
 /**
+ * Split a function's argument list on commas, respecting quotes and nested parens.
+ */
+function splitFunctionArgs(argsStr: string): string[] {
+  const result: string[] = [];
+  let current = "";
+  let depth = 0;
+  let inQuote: string | null = null;
+  for (let i = 0; i < argsStr.length; i++) {
+    const ch = argsStr[i];
+    if (inQuote) {
+      current += ch;
+      if (ch === inQuote) {
+        inQuote = null;
+      }
+      continue;
+    }
+    if (ch === "'" || ch === '"') {
+      inQuote = ch;
+      current += ch;
+      continue;
+    }
+    if (ch === "(") {
+      depth++;
+    }
+    if (ch === ")") {
+      depth--;
+    }
+    if (ch === "," && depth === 0) {
+      result.push(current.trim());
+      current = "";
+      continue;
+    }
+    current += ch;
+  }
+  result.push(current.trim());
+  return result;
+}
+
+/** Strip surrounding quotes from a string if present. */
+function unquote(s: string): string {
+  if ((s.startsWith("'") && s.endsWith("'")) || (s.startsWith('"') && s.endsWith('"'))) {
+    return s.slice(1, -1);
+  }
+  return s;
+}
+
+/** Compare two string values using the given operator. */
+function compareValues(left: string, right: string, op: string): boolean {
+  // Try numeric comparison if both sides look like numbers
+  const ln = Number(left);
+  const rn = Number(right);
+  const bothNumeric = left !== "" && right !== "" && !isNaN(ln) && !isNaN(rn);
+
+  switch (op) {
+    case "==":
+      return bothNumeric ? ln === rn : left.toLowerCase() === right.toLowerCase();
+    case "!=":
+      return bothNumeric ? ln !== rn : left.toLowerCase() !== right.toLowerCase();
+    case "<":
+      return bothNumeric ? ln < rn : left.toLowerCase() < right.toLowerCase();
+    case ">":
+      return bothNumeric ? ln > rn : left.toLowerCase() > right.toLowerCase();
+    case "<=":
+      return bothNumeric ? ln <= rn : left.toLowerCase() <= right.toLowerCase();
+    case ">=":
+      return bothNumeric ? ln >= rn : left.toLowerCase() >= right.toLowerCase();
+    default:
+      return false;
+  }
+}
+
+/**
  * Resolve a single atomic expression (function call or context variable).
  * Does not handle boolean operators, parentheses, or string literals.
  */
@@ -140,10 +212,9 @@ function resolveExprAtom(
   // format('template {0} {1}', arg0, arg1)
   const formatMatch = trimmed.match(/^format\(([\s\S]+)\)$/);
   if (formatMatch) {
-    const formatArgs = formatMatch[1].match(/(?:['"][^'"]*['"]|[^,]+)/g) ?? [];
-    const cleaned = formatArgs.map((a) => a.trim().replace(/^['"]|['"]$/g, ""));
-    const template = cleaned[0] || "";
-    const args = cleaned.slice(1);
+    const formatArgs = splitFunctionArgs(formatMatch[1]);
+    const template = unquote(formatArgs[0] || "");
+    const args = formatArgs.slice(1);
     return template.replace(/\{(\d+)\}/g, (_m, idx) => {
       const i = parseInt(idx, 10);
       if (i < args.length) {
@@ -158,6 +229,136 @@ function resolveExprAtom(
       }
       return "";
     });
+  }
+
+  // contains(search, item) — case-insensitive string search or array inclusion
+  const containsMatch = trimmed.match(/^contains\(([\s\S]+)\)$/);
+  if (containsMatch) {
+    const args = splitFunctionArgs(containsMatch[1]);
+    if (args.length >= 2) {
+      const haystack = evaluateExprValue(
+        args[0],
+        repoPath,
+        secrets,
+        matrixContext,
+        needsContext,
+        inputsContext,
+      );
+      const needle = evaluateExprValue(
+        args[1],
+        repoPath,
+        secrets,
+        matrixContext,
+        needsContext,
+        inputsContext,
+      );
+      // Try JSON array first
+      try {
+        const arr = JSON.parse(haystack);
+        if (Array.isArray(arr)) {
+          return arr.some((item) => String(item).toLowerCase() === needle.toLowerCase())
+            ? "true"
+            : "false";
+        }
+      } catch {
+        // Not JSON — fall through to string search
+      }
+      return haystack.toLowerCase().includes(needle.toLowerCase()) ? "true" : "false";
+    }
+    return "false";
+  }
+
+  // startsWith(searchString, searchValue)
+  const startsWithMatch = trimmed.match(/^startsWith\(([\s\S]+)\)$/);
+  if (startsWithMatch) {
+    const args = splitFunctionArgs(startsWithMatch[1]);
+    if (args.length >= 2) {
+      const str = evaluateExprValue(
+        args[0],
+        repoPath,
+        secrets,
+        matrixContext,
+        needsContext,
+        inputsContext,
+      );
+      const prefix = evaluateExprValue(
+        args[1],
+        repoPath,
+        secrets,
+        matrixContext,
+        needsContext,
+        inputsContext,
+      );
+      return str.toLowerCase().startsWith(prefix.toLowerCase()) ? "true" : "false";
+    }
+    return "false";
+  }
+
+  // endsWith(searchString, searchValue)
+  const endsWithMatch = trimmed.match(/^endsWith\(([\s\S]+)\)$/);
+  if (endsWithMatch) {
+    const args = splitFunctionArgs(endsWithMatch[1]);
+    if (args.length >= 2) {
+      const str = evaluateExprValue(
+        args[0],
+        repoPath,
+        secrets,
+        matrixContext,
+        needsContext,
+        inputsContext,
+      );
+      const suffix = evaluateExprValue(
+        args[1],
+        repoPath,
+        secrets,
+        matrixContext,
+        needsContext,
+        inputsContext,
+      );
+      return str.toLowerCase().endsWith(suffix.toLowerCase()) ? "true" : "false";
+    }
+    return "false";
+  }
+
+  // join(array, separator) or join(string, separator)
+  const joinMatch = trimmed.match(/^join\(([\s\S]+)\)$/);
+  if (joinMatch) {
+    const args = splitFunctionArgs(joinMatch[1]);
+    const val = evaluateExprValue(
+      args[0],
+      repoPath,
+      secrets,
+      matrixContext,
+      needsContext,
+      inputsContext,
+    );
+    const sep =
+      args.length >= 2
+        ? evaluateExprValue(args[1], repoPath, secrets, matrixContext, needsContext, inputsContext)
+        : ", ";
+    try {
+      const arr = JSON.parse(val);
+      if (Array.isArray(arr)) {
+        return arr.map(String).join(sep);
+      }
+    } catch {
+      // Not an array — return as-is
+    }
+    return val;
+  }
+
+  // Status functions — in expression context these return their string name
+  if (trimmed === "success()") {
+    return "true";
+  }
+  if (trimmed === "failure()") {
+    return "false";
+  }
+  if (trimmed === "always()") {
+    return "true";
+  }
+  if (trimmed === "cancelled()") {
+    return "false";
   }
 
   // Context variable substitutions
@@ -338,6 +539,32 @@ function evaluateExprValue(
     return lastVal;
   }
 
+  // Handle comparison operators (==, !=, <=, >=, <, >)
+  // Check longer operators first to avoid matching <= as < then =
+  for (const op of ["!=", "==", "<=", ">=", "<", ">"]) {
+    const cmpParts = splitOnOperator(trimmed, op);
+    if (cmpParts.length === 2) {
+      const left = evaluateExprValue(
+        cmpParts[0].trim(),
+        repoPath,
+        secrets,
+        matrixContext,
+        needsContext,
+        inputsContext,
+      );
+      const right = evaluateExprValue(
+        cmpParts[1].trim(),
+        repoPath,
+        secrets,
+        matrixContext,
+        needsContext,
+        inputsContext,
+      );
+      const result = compareValues(left, right, op);
+      return result ? "true" : "false";
+    }
+  }
+
   // Handle ! prefix (negation)
   if (trimmed.startsWith("!")) {
     const inner = evaluateExprValue(
@@ -357,6 +584,22 @@ function evaluateExprValue(
     (trimmed.startsWith('"') && trimmed.endsWith('"'))
   ) {
     return trimmed.slice(1, -1);
+  }
+
+  // Boolean / null literals
+  if (trimmed === "true") {
+    return "true";
+  }
+  if (trimmed === "false") {
+    return "false";
+  }
+  if (trimmed === "null") {
+    return "";
+  }
+
+  // Numeric literal
+  if (/^-?\d+(\.\d+)?$/.test(trimmed)) {
+    return trimmed;
   }
 
   // Atom: function call or context variable

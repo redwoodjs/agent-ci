@@ -123,12 +123,23 @@ describe("Stale workspace pruning", () => {
 describe("killOrphanedContainers", () => {
   const execSyncMock = vi.fn();
   const killSpy = vi.spyOn(process, "kill");
+  const existsSyncMock = vi.fn();
 
   beforeEach(() => {
     vi.resetModules();
     vi.doMock("node:child_process", () => ({
       execSync: execSyncMock,
     }));
+    // Mock fs so /.dockerenv check doesn't skip the function inside containers
+    vi.doMock("node:fs", async () => {
+      const actual = await vi.importActual<typeof import("node:fs")>("node:fs");
+      return {
+        ...actual,
+        default: { ...actual, existsSync: existsSyncMock },
+        existsSync: existsSyncMock,
+      };
+    });
+    existsSyncMock.mockReturnValue(false);
     execSyncMock.mockReset();
     killSpy.mockReset();
   });

@@ -1,5 +1,13 @@
 # @redwoodjs/agent-ci
 
+## 0.10.6
+
+### Patch Changes
+
+- 64d654d: Auto-pull runner image on first run with visible progress output. Previously, first-time users saw a frozen spinner or a confusing "No such image" error because the pull happened silently and failures were only debug-logged.
+- Updated dependencies [64d654d]
+  - dtu-github-actions@0.10.6
+
 ## 0.10.5
 
 ### Patch Changes

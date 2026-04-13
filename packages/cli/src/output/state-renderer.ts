@@ -118,13 +118,19 @@ function buildStepNode(step: StepState, job: JobState, padW: number): TreeNode {
  *   matching the pre-refactor single-workflow rendering.
  */
 function buildJobNodes(job: JobState, singleJobMode: boolean): TreeNode[] {
+  const degradedTag = job.classification === "degraded" ? " [degraded]" : "";
+  const degradedNode =
+    job.classification === "degraded" && job.classificationSummary
+      ? [{ label: `${YELLOW}${job.classificationSummary}${RESET}` }]
+      : [];
+
   // ── Booting (container starting, no timeline yet) ──────────────────────────
   if (job.status === "booting") {
     const elapsed = job.startedAt
       ? Math.round((Date.now() - new Date(job.startedAt).getTime()) / 1000)
       : 0;
     const bootNode: TreeNode = {
-      label: `${getSpinnerFrame()} Starting runner ${job.runnerId} (${elapsed}s)`,
+      label: `${getSpinnerFrame()} Starting runner ${job.runnerId}${degradedTag} (${elapsed}s)`,
     };
     const children: TreeNode[] = [];
     if (job.pullProgress) {
@@ -139,6 +145,9 @@ function buildJobNodes(job: JobState, singleJobMode: boolean): TreeNode[] {
       const shortLogDir = job.logDir.replace(/^.*?(agent-ci\/)/, "$1");
       children.push({ label: `${DIM}Logs: ${shortLogDir}${RESET}` });
     }
+    if (degradedNode.length > 0) {
+      children.push(...degradedNode);
+    }
     if (children.length > 0) {
       bootNode.children = children;
     }
@@ -147,15 +156,14 @@ function buildJobNodes(job: JobState, singleJobMode: boolean): TreeNode[] {
 
   // ── Completed / failed in multi-job mode → collapse to one line ────────────
   if (!singleJobMode && (job.status === "completed" || job.status === "failed")) {
+    const icon = job.failedStep ? `${RED}✗${RESET}` : "✓";
     const dur = job.durationMs !== undefined ? ` (${Math.round(job.durationMs / 1000)}s)` : "";
-    if (job.failedStep) {
-      return [
-        {
-          label: `${RED}✗ ${job.id}${RESET} ${DIM}${job.runnerId}${RESET}${dur}`,
-        },
-      ];
-    }
-    return [{ label: `✓ ${job.id} ${DIM}${job.runnerId}${RESET}${dur}` }];
+    return [
+      {
+        label: `${icon} ${job.id}${degradedTag} ${DIM}${job.runnerId}${RESET}${dur}`,
+        children: degradedNode,
+      },
+    ];
   }
 
   // ── Build step nodes ───────────────────────────────────────────────────────
@@ -179,11 +187,19 @@ function buildJobNodes(job: JobState, singleJobMode: boolean): TreeNode[] {
     if (job.logDir) {
       bootNode.children = [{ label: `${DIM}Logs: ${job.logDir}${RESET}` }];
     }
-    return [bootNode, { label: job.id, children: stepNodes }];
+    return [
+      bootNode,
+      { label: `${job.id}${degradedTag}`, children: [...degradedNode, ...stepNodes] },
+    ];
   }
 
   // ── Multi-job mode: show job name with steps as children ──────────────────
-  return [{ label: `${job.id} ${DIM}${job.runnerId}${RESET}`, children: stepNodes }];
+  return [
+    {
+      label: `${job.id}${degradedTag} ${DIM}${job.runnerId}${RESET}`,
+      children: [...degradedNode, ...stepNodes],
+    },
+  ];
 }
 
 // ─── Running step hint (multi-workflow mode) ─────────────────────────────────

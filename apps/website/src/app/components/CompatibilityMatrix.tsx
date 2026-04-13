@@ -81,7 +81,8 @@ const SECTIONS: { label: string; description: string; rows: Row[] }[] = [
       {
         key: "jobs.<id>.runs-on",
         status: "🟡",
-        notes: "Accepted; always runs in a Linux container",
+        notes:
+          "Accepted; always runs in a Linux container. Larger-runner labels (for example, ubuntu-latest-8-cores) may trigger degraded-resource warnings",
       },
       { key: "jobs.<id>.environment", status: "🟡", notes: "Accepted, not enforced" },
       { key: "jobs.<id>.env", status: "✅" },

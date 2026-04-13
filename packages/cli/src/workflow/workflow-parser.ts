@@ -637,6 +637,63 @@ export function expandExpressions(
   });
 }
 
+function toStringRecord(value: unknown): Record<string, string> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return {};
+  }
+
+  return Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, String(entry)]));
+}
+
+export function parseJobRunsOnLabels(filePath: string, jobId: string): string[] {
+  try {
+    const rawYaml = parseYaml(fs.readFileSync(filePath, "utf8"));
+    const rawRunsOn = rawYaml?.jobs?.[jobId]?.["runs-on"];
+
+    if (typeof rawRunsOn === "string") {
+      return [rawRunsOn];
+    }
+
+    if (Array.isArray(rawRunsOn)) {
+      return rawRunsOn.map(String);
+    }
+
+    if (rawRunsOn == null) {
+      return [];
+    }
+
+    return [String(rawRunsOn)];
+  } catch {
+    return [];
+  }
+}
+
+export function parseMergedJobEnv(
+  filePath: string,
+  jobId: string,
+  matrixContext?: Record<string, string>,
+): Record<string, string> {
+  try {
+    const rawYaml = parseYaml(fs.readFileSync(filePath, "utf8"));
+    const workflowEnv = toStringRecord(rawYaml?.env);
+    const jobEnv = toStringRecord(rawYaml?.jobs?.[jobId]?.env);
+    const merged = { ...workflowEnv, ...jobEnv };
+
+    if (!matrixContext) {
+      return merged;
+    }
+
+    return Object.fromEntries(
+      Object.entries(merged).map(([key, value]) => [
+        key,
+        expandExpressions(value, undefined, undefined, matrixContext),
+      ]),
+    );
+  } catch {
+    return {};
+  }
+}
+
 /**
  * Simple recursive file finder using minimatch patterns.
  * Searches under rootDir for files matching pattern.
@@ -1081,6 +1138,21 @@ export function getChangedFiles(repoRoot: string): string[] {
   }
 }
 
+type WorkflowEventFilters = {
+  branches?: string[];
+  "branches-ignore"?: string[];
+  paths?: string[];
+  "paths-ignore"?: string[];
+};
+
+interface WorkflowTemplateLike {
+  events?: {
+    pull_request?: WorkflowEventFilters;
+    push?: WorkflowEventFilters;
+    [key: string]: WorkflowEventFilters | undefined;
+  };
+}
+
 /**
  * Check whether the changed files pass the paths / paths-ignore filter for an
  * event definition. Returns true (relevant) when:
@@ -1089,7 +1161,7 @@ export function getChangedFiles(repoRoot: string): string[] {
  *  - At least one changed file matches a `paths` pattern.
  *  - At least one changed file is NOT matched by all `paths-ignore` patterns.
  */
-function matchesPaths(eventDef: Record<string, any>, changedFiles?: string[]): boolean {
+function matchesPaths(eventDef: WorkflowEventFilters, changedFiles?: string[]): boolean {
   if (!changedFiles || changedFiles.length === 0) {
     return true; // No file info → always relevant
   }
@@ -1114,7 +1186,11 @@ function matchesPaths(eventDef: Record<string, any>, changedFiles?: string[]): b
   return true;
 }
 
-export function isWorkflowRelevant(template: any, branch: string, changedFiles?: string[]) {
+export function isWorkflowRelevant(
+  template: WorkflowTemplateLike,
+  branch: string,
+  changedFiles?: string[],
+) {
   const events = template.events;
   if (!events) {
     return false;

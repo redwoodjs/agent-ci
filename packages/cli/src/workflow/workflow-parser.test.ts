@@ -2,7 +2,11 @@ import { describe, it, expect, afterEach } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { parseWorkflowServices } from "./workflow-parser.js";
+import {
+  parseJobRunsOnLabels,
+  parseMergedJobEnv,
+  parseWorkflowServices,
+} from "./workflow-parser.js";
 
 // ─── Fixtures ─────────────────────────────────────────────────────────────────
 
@@ -56,6 +60,29 @@ jobs:
         image: postgres:16
         env:
           POSTGRES_PASSWORD: secret
+    steps:
+      - run: echo hi
+`.trimStart();
+
+const WORKFLOW_WITH_HINTS = `
+name: Resource Hints
+on: [push]
+env:
+  SHARED: workflow
+  NUMERIC: 42
+  ENABLED: true
+jobs:
+  string-runs-on:
+    runs-on: ubuntu-latest
+    env:
+      SHARED: job
+      JOB_ONLY: yes
+  array-runs-on:
+    runs-on: [ubuntu-latest, ubuntu-latest-8-cores]
+    env:
+      NODE_OPTIONS: --max-old-space-size=\${{ matrix.heap }}
+      HEAP: \${{ matrix.heap }}
+      FLAG: false
     steps:
       - run: echo hi
 `.trimStart();
@@ -165,6 +192,72 @@ jobs:
     expect(db.env!.PORT).toBe("3306");
     expect(db.env!.SKIP_TZINFO).toBe("1");
     expect(db.env!.DEBUG).toBe("true");
+  });
+});
+
+describe("workflow resource hint accessors", () => {
+  let tmpDir: string;
+
+  afterEach(() => {
+    if (tmpDir) {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  function writeWorkflow(content: string): string {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "oa-hint-test-"));
+    const filePath = path.join(tmpDir, "workflow.yml");
+    fs.writeFileSync(filePath, content);
+    return filePath;
+  }
+
+  it("parses string runs-on labels", async () => {
+    const filePath = writeWorkflow(WORKFLOW_WITH_HINTS);
+
+    expect(await parseJobRunsOnLabels(filePath, "string-runs-on")).toEqual(["ubuntu-latest"]);
+  });
+
+  it("parses array runs-on labels", async () => {
+    const filePath = writeWorkflow(WORKFLOW_WITH_HINTS);
+
+    expect(await parseJobRunsOnLabels(filePath, "array-runs-on")).toEqual([
+      "ubuntu-latest",
+      "ubuntu-latest-8-cores",
+    ]);
+  });
+
+  it("merges workflow and job env with job precedence", async () => {
+    const filePath = writeWorkflow(WORKFLOW_WITH_HINTS);
+
+    expect(await parseMergedJobEnv(filePath, "string-runs-on")).toEqual({
+      SHARED: "job",
+      NUMERIC: "42",
+      ENABLED: "true",
+      JOB_ONLY: "yes",
+    });
+  });
+
+  it("coerces numeric and boolean env values to strings", async () => {
+    const filePath = writeWorkflow(WORKFLOW_WITH_HINTS);
+
+    expect(await parseMergedJobEnv(filePath, "string-runs-on")).toMatchObject({
+      NUMERIC: "42",
+      ENABLED: "true",
+      JOB_ONLY: "yes",
+    });
+  });
+
+  it("expands matrix expressions in merged env values", async () => {
+    const filePath = writeWorkflow(WORKFLOW_WITH_HINTS);
+
+    expect(await parseMergedJobEnv(filePath, "array-runs-on", { heap: "16192" })).toEqual({
+      SHARED: "workflow",
+      NUMERIC: "42",
+      ENABLED: "true",
+      NODE_OPTIONS: "--max-old-space-size=16192",
+      HEAP: "16192",
+      FLAG: "false",
+    });
   });
 });
 

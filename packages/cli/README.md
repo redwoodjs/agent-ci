@@ -36,6 +36,16 @@ Agent CI connects to Docker via the `DOCKER_HOST` environment variable. By defau
 DOCKER_HOST=ssh://user@remote-server npx @redwoodjs/agent-ci run --workflow .github/workflows/ci.yml
 ```
 
+### Resource fidelity warnings
+
+Agent CI compares your local host resources against explicit resource hints in your workflow. When your machine is smaller than what the workflow requests (for example, `runs-on: ubuntu-latest-8-cores` or `NODE_OPTIONS: "--max-old-space-size=16192"`), the job is marked as **degraded** and a warning is shown before execution starts.
+
+Degraded jobs still run to completion. The warning exists to let you know the local environment may not match the intended GitHub-hosted runner capacity. For a closer match, use a larger local machine or connect to a remote Docker daemon with more resources:
+
+```bash
+DOCKER_HOST=ssh://user@large-remote-server npx agent-ci run --workflow .github/workflows/ci.yml
+```
+
 ### Docker host resolution for job containers
 
 By default, Agent CI uses `host.docker.internal` for container-to-host DTU traffic and adds a default Docker host mapping:

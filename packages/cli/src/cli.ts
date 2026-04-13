@@ -22,6 +22,8 @@ import {
   parseWorkflowSteps,
   parseWorkflowServices,
   parseWorkflowContainer,
+  parseJobRunsOnLabels,
+  parseMergedJobEnv,
   validateSecrets,
   extractSecretRefs,
   parseMatrixDef,
@@ -57,6 +59,16 @@ import { isAgentMode, setQuietMode } from "./output/agent-mode.js";
 import { createDiffRenderer } from "./output/diff-renderer.js";
 import { createFailedJobResult, wrapJobError, isJobError } from "./runner/job-result.js";
 import { postCommitStatus } from "./commit-status.js";
+import {
+  classifyJobResources,
+  collectJobResourceHints,
+  getHostResources,
+  type ResourceFidelity,
+} from "./workflow/resource-classifier.js";
+
+function writeStdoutLine(message = ""): void {
+  process.stdout.write(`${message}\n`);
+}
 
 function findSignalsDir(runnerName: string): string | null {
   const workDir = getWorkingDirectory();
@@ -195,7 +207,7 @@ async function run() {
       }
 
       if (relevant.length === 0) {
-        console.log(`[Agent CI] No relevant workflows found for branch '${branch}'.`);
+        writeStdoutLine(`[Agent CI] No relevant workflows found for branch '${branch}'.`);
         process.exit(0);
       }
 
@@ -219,7 +231,7 @@ async function run() {
 
     if (!workflow) {
       console.error("[Agent CI] Error: You must specify --workflow <path> or --all");
-      console.log("");
+      writeStdoutLine();
       printUsage();
       process.exit(1);
     }
@@ -317,7 +329,7 @@ async function run() {
     }
     fs.writeFileSync(path.join(signalsDir, command), "");
     const extra = fromStep ? ` (from step ${fromStep === "*" ? "1" : fromStep})` : "";
-    console.log(`[Agent CI] Sent '${command}' signal to ${runnerName}${extra}`);
+    writeStdoutLine(`[Agent CI] Sent '${command}' signal to ${runnerName}${extra}`);
     process.exit(0);
   } else {
     printUsage();
@@ -397,10 +409,19 @@ async function runWorkflows(options: {
   if (isAgentMode()) {
     const reportedPauses = new Set<string>();
     const reportedSteps = new Map<string, Set<string>>();
+    const reportedRunners = new Set<string>();
     const emit = (msg: string) => process.stderr.write(msg + "\n");
     store.onUpdate((state) => {
       for (const wf of state.workflows) {
         for (const job of wf.jobs) {
+          if (job.status !== "queued" && !reportedRunners.has(job.runnerId)) {
+            reportedRunners.add(job.runnerId);
+            const degradedTag = job.classification === "degraded" ? " [degraded]" : "";
+            emit(`[Agent CI] Starting runner ${job.runnerId}${degradedTag} (${wf.id} > ${job.id})`);
+            if (job.logDir) {
+              emit(`  Logs: ${job.logDir}`);
+            }
+          }
           if (!reportedSteps.has(job.runnerId)) {
             reportedSteps.set(job.runnerId, new Set());
           }
@@ -671,6 +692,24 @@ async function handleWorkflow(options: {
     inputDefaults?: Record<string, string>;
     workflowCallOutputDefs?: Record<string, string>;
     callerJobId?: string;
+    runnerName: string;
+    services?: Awaited<ReturnType<typeof parseWorkflowServices>>;
+    container?: Awaited<ReturnType<typeof parseWorkflowContainer>>;
+    classification?: ResourceFidelity;
+    classificationSummary?: string;
+    classificationReasons?: string[];
+  };
+
+  const baseRunNum = options.baseRunNum ?? getNextLogNum("agent-ci");
+  let globalIdx = 0;
+  const nextRunnerName = (matrixContext?: Record<string, string>): string => {
+    const idx = globalIdx++;
+    let suffix = `-j${idx + 1}`;
+    if (matrixContext) {
+      const shardIdx = parseInt(matrixContext.__job_index ?? "0", 10) + 1;
+      suffix += `-m${shardIdx}`;
+    }
+    return `agent-ci-${baseRunNum}${suffix}`;
   };
 
   const expandedJobs: ExpandedJob[] = [];
@@ -687,6 +726,11 @@ async function handleWorkflow(options: {
           workflowPath: entry.workflowPath,
           taskName: entry.id,
           sourceTaskName: entry.sourceTaskName,
+          runnerName: nextRunnerName(
+            noMatrix
+              ? combos[ci]
+              : { ...combos[ci], __job_total: String(total), __job_index: String(ci) },
+          ),
           matrixContext: noMatrix
             ? combos[ci]
             : {
@@ -705,6 +749,7 @@ async function handleWorkflow(options: {
         workflowPath: entry.workflowPath,
         taskName: entry.id,
         sourceTaskName: entry.sourceTaskName,
+        runnerName: nextRunnerName(),
         inputs: entry.inputs,
         inputDefaults: entry.inputDefaults,
         workflowCallOutputDefs: entry.workflowCallOutputDefs,
@@ -737,6 +782,52 @@ async function handleWorkflow(options: {
   }
 
   // For single-job workflows, run directly without extra orchestration
+  const limiter = options.globalLimiter;
+  const hostResources = getHostResources();
+  for (const job of expandedJobs) {
+    const labels = parseJobRunsOnLabels(workflowPath, job.taskName);
+    const env = parseMergedJobEnv(workflowPath, job.taskName, job.matrixContext);
+    const matrixDef = await parseMatrixDef(workflowPath, job.taskName);
+    const services = await parseWorkflowServices(workflowPath, job.taskName);
+    const container = await parseWorkflowContainer(workflowPath, job.taskName);
+    const hints = collectJobResourceHints({
+      labels,
+      env,
+      matrixJobTotal:
+        matrixDef && job.matrixContext
+          ? Number.parseInt(job.matrixContext.__job_total ?? "1", 10)
+          : 1,
+      matrixJobIndex:
+        matrixDef && job.matrixContext
+          ? Number.parseInt(job.matrixContext.__job_index ?? "0", 10)
+          : 0,
+      hasServices: services.length > 0,
+      hasContainer: container !== null,
+    });
+    const classification = classifyJobResources(hints, hostResources);
+
+    job.services = services;
+    job.container = container;
+    job.classification = classification.fidelity;
+    job.classificationSummary =
+      classification.fidelity === "degraded"
+        ? `${classification.summary}. ${classification.action}`
+        : classification.summary;
+    job.classificationReasons = classification.reasons;
+  }
+
+  const degradedWarnings = new Set<string>();
+  const warnDegradedJob = (job: ExpandedJob): void => {
+    if (job.classification !== "degraded" || degradedWarnings.has(job.runnerName)) {
+      return;
+    }
+
+    degradedWarnings.add(job.runnerName);
+    console.warn(
+      `[Agent CI] Running ${path.basename(workflowPath)}:${job.taskName} in degraded mode: ${job.classificationSummary}`,
+    );
+  };
+
   if (expandedJobs.length === 1) {
     const ej = expandedJobs[0];
     const actualTaskName = ej.sourceTaskName ?? ej.taskName;
@@ -770,8 +861,13 @@ async function handleWorkflow(options: {
       undefined,
       inputsContext,
     );
-    const services = await parseWorkflowServices(ej.workflowPath, actualTaskName);
-    const container = await parseWorkflowContainer(ej.workflowPath, actualTaskName);
+
+    store.addJob(ej.workflowPath, actualTaskName, ej.runnerName, {
+      classification: ej.classification,
+      classificationSummary: ej.classificationSummary,
+      classificationReasons: ej.classificationReasons,
+    });
+    warnDegradedJob(ej);
 
     const job: Job = {
       deliveryId: `run-${Date.now()}`,
@@ -791,22 +887,18 @@ async function handleWorkflow(options: {
         owner: { login: owner },
         default_branch: "main",
       },
+      runnerName: ej.runnerName,
       steps,
-      services,
-      container: container ?? undefined,
+      services: ej.services,
+      container: ej.container ?? undefined,
       workflowPath: ej.workflowPath,
       parentWorkflowPath: ej.callerJobId ? workflowPath : undefined,
       taskId: ej.taskName,
     };
 
-    const result = await options.globalLimiter.run(() =>
-      executeLocalJob(job, { pauseOnFailure, store }),
-    );
+    const result = await limiter.run(() => executeLocalJob(job, { pauseOnFailure, store }));
     return [result];
   }
-
-  // ── Multi-job orchestration ────────────────────────────────────────────────
-  const limiter = options.globalLimiter;
 
   // ── Warm-cache check ───────────────────────────────────────────────────────
   const repoSlug = githubRepo.replace("/", "-");
@@ -822,9 +914,6 @@ async function handleWorkflow(options: {
     lockfileHash,
   );
   let warm = isWarmNodeModules(warmModulesDir);
-
-  // Naming convention: agent-ci-<N>[-j<idx>][-m<shardIdx>]
-  const baseRunNum = options.baseRunNum ?? getNextLogNum("agent-ci");
 
   const buildJob = (ej: ExpandedJob): Job => {
     const actualTaskName = ej.sourceTaskName ?? ej.taskName;
@@ -1201,47 +1290,62 @@ async function handleWorkflow(options: {
 // ─── Utilities ────────────────────────────────────────────────────────────────
 
 function printUsage() {
-  console.log("Usage: agent-ci <command> [args]");
-  console.log("");
-  console.log("Commands:");
-  console.log("  run [sha] --workflow <path>   Run all jobs in a workflow file (defaults to HEAD)");
-  console.log(
+  writeStdoutLine("Usage: agent-ci <command> [args]");
+  writeStdoutLine();
+  writeStdoutLine("Commands:");
+  writeStdoutLine(
+    "  run [sha] --workflow <path>   Run all jobs in a workflow file (defaults to HEAD)",
+  );
+  writeStdoutLine(
     "  run --all                     Run all relevant PR/Push workflows for current branch",
   );
-  console.log("  retry --name <name>           Send retry signal to a paused runner");
-  console.log("    --from-step <N>              Re-run from step N (skips earlier steps)");
-  console.log("    --from-start                 Re-run all run: steps from the beginning");
-  console.log("  abort --name <name>           Send abort signal to a paused runner");
-  console.log("");
-  console.log("Options:");
-  console.log("  -w, --workflow <path>         Path to the workflow file");
-  console.log("  -a, --all                     Discover and run all relevant workflows");
-  console.log(
+  writeStdoutLine("  retry --name <name>           Send retry signal to a paused runner");
+  writeStdoutLine("    --from-step <N>              Re-run from step N (skips earlier steps)");
+  writeStdoutLine("    --from-start                 Re-run all run: steps from the beginning");
+  writeStdoutLine("  abort --name <name>           Send abort signal to a paused runner");
+  writeStdoutLine();
+  writeStdoutLine("Options:");
+  writeStdoutLine("  -w, --workflow <path>         Path to the workflow file");
+  writeStdoutLine("  -a, --all                     Discover and run all relevant workflows");
+  writeStdoutLine(
     "  -j, --jobs <n>                Max concurrent containers (auto-detected from CPU/memory)",
   );
-  console.log("  -p, --pause-on-failure         Pause on step failure for interactive debugging");
-  console.log(
+  writeStdoutLine(
+    "  -p, --pause-on-failure         Pause on step failure for interactive debugging",
+  );
+  writeStdoutLine("  retry --name <name>           Send retry signal to a paused runner");
+  writeStdoutLine("    --from-step <N>              Re-run from step N (skips earlier steps)");
+  writeStdoutLine("    --from-start                 Re-run all run: steps from the beginning");
+  writeStdoutLine("  abort --name <name>           Send abort signal to a paused runner");
+  writeStdoutLine();
+  writeStdoutLine("Options:");
+  writeStdoutLine("  -w, --workflow <path>         Path to the workflow file");
+  writeStdoutLine("  -a, --all                     Discover and run all relevant workflows");
+  writeStdoutLine(
+    "  -p, --pause-on-failure         Pause on step failure for interactive debugging",
+  );
+  writeStdoutLine(
     "  -q, --quiet                   Suppress animated rendering (also enabled by AI_AGENT=1)",
   );
-  console.log(
+  writeStdoutLine(
     "      --no-matrix               Collapse all matrix combinations into a single job (uses first value of each key)",
   );
-  console.log(
+  writeStdoutLine(
     "      --github-token [<token>]  GitHub token for fetching remote reusable workflows",
   );
-  console.log(
+  writeStdoutLine(
     "                                (auto-resolves via `gh auth token` if no value given)",
   );
-  console.log("                                Or set: AGENT_CI_GITHUB_TOKEN env var");
-  console.log(
+  writeStdoutLine("                                Or set: AGENT_CI_GITHUB_TOKEN env var");
+  writeStdoutLine(
     "      --commit-status           Post a GitHub commit status after the run (requires --github-token)",
   );
-  console.log("");
-  console.log("Secrets:");
-  console.log("  Workflow secrets (${{ secrets.FOO }}) are resolved from:");
-  console.log("    1. .env.agent-ci file in the repo root");
-  console.log("    2. Environment variables (shell env acts as fallback)");
-  console.log("    3. --github-token automatically provides secrets.GITHUB_TOKEN");
+  writeStdoutLine();
+  writeStdoutLine("Secrets:");
+  writeStdoutLine("  Workflow secrets (${{ secrets.FOO }}) are resolved from:");
+  writeStdoutLine("    1. .env.agent-ci file in the repo root");
+  writeStdoutLine("    2. Environment variables (shell env acts as fallback)");
+  writeStdoutLine("    3. --github-token automatically provides secrets.GITHUB_TOKEN");
 }
 
 function resolveRepoRoot() {

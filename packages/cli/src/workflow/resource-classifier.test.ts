@@ -3,7 +3,7 @@ import {
   collectJobResourceHints,
   classifyJobResources,
   type HostResources,
-  parseNodeMaxOldSpaceMb,
+  parseRunnerSpecs,
   parseRequestedCpuCount,
 } from "./resource-classifier.js";
 
@@ -21,23 +21,24 @@ describe("parseRequestedCpuCount", () => {
   });
 });
 
-describe("parseNodeMaxOldSpaceMb", () => {
-  it("uses the last max-old-space-size flag", () => {
-    expect(
-      parseNodeMaxOldSpaceMb({
-        NODE_OPTIONS: "--max-old-space-size=4096 --no-warnings --max-old-space-size=8192",
-      }),
-    ).toBe(8192);
+describe("parseRunnerSpecs", () => {
+  it("maps ubuntu-latest to the standard GitHub runner spec", () => {
+    expect(parseRunnerSpecs(["ubuntu-latest"])).toEqual({ cpu: 2, memoryMb: 7168 });
   });
 
-  it("ignores unrelated NODE_OPTIONS flags", () => {
-    expect(
-      parseNodeMaxOldSpaceMb({ NODE_OPTIONS: "--no-network-family-autoselection" }),
-    ).toBeUndefined();
+  it("maps larger hosted runners to their full specs", () => {
+    expect(parseRunnerSpecs(["ubuntu-latest-16-cores"])).toEqual({ cpu: 16, memoryMb: 65536 });
   });
 
-  it("returns undefined when NODE_OPTIONS is missing", () => {
-    expect(parseNodeMaxOldSpaceMb({})).toBeUndefined();
+  it("prefers the last known runner label", () => {
+    expect(parseRunnerSpecs(["ubuntu-latest", "ubuntu-latest-8-cores"])).toEqual({
+      cpu: 8,
+      memoryMb: 32768,
+    });
+  });
+
+  it("returns undefined for custom runners", () => {
+    expect(parseRunnerSpecs(["self-hosted", "linux", "x64", "custom-12-cores"])).toBeUndefined();
   });
 });
 
@@ -46,7 +47,6 @@ describe("collectJobResourceHints", () => {
     expect(
       collectJobResourceHints({
         labels: ["ubuntu-latest-8-cores", "linux"],
-        env: { NODE_OPTIONS: "--max-old-space-size=16384" },
         matrixJobTotal: 4,
         matrixJobIndex: 2,
         hasServices: true,
@@ -55,7 +55,7 @@ describe("collectJobResourceHints", () => {
     ).toEqual({
       labels: ["ubuntu-latest-8-cores", "linux"],
       requestedCpuCount: 8,
-      requestedNodeHeapMb: 16384,
+      requestedNodeHeapMb: 32768,
       matrixJobTotal: 4,
       matrixJobIndex: 2,
       hasServices: true,
@@ -67,11 +67,26 @@ describe("collectJobResourceHints", () => {
     expect(
       collectJobResourceHints({
         labels: ["ubuntu-latest"],
-        env: {},
       }),
     ).toEqual({
       labels: ["ubuntu-latest"],
-      requestedCpuCount: undefined,
+      requestedCpuCount: 2,
+      requestedNodeHeapMb: 7168,
+      matrixJobTotal: 1,
+      matrixJobIndex: 0,
+      hasServices: false,
+      hasContainer: false,
+    });
+  });
+
+  it("falls back to CPU parsing for unknown custom runners", () => {
+    expect(
+      collectJobResourceHints({
+        labels: ["self-hosted", "linux", "x64", "custom-12-cores"],
+      }),
+    ).toEqual({
+      labels: ["self-hosted", "linux", "x64", "custom-12-cores"],
+      requestedCpuCount: 12,
       requestedNodeHeapMb: undefined,
       matrixJobTotal: 1,
       matrixJobIndex: 0,
@@ -84,19 +99,18 @@ describe("collectJobResourceHints", () => {
 describe("classifyJobResources", () => {
   const sufficientHost: HostResources = {
     cpuCount: 12,
-    totalMemoryMb: 32768,
+    totalMemoryMb: 40960,
     dockerHost: "unix:///var/run/docker.sock",
   };
 
   const tightHost: HostResources = {
     cpuCount: 4,
-    totalMemoryMb: 16384,
+    totalMemoryMb: 40960,
     dockerHost: "unix:///var/run/docker.sock",
   };
 
   const requestedHints = collectJobResourceHints({
     labels: ["ubuntu-latest-8-cores"],
-    env: { NODE_OPTIONS: "--max-old-space-size=16192" },
   });
 
   it("returns faithful classification on a sufficient host", () => {
@@ -113,7 +127,6 @@ describe("classifyJobResources", () => {
       classifyJobResources(
         collectJobResourceHints({
           labels: ["ubuntu-latest-8-cores"],
-          env: {},
         }),
         tightHost,
       ),
@@ -131,11 +144,10 @@ describe("classifyJobResources", () => {
       classifyJobResources(
         collectJobResourceHints({
           labels: ["ubuntu-latest"],
-          env: { NODE_OPTIONS: "--max-old-space-size=16192" },
         }),
         {
           cpuCount: 12,
-          totalMemoryMb: 16000,
+          totalMemoryMb: 8000,
           dockerHost: "unix:///var/run/docker.sock",
         },
       ),
@@ -143,7 +155,7 @@ describe("classifyJobResources", () => {
       fidelity: "degraded",
       summary: "job resource hints exceed the available host capacity",
       reasons: [
-        "requestedNodeHeapMb (16192) plus 1024 MB safety margin exceeds host totalMemoryMb (16000)",
+        "requestedNodeHeapMb (7168) plus 1024 MB safety margin exceeds host totalMemoryMb (8000)",
       ],
       action:
         "Use a larger host or set DOCKER_HOST=ssh://<user>@<host> for a remote Docker daemon.",

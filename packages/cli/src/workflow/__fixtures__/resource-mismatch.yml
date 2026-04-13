@@ -6,8 +6,6 @@ on:
 jobs:
   smoke:
     runs-on: ubuntu-latest-999-cores
-    env:
-      NODE_OPTIONS: "--max-old-space-size=1048576"
     steps:
       - name: Trivial success step
         run: echo ok

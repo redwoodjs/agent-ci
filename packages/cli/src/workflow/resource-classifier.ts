@@ -27,6 +27,18 @@ export interface ResourceClassification {
 
 const MEMORY_SAFETY_MARGIN_MB = 1024;
 
+export interface RunnerSpec {
+  cpu: number;
+  memoryMb: number;
+}
+
+export const RUNNER_SPECS: Record<string, RunnerSpec> = {
+  "ubuntu-latest": { cpu: 2, memoryMb: 7168 },
+  "ubuntu-latest-4-cores": { cpu: 4, memoryMb: 16384 },
+  "ubuntu-latest-8-cores": { cpu: 8, memoryMb: 32768 },
+  "ubuntu-latest-16-cores": { cpu: 16, memoryMb: 65536 },
+};
+
 export function parseRequestedCpuCount(runsOnLabels: string[]): number | undefined {
   for (let index = runsOnLabels.length - 1; index >= 0; index -= 1) {
     const match = runsOnLabels[index].match(/-(\d+)-cores$/);
@@ -37,33 +49,30 @@ export function parseRequestedCpuCount(runsOnLabels: string[]): number | undefin
   return undefined;
 }
 
-export function parseNodeMaxOldSpaceMb(env: Record<string, string>): number | undefined {
-  const nodeOptions = env.NODE_OPTIONS;
-  if (!nodeOptions) {
-    return undefined;
+export function parseRunnerSpecs(runsOnLabels: string[]): RunnerSpec | undefined {
+  for (let index = runsOnLabels.length - 1; index >= 0; index -= 1) {
+    const spec = RUNNER_SPECS[runsOnLabels[index] ?? ""];
+    if (spec) {
+      return spec;
+    }
   }
 
-  const matches = [...nodeOptions.matchAll(/--max-old-space-size=(\d+)/g)];
-  if (matches.length === 0) {
-    return undefined;
-  }
-
-  const lastMatch = matches[matches.length - 1];
-  return Number.parseInt(lastMatch[1] ?? "", 10);
+  return undefined;
 }
 
 export function collectJobResourceHints(input: {
   labels: string[];
-  env: Record<string, string>;
   matrixJobTotal?: number;
   matrixJobIndex?: number;
   hasServices?: boolean;
   hasContainer?: boolean;
 }): JobResourceHints {
+  const runnerSpecs = parseRunnerSpecs(input.labels);
+
   return {
     labels: [...input.labels],
-    requestedCpuCount: parseRequestedCpuCount(input.labels),
-    requestedNodeHeapMb: parseNodeMaxOldSpaceMb(input.env),
+    requestedCpuCount: runnerSpecs?.cpu ?? parseRequestedCpuCount(input.labels),
+    requestedNodeHeapMb: runnerSpecs?.memoryMb,
     matrixJobTotal: input.matrixJobTotal ?? 1,
     matrixJobIndex: input.matrixJobIndex ?? 0,
     hasServices: input.hasServices ?? false,

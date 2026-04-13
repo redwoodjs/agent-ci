@@ -1086,6 +1086,51 @@ describe("expandExpressions with needsContext", () => {
   });
 });
 
+// ─── expandExpressions — boolean operators (issue #224) ──────────────────────
+
+describe("expandExpressions with boolean operators", () => {
+  it("evaluates the issue #224 expression correctly", () => {
+    // github.event.pull_request is "" (falsy locally), !falsy = true
+    // true && format(...) = format result = "host --steps=create --tag=main"
+    // "host --steps=create --tag=main" || 'plan' = "host --steps=create --tag=main"
+    const result = expandExpressions(
+      "dist ${{ (!github.event.pull_request && format('host --steps=create --tag={0}', github.ref_name)) || 'plan' }} --output-format=json",
+    );
+    expect(result).toBe("dist host --steps=create --tag=main --output-format=json");
+  });
+
+  it("evaluates || with truthy left side to left side value", () => {
+    const result = expandExpressions("${{ 'hello' || 'fallback' }}");
+    expect(result).toBe("hello");
+  });
+
+  it("evaluates && with truthy operands", () => {
+    const result = expandExpressions("${{ 'a' && 'b' }}");
+    expect(result).toBe("b");
+  });
+
+  it("evaluates && with falsy left side to empty", () => {
+    const result = expandExpressions("${{ '' && 'b' }}");
+    expect(result).toBe("");
+  });
+
+  it("evaluates ! operator on falsy value", () => {
+    // github.event.pull_request is empty (falsy), !falsy = true
+    const result = expandExpressions("${{ !github.event.pull_request }}");
+    expect(result).toBe("true");
+  });
+
+  it("evaluates ! operator on truthy value", () => {
+    const result = expandExpressions("${{ !github.actor }}");
+    expect(result).toBe("false");
+  });
+
+  it("evaluates nested parentheses with && and ||", () => {
+    const result = expandExpressions("${{ (github.event.pull_request && 'pr') || 'push' }}");
+    expect(result).toBe("push");
+  });
+});
+
 // ─── Job-level if conditions ──────────────────────────────────────────────────
 
 import { evaluateJobIf, parseJobIf } from "./workflow-parser.js";

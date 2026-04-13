@@ -1,5 +1,13 @@
 # @redwoodjs/agent-ci
 
+## 0.10.3
+
+### Patch Changes
+
+- ca4610f: Fix expression evaluation in workflow parser to support boolean operators (`&&`, `||`, `!`), `format()`, and `toJSON()`.
+- Updated dependencies [ca4610f]
+  - dtu-github-actions@0.10.3
+
 ## 0.10.2
 
 ### Patch Changes

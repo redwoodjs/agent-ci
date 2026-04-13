@@ -160,8 +160,7 @@ describe("detectMissingToolHint", () => {
     );
     expect(hint).not.toBeNull();
     expect(hint).toContain("cc");
-    expect(hint).toContain("build-essential");
-    expect(hint).toContain(".github/agent-ci.Dockerfile");
+    expect(hint).toContain("runner-image.md");
   });
 
   it("matches bare `cc: command not found`", () => {
@@ -175,9 +174,19 @@ describe("detectMissingToolHint", () => {
     expect(hint).toContain("make");
   });
 
-  it("matches pkg-config", () => {
-    const hint = detectMissingToolHint("pkg-config: command not found", defaultResolved);
-    expect(hint).toContain("pkg-config");
+  it("matches nix installer xz message", () => {
+    const hint = detectMissingToolHint(
+      "you do not have 'xz' installed, which I need to unpack the binary tarball",
+      defaultResolved,
+    );
+    expect(hint).not.toBeNull();
+    expect(hint).toContain("xz");
+  });
+
+  it("catches any unknown tool via generic 'command not found'", () => {
+    const hint = detectMissingToolHint("bash: cmake: command not found", defaultResolved);
+    expect(hint).not.toBeNull();
+    expect(hint).toContain("cmake");
   });
 
   it("returns null when the user is on a custom image (env var)", () => {

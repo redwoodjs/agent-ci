@@ -46,12 +46,12 @@ Here's what the agentic dev loop looks like in practice:
 1. You ask Claude Code to implement something (or fix something)
 2. Claude makes changes and runs:
    ```bash
-   npx agent-ci run --workflow .github/workflows/ci.yml
+   npx @redwoodjs/agent-ci run --workflow .github/workflows/ci.yml
    ```
 3. agent-ci executes the full local CI pipeline
 4. If it fails, the run pauses automatically. Claude reads the output, fixes the issue in place, and retries just the failed step:
    ```bash
-   npx agent-ci retry --name <runner-name>
+   npx @redwoodjs/agent-ci retry --name <runner-name>
    ```
 5. When everything is green, Claude commits and you push
 
@@ -68,13 +68,11 @@ The agentic dev loop tightens that to: run locally → fail → fix → run agai
 A fake local runner just gives agents a new way to confidently produce broken code. The loop works because agent-ci is real, and fast enough to run repeatedly without breaking the flow. Fidelity plus speed — that's what makes it viable.
 
 ```bash
-npm install -D @redwoodjs/agent-ci
-
 # Run a specific workflow
-npx agent-ci run --workflow .github/workflows/ci.yml
+npx @redwoodjs/agent-ci run --workflow .github/workflows/ci.yml
 
 # Run all workflows for the current branch
-npx agent-ci run --all
+npx @redwoodjs/agent-ci run --all
 ```
 
 The first run is slow while caches warm up. After that, it's the loop.

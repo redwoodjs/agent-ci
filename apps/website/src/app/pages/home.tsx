@@ -457,10 +457,10 @@ export const Home = () => {
             <div className="space-y-6 mb-16">
               <div>
                 <h4 className="font-mono text-sm text-[#71a792] uppercase tracking-wider mb-2">
-                  1. Install
+                  1. Run
                 </h4>
                 <Terminal
-                  code="npm install -D @redwoodjs/agent-ci"
+                  code={`# Run a specific workflow\nnpx @redwoodjs/agent-ci run --workflow .github/workflows/ci.yml\n\n# Run all relevant workflows for current branch\nnpx @redwoodjs/agent-ci run --all`}
                   language="bash"
                   title="Terminal"
                 />
@@ -468,21 +468,10 @@ export const Home = () => {
 
               <div>
                 <h4 className="font-mono text-sm text-[#71a792] uppercase tracking-wider mb-2">
-                  2. Run
+                  2. Retry
                 </h4>
                 <Terminal
-                  code={`# Run a specific workflow\nnpx agent-ci run --workflow .github/workflows/ci.yml\n\n# Run all relevant workflows for current branch\nnpx agent-ci run --all`}
-                  language="bash"
-                  title="Terminal"
-                />
-              </div>
-
-              <div>
-                <h4 className="font-mono text-sm text-[#71a792] uppercase tracking-wider mb-2">
-                  3. Retry
-                </h4>
-                <Terminal
-                  code="npx agent-ci retry --name <runner-name>"
+                  code="npx @redwoodjs/agent-ci retry --name <runner-name>"
                   language="bash"
                   title="Terminal"
                 />
@@ -532,7 +521,7 @@ export const Home = () => {
             <Terminal
               title="Agent Instructions"
               language="markdown"
-              code={`## CI\n\nIf this is a Node.js project, install Agent CI as a dev dependency\nusing the project's package manager (npm, pnpm, yarn, or bun):\n\n\`\`\`bash\n<package-manager> install -D @redwoodjs/agent-ci\n\`\`\`\n\nIf this is not a Node.js project, you can run Agent CI directly\nwith npx:\n\n\`\`\`bash\nnpx @redwoodjs/agent-ci\n\`\`\`\n\nInstall the agent skill:\n\n\`\`\`bash\nnpx skills add redwoodjs/agent-ci --skill agent-ci\n\`\`\`\n\nBefore completing any work, run the \`agent-ci\` skill to validate\nyour changes locally. If it fails, fix the issue and re-run.\nDo not report work as done until it passes.`}
+              code={`## CI\n\nInstall the agent-ci skill (one-time setup):\n\n\`\`\`bash\nnpx skills add redwoodjs/agent-ci --skill agent-ci\n\`\`\`\n\nBefore completing any work, run the \`agent-ci\` skill to validate\nyour changes locally. If it fails, fix the issue and re-run.\nDo not report work as done until it passes.`}
             />
 
             <p className="text-[#9bc5b3] mt-6 leading-relaxed">

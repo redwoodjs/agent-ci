@@ -1,5 +1,11 @@
 # dtu-github-actions
 
+## 0.10.5
+
+### Patch Changes
+
+- 2e2bd5e: fix: always show workflows and jobs in --all mode, fix duplicate matrix jobs
+
 ## 0.10.4
 
 ### Patch Changes

@@ -180,20 +180,6 @@ describe("detectMissingToolHint", () => {
     expect(hint).toContain("pkg-config");
   });
 
-  it("matches nix installer xz message", () => {
-    const hint = detectMissingToolHint(
-      "you do not have 'xz' installed, which I need to unpack the binary tarball",
-      defaultResolved,
-    );
-    expect(hint).not.toBeNull();
-    expect(hint).toContain("xz-utils");
-  });
-
-  it("matches bare `xz: command not found`", () => {
-    const hint = detectMissingToolHint("sh: xz: command not found", defaultResolved);
-    expect(hint).toContain("xz-utils");
-  });
-
   it("returns null when the user is on a custom image (env var)", () => {
     const resolved: ResolvedRunnerImage = {
       image: "my-org/custom:v1",
@@ -215,14 +201,6 @@ describe("detectMissingToolHint", () => {
     };
     const hint = detectMissingToolHint("error: linker `cc` not found", resolved);
     expect(hint).toBeNull();
-  });
-
-  it("catches any unknown tool via generic 'command not found'", () => {
-    const hint = detectMissingToolHint("bash: cmake: command not found", defaultResolved);
-    expect(hint).not.toBeNull();
-    expect(hint).toContain("cmake");
-    // unknown tool — suggests the tool name itself as the apt package
-    expect(hint).toContain("install -y --no-install-recommends cmake");
   });
 
   it("returns null for unrelated failures", () => {

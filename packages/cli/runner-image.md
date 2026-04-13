@@ -4,7 +4,7 @@ agent-ci runs each job inside a Docker container. By default that container is `
 
 This is very different from GitHub's hosted `ubuntu-latest` runner, which is a ~30GB VM image preloaded with hundreds of tools (see [`actions/runner-images`](https://github.com/actions/runner-images)). That VM is **not published as a container image** — there is nothing to pull — so agent-ci cannot use it directly.
 
-If a workflow that runs green on GitHub fails locally with `linker 'cc' not found`, `python: command not found`, `you do not have 'xz' installed`, or similar, this gap is why.
+If a workflow that runs green on GitHub fails locally with `linker 'cc' not found`, `python: command not found`, or similar, this gap is why.
 
 ## Adding tools: `.github/agent-ci.Dockerfile`
 
@@ -76,15 +76,6 @@ RUN sudo apt-get update \
 FROM ghcr.io/actions/actions-runner:latest
 RUN sudo apt-get update \
  && sudo apt-get install -y --no-install-recommends build-essential \
- && sudo rm -rf /var/lib/apt/lists/*
-```
-
-**Nix (`cachix/install-nix-action`, `DeterminateSystems/nix-installer-action`):**
-
-```dockerfile
-FROM ghcr.io/actions/actions-runner:latest
-RUN sudo apt-get update \
- && sudo apt-get install -y --no-install-recommends xz-utils \
  && sudo rm -rf /var/lib/apt/lists/*
 ```
 

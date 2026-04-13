@@ -191,25 +191,47 @@ function shellQuote(s: string): string {
 
 // ─── Error-hint heuristic ────────────────────────────────────────────────────
 
-/**
- * Known tool → apt-package mappings for cases where the package name differs
- * from the command name. If a tool isn't here, we suggest the tool name itself.
- */
-const TOOL_TO_APT: Record<string, string> = {
-  cc: "build-essential",
-  gcc: "build-essential",
-  "g++": "build-essential",
-  make: "build-essential",
-  cc1: "build-essential",
-  xz: "xz-utils",
-};
+interface MissingToolCase {
+  pattern: RegExp;
+  tool: string;
+  apt: string;
+}
 
-/** Generic "command not found" — captures the tool name. */
-const COMMAND_NOT_FOUND_RE =
-  /\b([\w.+-]+):\s*(?:command )?not found|linker [`'"]?([\w.+-]+)[`'"]? not found|you do not have '([\w.+-]+)' installed/i;
+const MISSING_TOOL_PATTERNS: MissingToolCase[] = [
+  {
+    pattern: /linker [`'"]?cc[`'"]? not found|\bcc:\s*(command )?not found|\bcc1?:\s*error/i,
+    tool: "cc",
+    apt: "build-essential",
+  },
+  {
+    pattern: /\bgcc:\s*(command )?not found/i,
+    tool: "gcc",
+    apt: "build-essential",
+  },
+  {
+    pattern: /\bg\+\+:\s*(command )?not found/i,
+    tool: "g++",
+    apt: "build-essential",
+  },
+  {
+    pattern: /\bmake:\s*(command )?not found/i,
+    tool: "make",
+    apt: "build-essential",
+  },
+  {
+    pattern: /\bpython3?:\s*(command )?not found/i,
+    tool: "python3",
+    apt: "python3",
+  },
+  {
+    pattern: /\bpkg-config:\s*(command )?not found/i,
+    tool: "pkg-config",
+    apt: "pkg-config",
+  },
+];
 
 /**
- * Scan failure output for "command not found" patterns and return a hint the
+ * Scan failure output for known "missing tool" patterns and return a hint the
  * reporter can print. Returns null if nothing matches OR if the user is already
  * on a custom runner image (in which case we'd just be nagging).
  */
@@ -220,13 +242,12 @@ export function detectMissingToolHint(
   if (resolved.source !== "default") {
     return null;
   }
-  const m = COMMAND_NOT_FOUND_RE.exec(errorContent);
-  if (!m) {
-    return null;
+  for (const { pattern, tool, apt } of MISSING_TOOL_PATTERNS) {
+    if (pattern.test(errorContent)) {
+      return formatHint(tool, apt);
+    }
   }
-  const tool = m[1] ?? m[2] ?? m[3];
-  const apt = TOOL_TO_APT[tool] ?? tool;
-  return formatHint(tool, apt);
+  return null;
 }
 
 function formatHint(tool: string, apt: string): string {

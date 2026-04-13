@@ -5,19 +5,7 @@ import { Copy, Check } from "lucide-react";
 
 const AGENT_INSTRUCTIONS = `## CI
 
-If this is a Node.js project, install Agent CI as a dev dependency using the project's package manager (npm, pnpm, yarn, or bun):
-
-\`\`\`bash
-<package-manager> install -D @redwoodjs/agent-ci
-\`\`\`
-
-If this is not a Node.js project, you can run Agent CI directly with npx:
-
-\`\`\`bash
-npx @redwoodjs/agent-ci
-\`\`\`
-
-Install the agent skill:
+Install the agent-ci skill (one-time setup):
 
 \`\`\`bash
 npx skills add redwoodjs/agent-ci --skill agent-ci

@@ -18,20 +18,14 @@ Agent CI runs on any machine that can run a container. When a step fails the run
   - **macOS:** [OrbStack](https://orbstack.dev/) (recommended) or Docker Desktop
   - **Linux:** Native Docker Engine or Docker Desktop
 
-## Installation
-
-```bash
-npm install -D @redwoodjs/agent-ci
-```
-
 ## Usage
 
 ```bash
 # Run a specific workflow
-npx agent-ci run --workflow .github/workflows/ci.yml
+npx @redwoodjs/agent-ci run --workflow .github/workflows/ci.yml
 
 # Run all relevant workflows for the current branch
-npx agent-ci run --all
+npx @redwoodjs/agent-ci run --all
 ```
 
 ### Remote Docker
@@ -39,7 +33,7 @@ npx agent-ci run --all
 Agent CI connects to Docker via the `DOCKER_HOST` environment variable. By default it uses the local socket (`unix:///var/run/docker.sock`), but you can point it at any remote Docker daemon:
 
 ```bash
-DOCKER_HOST=ssh://user@remote-server npx agent-ci run --workflow .github/workflows/ci.yml
+DOCKER_HOST=ssh://user@remote-server npx @redwoodjs/agent-ci run --workflow .github/workflows/ci.yml
 ```
 
 ### Docker host resolution for job containers
@@ -112,10 +106,10 @@ You can override the auto-detected limit with `--jobs`:
 
 ```bash
 # Run at most 4 containers at a time
-npx agent-ci run --all --jobs 4
+npx @redwoodjs/agent-ci run --all --jobs 4
 
 # Run one at a time (safest, slowest)
-npx agent-ci run --all --jobs 1
+npx @redwoodjs/agent-ci run --all --jobs 1
 ```
 
 ## YAML Compatibility
@@ -140,5 +134,5 @@ Set the `DEBUG` environment variable to enable verbose debug logging. It accepts
 - Pattern matching uses [minimatch](https://github.com/isaacs/minimatch) globs, so `agent-ci:*` matches all four namespaces.
 
 ```bash
-DEBUG=agent-ci:* npx agent-ci run
+DEBUG=agent-ci:* npx @redwoodjs/agent-ci run
 ```

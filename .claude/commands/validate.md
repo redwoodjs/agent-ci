@@ -13,13 +13,13 @@ pnpm agent-ci-dev run --all -q -p 2>&1
 
 Use `run_in_background: true` on the Bash tool. This returns an output file path.
 
-2. Set up a **Monitor** on the output file to catch pass/fail events:
+2. Set up a **Monitor** on the output file to catch pass/fail events. The monitor must match **both** failure and completion patterns so it self-exits when agent-ci finishes:
 
 ```bash
-tail -f <output-file> 2>/dev/null | grep --line-buffered "Step failed"
+tail -f <output-file> 2>/dev/null | grep --line-buffered -E "Step failed|passed \(" | while IFS= read -r line; do echo "$line"; echo "$line" | grep -q "passed (" && exit 0; done
 ```
 
-3. Wait for either a monitor event (failure) or a background task completion notification (success). If agent-ci exits successfully, stop the monitor with `TaskStop` and you're done.
+3. Wait for either a monitor event (failure) or a background task completion notification (success).
 
 4. If a step fails, the runner pauses and waits. **CI was passing before your work started**, so the failure is caused by your changes. Investigate and fix it:
 

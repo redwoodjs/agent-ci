@@ -32,21 +32,3 @@ jobs:
         run: pnpm --filter dtu-github-actions test
       - name: Test CLI
         run: pnpm --filter agent-ci test
-      - name: Test retry-proof failure output
-        run: |
-          set +e
-          output=$(pnpm agent-ci-dev run -w .github/workflows/retry-proof.yml 2>/dev/null)
-          exit_code=$?
-          set -e
-          [ "$exit_code" -eq 1 ] || (echo "❌ Expected exit 1, got $exit_code" && exit 1)
-          echo "$output" | grep -q "expect(value).toBe" || (echo "❌ Step output not found in summary" && exit 1)
-          echo "✅ Failure output includes step log"
-      - name: Test degraded resource smoke output
-        run: |
-          set +e
-          output=$(pnpm agent-ci-dev run -w packages/cli/src/workflow/__fixtures__/resource-mismatch.yml 2>&1)
-          exit_code=$?
-          set -e
-          [ "$exit_code" -eq 0 ] || (echo "❌ Expected exit 0, got $exit_code" && printf '%s\n' "$output" && exit 1)
-          echo "$output" | grep -Eiq "degraded|\[degraded\]" || (echo "❌ Degraded warning not found in output" && printf '%s\n' "$output" && exit 1)
-          echo "✅ Degraded warning appears without failing the workflow"

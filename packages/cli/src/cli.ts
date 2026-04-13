@@ -65,10 +65,6 @@ import {
   type ResourceFidelity,
 } from "./workflow/resource-classifier.js";
 
-function writeStdoutLine(message = ""): void {
-  process.stdout.write(`${message}\n`);
-}
-
 function findSignalsDir(runnerName: string): string | null {
   const workDir = getWorkingDirectory();
   const runsDir = path.resolve(workDir, "runs");
@@ -206,7 +202,7 @@ async function run() {
       }
 
       if (relevant.length === 0) {
-        writeStdoutLine(`[Agent CI] No relevant workflows found for branch '${branch}'.`);
+        console.log(`[Agent CI] No relevant workflows found for branch '${branch}'.`);
         process.exit(0);
       }
 
@@ -230,7 +226,7 @@ async function run() {
 
     if (!workflow) {
       console.error("[Agent CI] Error: You must specify --workflow <path> or --all");
-      writeStdoutLine();
+      console.log("");
       printUsage();
       process.exit(1);
     }
@@ -328,7 +324,7 @@ async function run() {
     }
     fs.writeFileSync(path.join(signalsDir, command), "");
     const extra = fromStep ? ` (from step ${fromStep === "*" ? "1" : fromStep})` : "";
-    writeStdoutLine(`[Agent CI] Sent '${command}' signal to ${runnerName}${extra}`);
+    console.log(`[Agent CI] Sent '${command}' signal to ${runnerName}${extra}`);
     process.exit(0);
   } else {
     printUsage();
@@ -1287,62 +1283,47 @@ async function handleWorkflow(options: {
 // ─── Utilities ────────────────────────────────────────────────────────────────
 
 function printUsage() {
-  writeStdoutLine("Usage: agent-ci <command> [args]");
-  writeStdoutLine();
-  writeStdoutLine("Commands:");
-  writeStdoutLine(
-    "  run [sha] --workflow <path>   Run all jobs in a workflow file (defaults to HEAD)",
-  );
-  writeStdoutLine(
+  console.log("Usage: agent-ci <command> [args]");
+  console.log("");
+  console.log("Commands:");
+  console.log("  run [sha] --workflow <path>   Run all jobs in a workflow file (defaults to HEAD)");
+  console.log(
     "  run --all                     Run all relevant PR/Push workflows for current branch",
   );
-  writeStdoutLine("  retry --name <name>           Send retry signal to a paused runner");
-  writeStdoutLine("    --from-step <N>              Re-run from step N (skips earlier steps)");
-  writeStdoutLine("    --from-start                 Re-run all run: steps from the beginning");
-  writeStdoutLine("  abort --name <name>           Send abort signal to a paused runner");
-  writeStdoutLine();
-  writeStdoutLine("Options:");
-  writeStdoutLine("  -w, --workflow <path>         Path to the workflow file");
-  writeStdoutLine("  -a, --all                     Discover and run all relevant workflows");
-  writeStdoutLine(
+  console.log("  retry --name <name>           Send retry signal to a paused runner");
+  console.log("    --from-step <N>              Re-run from step N (skips earlier steps)");
+  console.log("    --from-start                 Re-run all run: steps from the beginning");
+  console.log("  abort --name <name>           Send abort signal to a paused runner");
+  console.log("");
+  console.log("Options:");
+  console.log("  -w, --workflow <path>         Path to the workflow file");
+  console.log("  -a, --all                     Discover and run all relevant workflows");
+  console.log(
     "  -j, --jobs <n>                Max concurrent containers (auto-detected from CPU/memory)",
   );
-  writeStdoutLine(
-    "  -p, --pause-on-failure         Pause on step failure for interactive debugging",
-  );
-  writeStdoutLine("  retry --name <name>           Send retry signal to a paused runner");
-  writeStdoutLine("    --from-step <N>              Re-run from step N (skips earlier steps)");
-  writeStdoutLine("    --from-start                 Re-run all run: steps from the beginning");
-  writeStdoutLine("  abort --name <name>           Send abort signal to a paused runner");
-  writeStdoutLine();
-  writeStdoutLine("Options:");
-  writeStdoutLine("  -w, --workflow <path>         Path to the workflow file");
-  writeStdoutLine("  -a, --all                     Discover and run all relevant workflows");
-  writeStdoutLine(
-    "  -p, --pause-on-failure         Pause on step failure for interactive debugging",
-  );
-  writeStdoutLine(
+  console.log("  -p, --pause-on-failure         Pause on step failure for interactive debugging");
+  console.log(
     "  -q, --quiet                   Suppress animated rendering (also enabled by AI_AGENT=1)",
   );
-  writeStdoutLine(
+  console.log(
     "      --no-matrix               Collapse all matrix combinations into a single job (uses first value of each key)",
   );
-  writeStdoutLine(
+  console.log(
     "      --github-token [<token>]  GitHub token for fetching remote reusable workflows",
   );
-  writeStdoutLine(
+  console.log(
     "                                (auto-resolves via `gh auth token` if no value given)",
   );
-  writeStdoutLine("                                Or set: AGENT_CI_GITHUB_TOKEN env var");
-  writeStdoutLine(
+  console.log("                                Or set: AGENT_CI_GITHUB_TOKEN env var");
+  console.log(
     "      --commit-status           Post a GitHub commit status after the run (requires --github-token)",
   );
-  writeStdoutLine();
-  writeStdoutLine("Secrets:");
-  writeStdoutLine("  Workflow secrets (${{ secrets.FOO }}) are resolved from:");
-  writeStdoutLine("    1. .env.agent-ci file in the repo root");
-  writeStdoutLine("    2. Environment variables (shell env acts as fallback)");
-  writeStdoutLine("    3. --github-token automatically provides secrets.GITHUB_TOKEN");
+  console.log("");
+  console.log("Secrets:");
+  console.log("  Workflow secrets (${{ secrets.FOO }}) are resolved from:");
+  console.log("    1. .env.agent-ci file in the repo root");
+  console.log("    2. Environment variables (shell env acts as fallback)");
+  console.log("    3. --github-token automatically provides secrets.GITHUB_TOKEN");
 }
 
 function resolveRepoRoot() {

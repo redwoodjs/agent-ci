@@ -87,6 +87,7 @@ async function run() {
     let noMatrix = false;
     let githubToken: string | undefined;
     let commitStatus = false;
+    let maxJobs: number | undefined;
 
     for (let i = 1; i < args.length; i++) {
       if ((args[i] === "--workflow" || args[i] === "-w") && args[i + 1]) {
@@ -100,6 +101,13 @@ async function run() {
         setQuietMode(true);
       } else if (args[i] === "--no-matrix") {
         noMatrix = true;
+      } else if ((args[i] === "--jobs" || args[i] === "-j") && args[i + 1]) {
+        maxJobs = parseInt(args[i + 1], 10);
+        if (!Number.isFinite(maxJobs) || maxJobs < 1) {
+          console.error("[Agent CI] Error: --jobs must be a positive integer");
+          process.exit(1);
+        }
+        i++;
       } else if (args[i] === "--commit-status") {
         commitStatus = true;
       } else if (args[i] === "--github-token") {
@@ -197,6 +205,7 @@ async function run() {
         pauseOnFailure,
         noMatrix,
         githubToken,
+        maxJobs,
       });
       if (results.length > 0) {
         printSummary(results);
@@ -237,6 +246,7 @@ async function run() {
       pauseOnFailure,
       noMatrix,
       githubToken,
+      maxJobs,
     });
     if (results.length > 0) {
       printSummary(results);
@@ -366,6 +376,7 @@ async function runWorkflows(options: {
   pauseOnFailure: boolean;
   noMatrix?: boolean;
   githubToken?: string;
+  maxJobs?: number;
 }): Promise<JobResult[]> {
   const { workflowPaths, sha, pauseOnFailure, noMatrix = false, githubToken } = options;
 
@@ -452,10 +463,22 @@ async function runWorkflows(options: {
   // parallel, running these inside handleWorkflow() hammered the Docker
   // daemon (N× `docker volume prune`, N× cold-start image pulls) and
   // serialized work that should have been free. See issue #211.
-  pruneOrphanedDockerResources();
-  killOrphanedContainers();
+  // Skip Docker cleanup when running nested inside a container (e.g.
+  // smoke-bun-setup step 8). The shared Docker socket exposes the host's
+  // containers, and killOrphanedContainers would kill our parent container
+  // because host PIDs don't exist in the container's PID namespace.
+  if (!fs.existsSync("/.dockerenv")) {
+    pruneOrphanedDockerResources();
+    killOrphanedContainers();
+  }
   pruneStaleWorkspaces(getWorkingDirectory(), 24 * 60 * 60 * 1000);
   await prefetchRunnerImages(workflowPaths);
+
+  // Global concurrency limiter shared across all workflows. Without this,
+  // --all mode launches every workflow in parallel — leading to 20+
+  // simultaneous containers that exhaust available memory and trigger
+  // OOM kills (exit 137). See issue #225.
+  const globalLimiter = createConcurrencyLimiter(options.maxJobs ?? getDefaultMaxConcurrentJobs());
 
   try {
     const allResults: JobResult[] = [];
@@ -469,6 +492,7 @@ async function runWorkflows(options: {
         noMatrix,
         store,
         githubToken,
+        globalLimiter,
       });
       allResults.push(...results);
     } else {
@@ -507,6 +531,7 @@ async function runWorkflows(options: {
           store,
           baseRunNum: runNums[0],
           githubToken,
+          globalLimiter,
         });
         allResults.push(...firstResults);
 
@@ -520,6 +545,7 @@ async function runWorkflows(options: {
               store,
               baseRunNum: runNums[i + 1],
               githubToken,
+              globalLimiter,
             }),
           ),
         );
@@ -541,6 +567,7 @@ async function runWorkflows(options: {
               store,
               baseRunNum: runNums[i],
               githubToken,
+              globalLimiter,
             }),
           ),
         );
@@ -586,6 +613,7 @@ async function handleWorkflow(options: {
   store: RunStateStore;
   baseRunNum?: number;
   githubToken?: string;
+  globalLimiter: ReturnType<typeof createConcurrencyLimiter>;
 }): Promise<JobResult[]> {
   const { sha, pauseOnFailure, noMatrix = false, store, githubToken } = options;
   let workflowPath = options.workflowPath;
@@ -738,12 +766,14 @@ async function handleWorkflow(options: {
       taskId: ej.taskName,
     };
 
-    const result = await executeLocalJob(job, { pauseOnFailure, store });
+    const result = await options.globalLimiter.run(() =>
+      executeLocalJob(job, { pauseOnFailure, store }),
+    );
     return [result];
   }
 
   // ── Multi-job orchestration ────────────────────────────────────────────────
-  const maxJobs = getDefaultMaxConcurrentJobs();
+  const limiter = options.globalLimiter;
 
   // ── Warm-cache check ───────────────────────────────────────────────────────
   const repoSlug = githubRepo.replace("/", "-");
@@ -884,7 +914,6 @@ async function handleWorkflow(options: {
     return result;
   };
 
-  const limiter = createConcurrencyLimiter(maxJobs);
   const allResults: JobResult[] = [];
   // Accumulate job outputs across waves for needs.*.outputs.* resolution
   const jobOutputs = new Map<string, Record<string, string>>();
@@ -1055,7 +1084,7 @@ async function handleWorkflow(options: {
     // ── Warm-cache serialization for the first wave ────────────────────────
     if (!warm && wi === 0 && waveJobs.length > 1) {
       debugCli("Cold cache — running first job to populate warm modules...");
-      const firstResult = await runOrSkipJob(waveJobs[0]);
+      const firstResult = await limiter.run(() => runOrSkipJob(waveJobs[0]));
       allResults.push(firstResult);
 
       const results = await Promise.allSettled(
@@ -1152,6 +1181,9 @@ function printUsage() {
   console.log("Options:");
   console.log("  -w, --workflow <path>         Path to the workflow file");
   console.log("  -a, --all                     Discover and run all relevant workflows");
+  console.log(
+    "  -j, --jobs <n>                Max concurrent containers (auto-detected from CPU/memory)",
+  );
   console.log("  -p, --pause-on-failure         Pause on step failure for interactive debugging");
   console.log(
     "  -q, --quiet                   Suppress animated rendering (also enabled by AI_AGENT=1)",

@@ -194,12 +194,18 @@ function parseCsvEnv(value: string): string[] {
 }
 
 export async function resolveDtuHost(): Promise<string> {
+  const isInsideDocker = fs.existsSync("/.dockerenv");
+
+  // When running inside a container (nested agent-ci), ignore the inherited
+  // AGENT_CI_DTU_HOST — it points to the parent's DTU host (e.g.
+  // "host.docker.internal") which isn't reachable from sibling containers.
+  // Instead, resolve this container's own IP so the inner container can
+  // connect back to our DTU.
   const configuredHost = process.env.AGENT_CI_DTU_HOST?.trim();
-  if (configuredHost) {
+  if (configuredHost && !isInsideDocker) {
     return configuredHost;
   }
 
-  const isInsideDocker = fs.existsSync("/.dockerenv");
   if (isInsideDocker) {
     try {
       const ip = execSync("hostname -I 2>/dev/null | awk '{print $1}'", {

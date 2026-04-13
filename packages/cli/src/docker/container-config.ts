@@ -157,6 +157,9 @@ export function buildContainerCmd(opts: ContainerCmdOpts): string[] {
     T("git-shim"),
     `${svcPortForwardSnippet}chmod 666 /var/run/docker.sock 2>/dev/null || true`,
     T("docker-sock"),
+    // The Playwright bind mount creates /home/runner/.cache as root — make it
+    // world-writable so tools like Cypress can mkdir inside it (#234).
+    `MAYBE_SUDO chmod 1777 /home/runner/.cache 2>/dev/null || true`,
     `cd /home/runner`,
     `${credentialSnippet}true`,
     T("credentials"),

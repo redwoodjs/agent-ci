@@ -26,13 +26,591 @@ async function loadWorkflowParser() {
 }
 
 /**
+ * Check if a string value is truthy following GitHub Actions semantics.
+ * Falsy values: empty string, "false", "0".
+ */
+function isExprTruthy(val: string): boolean {
+  return val !== "" && val !== "false" && val !== "0";
+}
+
+/**
+ * Split a function's argument list on commas, respecting quotes and nested parens.
+ */
+function splitFunctionArgs(argsStr: string): string[] {
+  const result: string[] = [];
+  let current = "";
+  let depth = 0;
+  let inQuote: string | null = null;
+  for (let i = 0; i < argsStr.length; i++) {
+    const ch = argsStr[i];
+    if (inQuote) {
+      current += ch;
+      if (ch === inQuote) {
+        inQuote = null;
+      }
+      continue;
+    }
+    if (ch === "'" || ch === '"') {
+      inQuote = ch;
+      current += ch;
+      continue;
+    }
+    if (ch === "(") {
+      depth++;
+    }
+    if (ch === ")") {
+      depth--;
+    }
+    if (ch === "," && depth === 0) {
+      result.push(current.trim());
+      current = "";
+      continue;
+    }
+    current += ch;
+  }
+  result.push(current.trim());
+  return result;
+}
+
+/** Strip surrounding quotes from a string if present. */
+function unquote(s: string): string {
+  if ((s.startsWith("'") && s.endsWith("'")) || (s.startsWith('"') && s.endsWith('"'))) {
+    return s.slice(1, -1);
+  }
+  return s;
+}
+
+/** Compare two string values using the given operator. */
+function compareValues(left: string, right: string, op: string): boolean {
+  // Try numeric comparison if both sides look like numbers
+  const ln = Number(left);
+  const rn = Number(right);
+  const bothNumeric = left !== "" && right !== "" && !isNaN(ln) && !isNaN(rn);
+
+  switch (op) {
+    case "==":
+      return bothNumeric ? ln === rn : left.toLowerCase() === right.toLowerCase();
+    case "!=":
+      return bothNumeric ? ln !== rn : left.toLowerCase() !== right.toLowerCase();
+    case "<":
+      return bothNumeric ? ln < rn : left.toLowerCase() < right.toLowerCase();
+    case ">":
+      return bothNumeric ? ln > rn : left.toLowerCase() > right.toLowerCase();
+    case "<=":
+      return bothNumeric ? ln <= rn : left.toLowerCase() <= right.toLowerCase();
+    case ">=":
+      return bothNumeric ? ln >= rn : left.toLowerCase() >= right.toLowerCase();
+    default:
+      return false;
+  }
+}
+
+/**
+ * Resolve a single atomic expression (function call or context variable).
+ * Does not handle boolean operators, parentheses, or string literals.
+ */
+function resolveExprAtom(
+  trimmed: string,
+  repoPath?: string,
+  secrets?: Record<string, string>,
+  matrixContext?: Record<string, string>,
+  needsContext?: Record<string, Record<string, string>>,
+  inputsContext?: Record<string, string>,
+): string {
+  // hashFiles('glob1', 'glob2', ...)
+  const hashFilesMatch = trimmed.match(/^hashFiles\(([\s\S]+)\)$/);
+  if (hashFilesMatch) {
+    if (!repoPath) {
+      return "0000000000000000000000000000000000000000";
+    }
+    try {
+      // Parse the argument list: quoted strings separated by commas
+      const args = hashFilesMatch[1].match(/['"][^'"]*['"]/g) ?? [];
+      const patterns = args.map((a) => a.replace(/^['"]|['"]$/g, ""));
+      const hash = crypto.createHash("sha256");
+      let hasAny = false;
+      for (const pattern of patterns) {
+        let files: string[];
+        try {
+          files = findFiles(repoPath, pattern);
+        } catch {
+          files = [];
+        }
+        for (const f of files.sort()) {
+          try {
+            const content = fs.readFileSync(f);
+            hash.update(content);
+            hasAny = true;
+          } catch {
+            // File not readable, skip
+          }
+        }
+      }
+      if (!hasAny) {
+        return "0000000000000000000000000000000000000000";
+      }
+      return hash.digest("hex");
+    } catch {
+      return "0000000000000000000000000000000000000000";
+    }
+  }
+
+  // fromJSON(expr) — parse JSON from a string (or inner expression)
+  const fromJsonMatch = trimmed.match(/^fromJSON\(([\s\S]+)\)$/);
+  if (fromJsonMatch) {
+    const inner = fromJsonMatch[1].trim();
+    let rawValue: string;
+    if (
+      (inner.startsWith("'") && inner.endsWith("'")) ||
+      (inner.startsWith('"') && inner.endsWith('"'))
+    ) {
+      rawValue = inner.slice(1, -1);
+    } else {
+      rawValue = evaluateExprValue(
+        inner,
+        repoPath,
+        secrets,
+        matrixContext,
+        needsContext,
+        inputsContext,
+      );
+    }
+    try {
+      const parsed = JSON.parse(rawValue);
+      if (typeof parsed === "string") {
+        return parsed;
+      }
+      return JSON.stringify(parsed);
+    } catch {
+      return "";
+    }
+  }
+
+  // toJSON(expr) — serialize a value to JSON
+  const toJsonMatch = trimmed.match(/^toJSON\(([\s\S]+)\)$/);
+  if (toJsonMatch) {
+    const inner = toJsonMatch[1].trim();
+    let rawValue: string;
+    if (
+      (inner.startsWith("'") && inner.endsWith("'")) ||
+      (inner.startsWith('"') && inner.endsWith('"'))
+    ) {
+      rawValue = inner.slice(1, -1);
+    } else {
+      rawValue = evaluateExprValue(
+        inner,
+        repoPath,
+        secrets,
+        matrixContext,
+        needsContext,
+        inputsContext,
+      );
+    }
+    return JSON.stringify(rawValue);
+  }
+
+  // format('template {0} {1}', arg0, arg1)
+  const formatMatch = trimmed.match(/^format\(([\s\S]+)\)$/);
+  if (formatMatch) {
+    const formatArgs = splitFunctionArgs(formatMatch[1]);
+    const template = unquote(formatArgs[0] || "");
+    const args = formatArgs.slice(1);
+    return template.replace(/\{(\d+)\}/g, (_m, idx) => {
+      const i = parseInt(idx, 10);
+      if (i < args.length) {
+        return evaluateExprValue(
+          args[i],
+          repoPath,
+          secrets,
+          matrixContext,
+          needsContext,
+          inputsContext,
+        );
+      }
+      return "";
+    });
+  }
+
+  // contains(search, item) — case-insensitive string search or array inclusion
+  const containsMatch = trimmed.match(/^contains\(([\s\S]+)\)$/);
+  if (containsMatch) {
+    const args = splitFunctionArgs(containsMatch[1]);
+    if (args.length >= 2) {
+      const haystack = evaluateExprValue(
+        args[0],
+        repoPath,
+        secrets,
+        matrixContext,
+        needsContext,
+        inputsContext,
+      );
+      const needle = evaluateExprValue(
+        args[1],
+        repoPath,
+        secrets,
+        matrixContext,
+        needsContext,
+        inputsContext,
+      );
+      // Try JSON array first
+      try {
+        const arr = JSON.parse(haystack);
+        if (Array.isArray(arr)) {
+          return arr.some((item) => String(item).toLowerCase() === needle.toLowerCase())
+            ? "true"
+            : "false";
+        }
+      } catch {
+        // Not JSON — fall through to string search
+      }
+      return haystack.toLowerCase().includes(needle.toLowerCase()) ? "true" : "false";
+    }
+    return "false";
+  }
+
+  // startsWith(searchString, searchValue)
+  const startsWithMatch = trimmed.match(/^startsWith\(([\s\S]+)\)$/);
+  if (startsWithMatch) {
+    const args = splitFunctionArgs(startsWithMatch[1]);
+    if (args.length >= 2) {
+      const str = evaluateExprValue(
+        args[0],
+        repoPath,
+        secrets,
+        matrixContext,
+        needsContext,
+        inputsContext,
+      );
+      const prefix = evaluateExprValue(
+        args[1],
+        repoPath,
+        secrets,
+        matrixContext,
+        needsContext,
+        inputsContext,
+      );
+      return str.toLowerCase().startsWith(prefix.toLowerCase()) ? "true" : "false";
+    }
+    return "false";
+  }
+
+  // endsWith(searchString, searchValue)
+  const endsWithMatch = trimmed.match(/^endsWith\(([\s\S]+)\)$/);
+  if (endsWithMatch) {
+    const args = splitFunctionArgs(endsWithMatch[1]);
+    if (args.length >= 2) {
+      const str = evaluateExprValue(
+        args[0],
+        repoPath,
+        secrets,
+        matrixContext,
+        needsContext,
+        inputsContext,
+      );
+      const suffix = evaluateExprValue(
+        args[1],
+        repoPath,
+        secrets,
+        matrixContext,
+        needsContext,
+        inputsContext,
+      );
+      return str.toLowerCase().endsWith(suffix.toLowerCase()) ? "true" : "false";
+    }
+    return "false";
+  }
+
+  // join(array, separator) or join(string, separator)
+  const joinMatch = trimmed.match(/^join\(([\s\S]+)\)$/);
+  if (joinMatch) {
+    const args = splitFunctionArgs(joinMatch[1]);
+    const val = evaluateExprValue(
+      args[0],
+      repoPath,
+      secrets,
+      matrixContext,
+      needsContext,
+      inputsContext,
+    );
+    const sep =
+      args.length >= 2
+        ? evaluateExprValue(args[1], repoPath, secrets, matrixContext, needsContext, inputsContext)
+        : ", ";
+    try {
+      const arr = JSON.parse(val);
+      if (Array.isArray(arr)) {
+        return arr.map(String).join(sep);
+      }
+    } catch {
+      // Not an array — return as-is
+    }
+    return val;
+  }
+
+  // Status functions — in expression context these return their string name
+  if (trimmed === "success()") {
+    return "true";
+  }
+  if (trimmed === "failure()") {
+    return "false";
+  }
+  if (trimmed === "always()") {
+    return "true";
+  }
+  if (trimmed === "cancelled()") {
+    return "false";
+  }
+
+  // Context variable substitutions
+  if (trimmed === "runner.os") {
+    return "Linux";
+  }
+  if (trimmed === "runner.arch") {
+    return "X64";
+  }
+  if (trimmed === "github.run_id") {
+    return "1";
+  }
+  if (trimmed === "github.run_number") {
+    return "1";
+  }
+  if (trimmed === "github.sha" || trimmed === "github.head_sha") {
+    return "0000000000000000000000000000000000000000";
+  }
+  if (trimmed === "github.ref_name" || trimmed === "github.head_ref") {
+    return "main";
+  }
+  if (trimmed === "github.repository") {
+    return "local/repo";
+  }
+  if (trimmed === "github.actor") {
+    return "local";
+  }
+  if (trimmed === "github.event.pull_request.number") {
+    return "";
+  }
+  if (trimmed === "github.event.pull_request.title") {
+    return "";
+  }
+  if (trimmed === "github.event.pull_request.user.login") {
+    return "";
+  }
+  if (trimmed === "strategy.job-total") {
+    return matrixContext?.["__job_total"] ?? "1";
+  }
+  if (trimmed === "strategy.job-index") {
+    return matrixContext?.["__job_index"] ?? "0";
+  }
+  if (trimmed.startsWith("matrix.")) {
+    const key = trimmed.slice("matrix.".length);
+    return matrixContext?.[key] ?? "";
+  }
+  if (trimmed.startsWith("secrets.")) {
+    const name = trimmed.slice("secrets.".length);
+    return secrets?.[name] ?? "";
+  }
+  if (trimmed.startsWith("inputs.")) {
+    const name = trimmed.slice("inputs.".length);
+    return inputsContext?.[name] ?? "";
+  }
+  if (trimmed.startsWith("steps.") && trimmed.endsWith(".outputs.cache-hit")) {
+    return "";
+  }
+  if (trimmed.startsWith("steps.")) {
+    // Steps references are resolved at execution time by the runner.
+    // Return a sentinel so expandExpressions can preserve the ${{ }} syntax.
+    return STEPS_DEFERRED_SENTINEL;
+  }
+  if (trimmed.startsWith("needs.") && needsContext) {
+    const parts = trimmed.split(".");
+    const jobId = parts[1];
+    const jobOutputs = needsContext[jobId];
+    if (parts[2] === "outputs" && parts[3]) {
+      return jobOutputs?.[parts[3]] ?? "";
+    }
+    if (parts[2] === "result") {
+      return jobOutputs ? (jobOutputs["__result"] ?? "success") : "";
+    }
+    return "";
+  }
+  if (trimmed.startsWith("needs.")) {
+    return "";
+  }
+
+  // Unknown atoms — return empty string
+  return "";
+}
+
+const STEPS_DEFERRED_SENTINEL = "\0__STEPS_DEFERRED__\0";
+
+/**
+ * Evaluate an expression that may contain ||, &&, !, parentheses,
+ * string literals, function calls, and context variable references.
+ * Returns the string result following GitHub Actions expression semantics.
+ */
+function evaluateExprValue(
+  expr: string,
+  repoPath?: string,
+  secrets?: Record<string, string>,
+  matrixContext?: Record<string, string>,
+  needsContext?: Record<string, Record<string, string>>,
+  inputsContext?: Record<string, string>,
+): string {
+  const trimmed = expr.trim();
+  if (!trimmed) {
+    return "";
+  }
+
+  // Strip matching outer parentheses
+  if (trimmed.startsWith("(")) {
+    let depth = 0;
+    let inQuote: string | null = null;
+    for (let i = 0; i < trimmed.length; i++) {
+      const ch = trimmed[i];
+      if (inQuote) {
+        if (ch === inQuote) {
+          inQuote = null;
+        }
+        continue;
+      }
+      if (ch === "'" || ch === '"') {
+        inQuote = ch;
+        continue;
+      }
+      if (ch === "(") {
+        depth++;
+      }
+      if (ch === ")") {
+        depth--;
+      }
+      if (depth === 0 && i === trimmed.length - 1) {
+        return evaluateExprValue(
+          trimmed.slice(1, -1),
+          repoPath,
+          secrets,
+          matrixContext,
+          needsContext,
+          inputsContext,
+        );
+      }
+      if (depth === 0) {
+        break;
+      }
+    }
+  }
+
+  // Handle || (lowest precedence)
+  const orParts = splitOnOperator(trimmed, "||");
+  if (orParts.length > 1) {
+    let lastVal = "";
+    for (const part of orParts) {
+      lastVal = evaluateExprValue(
+        part.trim(),
+        repoPath,
+        secrets,
+        matrixContext,
+        needsContext,
+        inputsContext,
+      );
+      if (isExprTruthy(lastVal)) {
+        return lastVal;
+      }
+    }
+    return lastVal;
+  }
+
+  // Handle && (higher precedence than ||)
+  const andParts = splitOnOperator(trimmed, "&&");
+  if (andParts.length > 1) {
+    let lastVal = "";
+    for (const part of andParts) {
+      lastVal = evaluateExprValue(
+        part.trim(),
+        repoPath,
+        secrets,
+        matrixContext,
+        needsContext,
+        inputsContext,
+      );
+      if (!isExprTruthy(lastVal)) {
+        return lastVal;
+      }
+    }
+    return lastVal;
+  }
+
+  // Handle comparison operators (==, !=, <=, >=, <, >)
+  // Check longer operators first to avoid matching <= as < then =
+  for (const op of ["!=", "==", "<=", ">=", "<", ">"]) {
+    const cmpParts = splitOnOperator(trimmed, op);
+    if (cmpParts.length === 2) {
+      const left = evaluateExprValue(
+        cmpParts[0].trim(),
+        repoPath,
+        secrets,
+        matrixContext,
+        needsContext,
+        inputsContext,
+      );
+      const right = evaluateExprValue(
+        cmpParts[1].trim(),
+        repoPath,
+        secrets,
+        matrixContext,
+        needsContext,
+        inputsContext,
+      );
+      const result = compareValues(left, right, op);
+      return result ? "true" : "false";
+    }
+  }
+
+  // Handle ! prefix (negation)
+  if (trimmed.startsWith("!")) {
+    const inner = evaluateExprValue(
+      trimmed.slice(1).trim(),
+      repoPath,
+      secrets,
+      matrixContext,
+      needsContext,
+      inputsContext,
+    );
+    return isExprTruthy(inner) ? "false" : "true";
+  }
+
+  // String literal
+  if (
+    (trimmed.startsWith("'") && trimmed.endsWith("'")) ||
+    (trimmed.startsWith('"') && trimmed.endsWith('"'))
+  ) {
+    return trimmed.slice(1, -1);
+  }
+
+  // Boolean / null literals
+  if (trimmed === "true") {
+    return "true";
+  }
+  if (trimmed === "false") {
+    return "false";
+  }
+  if (trimmed === "null") {
+    return "";
+  }
+
+  // Numeric literal
+  if (/^-?\d+(\.\d+)?$/.test(trimmed)) {
+    return trimmed;
+  }
+
+  // Atom: function call or context variable
+  return resolveExprAtom(trimmed, repoPath, secrets, matrixContext, needsContext, inputsContext);
+}
+
+/**
  * Expand `${{ expr }}` placeholders in a string.
- * Handles:
- *  - hashFiles('pattern1', 'pattern2', ...) → sha256 of matching files under repoPath
- *  - runner.os → 'Linux'
- *  - github.run_id → a stable numeric string
- *  - github.sha → '0000000000000000000000000000000000000000'
- *  - (others) → empty string (safe: no commas injected)
+ * Handles boolean operators (&&, ||, !), parentheses, string literals,
+ * built-in functions (hashFiles, fromJSON, toJSON, format), and context
+ * variable references (runner.*, github.*, matrix.*, secrets.*, etc.).
  */
 export function expandExpressions(
   value: string,
@@ -43,207 +621,19 @@ export function expandExpressions(
   inputsContext?: Record<string, string>,
 ): string {
   return value.replace(/\$\{\{([\s\S]*?)\}\}/g, (_match, expr: string) => {
-    const trimmed = expr.trim();
-
-    // hashFiles('glob1', 'glob2', ...)
-    const hashFilesMatch = trimmed.match(/^hashFiles\(([\s\S]+)\)$/);
-    if (hashFilesMatch) {
-      if (!repoPath) {
-        return "0000000000000000000000000000000000000000";
-      }
-      try {
-        // Parse the argument list: quoted strings separated by commas
-        const args = hashFilesMatch[1].match(/['"][^'"]*['"]/g) ?? [];
-        const patterns = args.map((a) => a.replace(/^['"]|['"]$/g, ""));
-        const hash = crypto.createHash("sha256");
-        let hasAny = false;
-        for (const pattern of patterns) {
-          let files: string[];
-          try {
-            files = findFiles(repoPath, pattern);
-          } catch {
-            files = [];
-          }
-          for (const f of files.sort()) {
-            try {
-              const content = fs.readFileSync(f);
-              hash.update(content);
-              hasAny = true;
-            } catch {
-              // File not readable, skip
-            }
-          }
-        }
-        if (!hasAny) {
-          return "0000000000000000000000000000000000000000";
-        }
-        return hash.digest("hex");
-      } catch {
-        return "0000000000000000000000000000000000000000";
-      }
-    }
-
-    // fromJSON(expr) — parse JSON from a string (or inner expression)
-    const fromJsonMatch = trimmed.match(/^fromJSON\(([\s\S]+)\)$/);
-    if (fromJsonMatch) {
-      const inner = fromJsonMatch[1].trim();
-      // If the inner arg is a quoted string literal, use it directly
-      let rawValue: string;
-      if (
-        (inner.startsWith("'") && inner.endsWith("'")) ||
-        (inner.startsWith('"') && inner.endsWith('"'))
-      ) {
-        rawValue = inner.slice(1, -1);
-      } else {
-        // Otherwise, treat it as an expression and expand it
-        rawValue = expandExpressions(
-          `\${{ ${inner} }}`,
-          repoPath,
-          secrets,
-          matrixContext,
-          needsContext,
-          inputsContext,
-        );
-      }
-      try {
-        const parsed = JSON.parse(rawValue);
-        if (typeof parsed === "string") {
-          return parsed;
-        }
-        return JSON.stringify(parsed);
-      } catch {
-        return "";
-      }
-    }
-
-    // toJSON(expr) — serialize a value to JSON
-    const toJsonMatch = trimmed.match(/^toJSON\(([\s\S]+)\)$/);
-    if (toJsonMatch) {
-      const inner = toJsonMatch[1].trim();
-      let rawValue: string;
-      if (
-        (inner.startsWith("'") && inner.endsWith("'")) ||
-        (inner.startsWith('"') && inner.endsWith('"'))
-      ) {
-        rawValue = inner.slice(1, -1);
-      } else {
-        rawValue = expandExpressions(
-          `\${{ ${inner} }}`,
-          repoPath,
-          secrets,
-          matrixContext,
-          needsContext,
-          inputsContext,
-        );
-      }
-      return JSON.stringify(rawValue);
-    }
-
-    // format('template {0} {1}', arg0, arg1)
-    const formatMatch = trimmed.match(/^format\(([\s\S]+)\)$/);
-    if (formatMatch) {
-      const formatArgs = formatMatch[1].match(/(?:['"][^'"]*['"]|[^,]+)/g) ?? [];
-      const cleaned = formatArgs.map((a) => a.trim().replace(/^['"]|['"]$/g, ""));
-      const template = cleaned[0] || "";
-      const args = cleaned.slice(1);
-      return template.replace(/\{(\d+)\}/g, (_m, idx) => {
-        const i = parseInt(idx, 10);
-        if (i < args.length) {
-          // Recursively expand the arg value in case it's a context reference
-          return expandExpressions(
-            `\${{ ${args[i]} }}`,
-            repoPath,
-            secrets,
-            matrixContext,
-            needsContext,
-            inputsContext,
-          );
-        }
-        return "";
-      });
-    }
-
-    // Context variable substitutions
-    if (trimmed === "runner.os") {
-      return "Linux";
-    }
-    if (trimmed === "runner.arch") {
-      return "X64";
-    }
-    if (trimmed === "github.run_id") {
-      return "1";
-    }
-    if (trimmed === "github.run_number") {
-      return "1";
-    }
-    if (trimmed === "github.sha" || trimmed === "github.head_sha") {
-      return "0000000000000000000000000000000000000000";
-    }
-    if (trimmed === "github.ref_name" || trimmed === "github.head_ref") {
-      return "main";
-    }
-    if (trimmed === "github.repository") {
-      return "local/repo";
-    }
-    if (trimmed === "github.actor") {
-      return "local";
-    }
-    if (trimmed === "github.event.pull_request.number") {
-      return "";
-    }
-    if (trimmed === "github.event.pull_request.title") {
-      return "";
-    }
-    if (trimmed === "github.event.pull_request.user.login") {
-      return "";
-    }
-    if (trimmed === "strategy.job-total") {
-      return matrixContext?.["__job_total"] ?? "1";
-    }
-    if (trimmed === "strategy.job-index") {
-      return matrixContext?.["__job_index"] ?? "0";
-    }
-    if (trimmed.startsWith("matrix.")) {
-      const key = trimmed.slice("matrix.".length);
-      return matrixContext?.[key] ?? "";
-    }
-    if (trimmed.startsWith("secrets.")) {
-      const name = trimmed.slice("secrets.".length);
-      return secrets?.[name] ?? "";
-    }
-    if (trimmed.startsWith("inputs.")) {
-      const name = trimmed.slice("inputs.".length);
-      return inputsContext?.[name] ?? "";
-    }
-    if (trimmed.startsWith("steps.") && trimmed.endsWith(".outputs.cache-hit")) {
-      return "";
-    }
-    if (trimmed.startsWith("steps.")) {
-      // Leave steps.* expressions for the runner to resolve at execution time.
-      // The runner maintains the steps context as steps complete, so these
-      // must not be expanded at parse time.
+    const result = evaluateExprValue(
+      expr,
+      repoPath,
+      secrets,
+      matrixContext,
+      needsContext,
+      inputsContext,
+    );
+    // Steps references are deferred to runtime — preserve the ${{ }} syntax
+    if (result === STEPS_DEFERRED_SENTINEL) {
       return _match;
     }
-    if (trimmed.startsWith("needs.") && needsContext) {
-      // needs.<jobId>.outputs.<name> or needs.<jobId>.result
-      const parts = trimmed.split(".");
-      const jobId = parts[1];
-      const jobOutputs = needsContext[jobId];
-      if (parts[2] === "outputs" && parts[3]) {
-        return jobOutputs?.[parts[3]] ?? "";
-      }
-      if (parts[2] === "result") {
-        // If the job is in the needsContext, it completed (default to 'success')
-        return jobOutputs ? (jobOutputs["__result"] ?? "success") : "";
-      }
-      return "";
-    }
-    if (trimmed.startsWith("needs.")) {
-      return "";
-    }
-
-    // Unknown expressions — return empty string (safe: no commas injected)
-    return "";
+    return result;
   });
 }
 
@@ -533,17 +923,23 @@ export async function parseWorkflowSteps(
                   lfs: "false",
                   submodules: "false",
                   ...Object.fromEntries(
-                    Object.entries(stepWith).map(([k, v]) => [
-                      k,
-                      expandExpressions(
+                    Object.entries(stepWith).map(([k, v]) => {
+                      let expanded = expandExpressions(
                         String(v),
                         repoPath,
                         secrets,
                         undefined,
                         needsContext,
                         inputsContext,
-                      ),
-                    ]),
+                      );
+                      // The zero hash is a placeholder for "no SHA available" —
+                      // normalize it to empty string so actions/checkout uses the
+                      // default branch instead of trying to fetch a nonexistent ref.
+                      if (k === "ref" && expanded === "0000000000000000000000000000000000000000") {
+                        expanded = "";
+                      }
+                      return [k, expanded];
+                    }),
                   ),
                 }
               : {}), // Prevent actions/checkout from wiping the rsynced workspace

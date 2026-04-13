@@ -87,6 +87,7 @@ async function run() {
     let noMatrix = false;
     let githubToken: string | undefined;
     let commitStatus = false;
+    let maxJobs: number | undefined;
 
     for (let i = 1; i < args.length; i++) {
       if ((args[i] === "--workflow" || args[i] === "-w") && args[i + 1]) {
@@ -100,6 +101,13 @@ async function run() {
         setQuietMode(true);
       } else if (args[i] === "--no-matrix") {
         noMatrix = true;
+      } else if ((args[i] === "--jobs" || args[i] === "-j") && args[i + 1]) {
+        maxJobs = parseInt(args[i + 1], 10);
+        if (!Number.isFinite(maxJobs) || maxJobs < 1) {
+          console.error("[Agent CI] Error: --jobs must be a positive integer");
+          process.exit(1);
+        }
+        i++;
       } else if (args[i] === "--commit-status") {
         commitStatus = true;
       } else if (args[i] === "--github-token") {
@@ -197,6 +205,7 @@ async function run() {
         pauseOnFailure,
         noMatrix,
         githubToken,
+        maxJobs,
       });
       if (results.length > 0) {
         printSummary(results);
@@ -237,6 +246,7 @@ async function run() {
       pauseOnFailure,
       noMatrix,
       githubToken,
+      maxJobs,
     });
     if (results.length > 0) {
       printSummary(results);
@@ -366,6 +376,7 @@ async function runWorkflows(options: {
   pauseOnFailure: boolean;
   noMatrix?: boolean;
   githubToken?: string;
+  maxJobs?: number;
 }): Promise<JobResult[]> {
   const { workflowPaths, sha, pauseOnFailure, noMatrix = false, githubToken } = options;
 
@@ -467,7 +478,7 @@ async function runWorkflows(options: {
   // --all mode launches every workflow in parallel — leading to 20+
   // simultaneous containers that exhaust available memory and trigger
   // OOM kills (exit 137). See issue #225.
-  const globalLimiter = createConcurrencyLimiter(getDefaultMaxConcurrentJobs());
+  const globalLimiter = createConcurrencyLimiter(options.maxJobs ?? getDefaultMaxConcurrentJobs());
 
   try {
     const allResults: JobResult[] = [];
@@ -1170,6 +1181,9 @@ function printUsage() {
   console.log("Options:");
   console.log("  -w, --workflow <path>         Path to the workflow file");
   console.log("  -a, --all                     Discover and run all relevant workflows");
+  console.log(
+    "  -j, --jobs <n>                Max concurrent containers (auto-detected from CPU/memory)",
+  );
   console.log("  -p, --pause-on-failure         Pause on step failure for interactive debugging");
   console.log(
     "  -q, --quiet                   Suppress animated rendering (also enabled by AI_AGENT=1)",

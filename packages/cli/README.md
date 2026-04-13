@@ -68,6 +68,7 @@ Run GitHub Actions workflow jobs locally.
 | -------------------------- | ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `--workflow <path>`        | `-w`  | Path to the workflow file                                                                                                                                    |
 | `--all`                    | `-a`  | Discover and run all relevant workflows for the current branch                                                                                               |
+| `--jobs <n>`               | `-j`  | Max concurrent containers (overrides auto-detection)                                                                                                         |
 | `--pause-on-failure`       | `-p`  | Pause on step failure for interactive debugging                                                                                                              |
 | `--quiet`                  | `-q`  | Suppress animated rendering (also enabled by `AI_AGENT=1`)                                                                                                   |
 | `--no-matrix`              |       | Collapse all matrix combinations into a single job (uses first value of each key)                                                                            |
@@ -93,6 +94,29 @@ Abort a paused runner and tear down its container.
 | Flag            | Short | Description                                   |
 | --------------- | ----- | --------------------------------------------- |
 | `--name <name>` | `-n`  | Name of the paused runner to abort (required) |
+
+## Concurrency
+
+When running multiple workflows (`--all`), Agent CI limits how many containers run at the same time to avoid running out of memory.
+
+The limit is auto-detected using two factors:
+
+- **CPU**: `floor(cpuCount / 2)`
+- **Memory**: `floor(availableDockerMemory / 4GB)`
+
+Whichever is lower wins. For example, on a machine with 14 CPUs and a Docker VM with 12 GB of RAM, the CPU limit is 7 and the memory limit is 2 — so 2 containers run at a time.
+
+To check available memory, Agent CI reads `MemAvailable` from `/proc/meminfo` inside the Docker VM. This accounts for the VM's kernel, daemon, and any other running containers. If that fails, it falls back to `docker info` total memory minus 4 GB.
+
+You can override the auto-detected limit with `--jobs`:
+
+```bash
+# Run at most 4 containers at a time
+npx agent-ci run --all --jobs 4
+
+# Run one at a time (safest, slowest)
+npx agent-ci run --all --jobs 1
+```
 
 ## YAML Compatibility
 

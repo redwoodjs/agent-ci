@@ -23,7 +23,6 @@ import {
   parseWorkflowServices,
   parseWorkflowContainer,
   parseJobRunsOnLabels,
-  parseMergedJobEnv,
   validateSecrets,
   extractSecretRefs,
   parseMatrixDef,
@@ -786,13 +785,11 @@ async function handleWorkflow(options: {
   const hostResources = getHostResources();
   for (const job of expandedJobs) {
     const labels = parseJobRunsOnLabels(workflowPath, job.taskName);
-    const env = parseMergedJobEnv(workflowPath, job.taskName, job.matrixContext);
     const matrixDef = await parseMatrixDef(workflowPath, job.taskName);
     const services = await parseWorkflowServices(workflowPath, job.taskName);
     const container = await parseWorkflowContainer(workflowPath, job.taskName);
     const hints = collectJobResourceHints({
       labels,
-      env,
       matrixJobTotal:
         matrixDef && job.matrixContext
           ? Number.parseInt(job.matrixContext.__job_total ?? "1", 10)

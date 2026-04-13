@@ -156,11 +156,18 @@ function buildJobNodes(job: JobState, singleJobMode: boolean): TreeNode[] {
 
   // ── Completed / failed in multi-job mode → collapse to one line ────────────
   if (!singleJobMode && (job.status === "completed" || job.status === "failed")) {
-    const icon = job.failedStep ? `${RED}✗${RESET}` : "✓";
     const dur = job.durationMs !== undefined ? ` (${Math.round(job.durationMs / 1000)}s)` : "";
+    if (job.failedStep) {
+      return [
+        {
+          label: `${RED}✗ ${job.id}${degradedTag} ${DIM}${job.runnerId}${RESET}${dur}`,
+          children: degradedNode,
+        },
+      ];
+    }
     return [
       {
-        label: `${icon} ${job.id}${degradedTag} ${DIM}${job.runnerId}${RESET}${dur}`,
+        label: `✓ ${job.id}${degradedTag} ${DIM}${job.runnerId}${RESET}${dur}`,
         children: degradedNode,
       },
     ];

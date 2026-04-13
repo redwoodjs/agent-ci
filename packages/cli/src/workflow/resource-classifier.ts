@@ -92,6 +92,10 @@ function hasExplicitResourceHints(hints: JobResourceHints): boolean {
   return hints.requestedCpuCount !== undefined || hints.requestedNodeHeapMb !== undefined;
 }
 
+function hasUnknownRunnerLabel(hints: JobResourceHints): boolean {
+  return hints.requestedNodeHeapMb === undefined && hints.requestedCpuCount === undefined;
+}
+
 function buildAction(dockerHost: string): string {
   if (dockerHost.startsWith("unix://")) {
     return "Use a larger host or set DOCKER_HOST=ssh://<user>@<host> for a remote Docker daemon.";
@@ -133,6 +137,13 @@ export function classifyJobResources(
 
   if (!hostInspectable && explicitHintsPresent) {
     reasons.push("host resource inspection failed while explicit resource hints were present");
+  }
+
+  const unknownRunner = hasUnknownRunnerLabel(hints);
+  if (unknownRunner && hostInspectable) {
+    reasons.push(
+      `unknown runner label(s) [${hints.labels.join(", ")}] - assuming local host capacity (${host.cpuCount} CPU, ${Math.round(host.totalMemoryMb)} MB)`,
+    );
   }
 
   if (reasons.length === 0) {

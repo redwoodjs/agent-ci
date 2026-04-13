@@ -49,20 +49,14 @@ Agent CI does not re-implement GitHub Actions. It emulates the **server-side API
   - **macOS:** [OrbStack](https://orbstack.dev/) (recommended) or Docker Desktop
   - **Linux:** Native Docker Engine
 
-### Install
-
-```bash
-npm install -D @redwoodjs/agent-ci
-```
-
 ### Run
 
 ```bash
 # Run a specific workflow
-npx agent-ci run --workflow .github/workflows/ci.yml
+npx @redwoodjs/agent-ci run --workflow .github/workflows/ci.yml
 
 # Run all relevant workflows for the current branch
-npx agent-ci run --all
+npx @redwoodjs/agent-ci run --all
 ```
 
 Agent CI runs against your **current working tree** — uncommitted changes are included automatically. No need to commit or stash before running.
@@ -70,7 +64,7 @@ Agent CI runs against your **current working tree** — uncommitted changes are 
 ### Retry a failed step
 
 ```bash
-npx agent-ci retry --name <runner-name>
+npx @redwoodjs/agent-ci retry --name <runner-name>
 ```
 
 ---
@@ -116,7 +110,7 @@ Abort a paused runner and tear down its container.
 Agent CI connects to Docker via `DOCKER_HOST`. By default it uses the local socket, but you can point it at any remote daemon:
 
 ```bash
-DOCKER_HOST=ssh://user@remote-server npx agent-ci run --workflow .github/workflows/ci.yml
+DOCKER_HOST=ssh://user@remote-server npx @redwoodjs/agent-ci run --workflow .github/workflows/ci.yml
 ```
 
 ### Docker host resolution for job containers
@@ -213,7 +207,7 @@ Set `DEBUG` to enable verbose logging. It accepts comma-separated glob patterns:
 | `DEBUG=agent-ci:cli,agent-ci:dtu` | Multiple namespaces           |
 
 ```bash
-DEBUG=agent-ci:* npx agent-ci run --workflow .github/workflows/ci.yml
+DEBUG=agent-ci:* npx @redwoodjs/agent-ci run --workflow .github/workflows/ci.yml
 ```
 
 Output goes to **stderr**. If `DEBUG` is unset, debug loggers are no-ops with zero overhead.
@@ -232,6 +226,12 @@ This works with Claude Code, Cursor, Codex, and [40+ other agents](https://agent
 
 ```markdown
 ## CI
+
+Install the agent-ci skill (one-time setup):
+
+\`\`\`bash
+npx skills add redwoodjs/agent-ci --skill agent-ci
+\`\`\`
 
 Before completing any work, run the `agent-ci` skill to validate your changes locally. If it fails, fix the issue and re-run. Do not report work as done until it passes.
 ```

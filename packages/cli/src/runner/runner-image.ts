@@ -191,47 +191,12 @@ function shellQuote(s: string): string {
 
 // ─── Error-hint heuristic ────────────────────────────────────────────────────
 
-interface MissingToolCase {
-  pattern: RegExp;
-  tool: string;
-  apt: string;
-}
-
-const MISSING_TOOL_PATTERNS: MissingToolCase[] = [
-  {
-    pattern: /linker [`'"]?cc[`'"]? not found|\bcc:\s*(command )?not found|\bcc1?:\s*error/i,
-    tool: "cc",
-    apt: "build-essential",
-  },
-  {
-    pattern: /\bgcc:\s*(command )?not found/i,
-    tool: "gcc",
-    apt: "build-essential",
-  },
-  {
-    pattern: /\bg\+\+:\s*(command )?not found/i,
-    tool: "g++",
-    apt: "build-essential",
-  },
-  {
-    pattern: /\bmake:\s*(command )?not found/i,
-    tool: "make",
-    apt: "build-essential",
-  },
-  {
-    pattern: /\bpython3?:\s*(command )?not found/i,
-    tool: "python3",
-    apt: "python3",
-  },
-  {
-    pattern: /\bpkg-config:\s*(command )?not found/i,
-    tool: "pkg-config",
-    apt: "pkg-config",
-  },
-];
+/** Generic "command not found" — captures the tool name. */
+const COMMAND_NOT_FOUND_RE =
+  /\b([\w.+-]+):\s*(?:command )?not found|linker [`'"]?([\w.+-]+)[`'"]? not found|you do not have '([\w.+-]+)' installed/i;
 
 /**
- * Scan failure output for known "missing tool" patterns and return a hint the
+ * Scan failure output for "command not found" patterns and return a hint the
  * reporter can print. Returns null if nothing matches OR if the user is already
  * on a custom runner image (in which case we'd just be nagging).
  */
@@ -242,15 +207,15 @@ export function detectMissingToolHint(
   if (resolved.source !== "default") {
     return null;
   }
-  for (const { pattern, tool, apt } of MISSING_TOOL_PATTERNS) {
-    if (pattern.test(errorContent)) {
-      return formatHint(tool, apt);
-    }
+  const m = COMMAND_NOT_FOUND_RE.exec(errorContent);
+  if (!m) {
+    return null;
   }
-  return null;
+  const tool = m[1] ?? m[2] ?? m[3];
+  return formatHint(tool);
 }
 
-function formatHint(tool: string, apt: string): string {
+function formatHint(tool: string): string {
   return [
     `Hint: \`${tool}\` is not in agent-ci's default runner image.`,
     ``,
@@ -259,14 +224,9 @@ function formatHint(tool: string, apt: string): string {
     `ubuntu-latest, which is a full VM image that is not published as a`,
     `container and cannot be pulled.`,
     ``,
-    `To add \`${tool}\`, create .github/agent-ci.Dockerfile in your repo:`,
-    ``,
-    `    FROM ghcr.io/actions/actions-runner:latest`,
-    `    RUN sudo apt-get update \\`,
-    `     && sudo apt-get install -y --no-install-recommends ${apt} \\`,
-    `     && sudo rm -rf /var/lib/apt/lists/*`,
-    ``,
-    `and re-run. agent-ci will build and cache this image automatically.`,
+    `To fix this, create a .github/agent-ci.Dockerfile in your repo that`,
+    `installs the missing tool. See the runner image docs for recipes:`,
+    `https://github.com/redwoodjs/agent-ci/blob/main/packages/cli/runner-image.md`,
   ].join("\n");
 }
 

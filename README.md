@@ -169,6 +169,26 @@ All configuration is available via environment variables. For persistent machine
 
 ---
 
+## Runner image
+
+By default, jobs run inside `ghcr.io/actions/actions-runner:latest` — the official self-hosted runner image. It includes the runner agent, Node.js, git, curl, jq, and unzip, but **not** build toolchains, `python3`, `xz`, or other tools that GitHub's hosted `ubuntu-latest` VM ships.
+
+If a workflow fails with a missing tool, create a Dockerfile to add it:
+
+```dockerfile
+# .github/agent-ci.Dockerfile
+FROM ghcr.io/actions/actions-runner:latest
+RUN sudo apt-get update \
+ && sudo apt-get install -y --no-install-recommends <your-packages> \
+ && sudo rm -rf /var/lib/apt/lists/*
+```
+
+Agent CI picks it up automatically — no flags, no config. The image is built once and cached by content hash.
+
+For the full guide — directory form with `COPY` support, per-job overrides, common recipes (Rust, Node native modules, Go, Ruby, Nix), the `AGENT_CI_RUNNER_IMAGE` escape hatch, and build caching details — see [runner-image.md](./packages/cli/runner-image.md).
+
+---
+
 ## YAML compatibility
 
 See [compatibility.md](./packages/cli/compatibility.md) for detailed GitHub Actions workflow syntax support.

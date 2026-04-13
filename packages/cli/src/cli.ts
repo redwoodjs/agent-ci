@@ -54,7 +54,7 @@ import { computeDirtySha } from "./runner/dirty-sha.js";
 import { RunStateStore } from "./output/run-state.js";
 import { renderRunState } from "./output/state-renderer.js";
 import { isAgentMode, setQuietMode } from "./output/agent-mode.js";
-import logUpdate from "log-update";
+import { createDiffRenderer } from "./output/diff-renderer.js";
 import { createFailedJobResult, wrapJobError, isJobError } from "./runner/job-result.js";
 import { postCommitStatus } from "./commit-status.js";
 
@@ -393,6 +393,7 @@ async function runWorkflows(options: {
   // In agent mode (AI_AGENT=1 or --quiet), skip animated rendering to avoid token waste
   // but register a synchronous callback for important state changes.
   let renderInterval: ReturnType<typeof setInterval> | null = null;
+  let renderer: ReturnType<typeof createDiffRenderer> | null = null;
   if (isAgentMode()) {
     const reportedPauses = new Set<string>();
     const reportedSteps = new Map<string, Set<string>>();
@@ -438,10 +439,12 @@ async function runWorkflows(options: {
       }
     });
   } else {
+    renderer = createDiffRenderer();
+    const render = renderer;
     renderInterval = setInterval(() => {
       const state = store.getState();
       if (state.workflows.length > 0) {
-        logUpdate(renderRunState(state));
+        render.update(renderRunState(state));
       }
     }, 80);
   }
@@ -596,13 +599,13 @@ async function runWorkflows(options: {
     if (renderInterval) {
       clearInterval(renderInterval);
     }
-    if (!isAgentMode()) {
+    if (renderer) {
       // Final render — show the completed state
       const finalState = store.getState();
       if (finalState.workflows.length > 0) {
-        logUpdate(renderRunState(finalState));
+        renderer.update(renderRunState(finalState));
       }
-      logUpdate.done();
+      renderer.done();
     }
   }
 }

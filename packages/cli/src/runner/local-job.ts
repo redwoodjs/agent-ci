@@ -1,6 +1,7 @@
 import Docker from "dockerode";
 import path from "path";
 import fs from "fs";
+import fsp from "fs/promises";
 import { execSync } from "child_process";
 import { createInterface } from "readline";
 import { config } from "../config.js";
@@ -971,18 +972,15 @@ export async function executeLocalJob(
     if (serviceCtx) {
       await cleanupServiceContainers(getDocker(), serviceCtx, (line) => debugRunner(line));
     }
-    if (fs.existsSync(dirs.shimsDir)) {
-      fs.rmSync(dirs.shimsDir, { recursive: true, force: true });
-    }
-    if (!pauseOnFailure && fs.existsSync(dirs.signalsDir)) {
-      fs.rmSync(dirs.signalsDir, { recursive: true, force: true });
-    }
-    if (fs.existsSync(dirs.diagDir)) {
-      fs.rmSync(dirs.diagDir, { recursive: true, force: true });
-    }
-    if (fs.existsSync(hostRunnerDir)) {
-      fs.rmSync(hostRunnerDir, { recursive: true, force: true });
-    }
+    // Clean up temp dirs asynchronously to avoid blocking the event loop
+    // (which would freeze spinner rendering for all other runners).
+    const rmOpts = { recursive: true, force: true } as const;
+    await Promise.all([
+      fsp.rm(dirs.shimsDir, rmOpts).catch(() => {}),
+      !pauseOnFailure ? fsp.rm(dirs.signalsDir, rmOpts).catch(() => {}) : undefined,
+      fsp.rm(dirs.diagDir, rmOpts).catch(() => {}),
+      fsp.rm(hostRunnerDir, rmOpts).catch(() => {}),
+    ]);
     await ephemeralDtu?.close().catch(() => {});
     process.removeListener("SIGINT", signalCleanup);
     process.removeListener("SIGTERM", signalCleanup);

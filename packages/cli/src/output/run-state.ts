@@ -1,4 +1,5 @@
 import fs from "fs";
+import fsp from "fs/promises";
 import path from "path";
 
 // ─── Status types ─────────────────────────────────────────────────────────────
@@ -216,17 +217,18 @@ export class RunStateStore {
   }
 
   /**
-   * Atomically write state to disk.
+   * Atomically write state to disk (async, non-blocking).
    * Uses write-tmp-then-rename to prevent corruption on concurrent reads.
    */
   save(): void {
-    try {
-      const tmp = this.filePath + ".tmp";
-      fs.writeFileSync(tmp, JSON.stringify(this.state, null, 2));
-      fs.renameSync(tmp, this.filePath);
-    } catch {
-      // Best-effort — rendering uses in-memory state, not disk
-    }
+    const tmp = this.filePath + ".tmp";
+    const data = JSON.stringify(this.state, null, 2);
+    fsp
+      .writeFile(tmp, data)
+      .then(() => fsp.rename(tmp, this.filePath))
+      .catch(() => {
+        // Best-effort — rendering uses in-memory state, not disk
+      });
   }
 
   /** Load a previously-written RunState from disk. */

@@ -1,5 +1,13 @@
 # @redwoodjs/agent-ci
 
+## 0.10.5
+
+### Patch Changes
+
+- 2e2bd5e: fix: always show workflows and jobs in --all mode, fix duplicate matrix jobs
+- Updated dependencies [2e2bd5e]
+  - dtu-github-actions@0.10.5
+
 ## 0.10.4
 
 ### Patch Changes

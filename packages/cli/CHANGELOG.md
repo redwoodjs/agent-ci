@@ -1,5 +1,11 @@
 # @redwoodjs/agent-ci
 
+## 0.10.4
+
+### Patch Changes
+
+- Fix Cypress install failing with EACCES on `/home/runner/.cache/Cypress` (#234).
+
 ## 0.10.3
 
 ### Patch Changes

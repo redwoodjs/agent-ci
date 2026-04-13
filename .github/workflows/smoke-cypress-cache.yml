@@ -1,0 +1,97 @@
+name: "Smoke: Cypress cache directory permissions"
+
+# Reproduces #234 — Cypress postinstall fails with EACCES because
+# /home/runner/.cache is created as root by the Playwright bind mount.
+#
+# The Playwright cache is bind-mounted at /home/runner/.cache/ms-playwright,
+# which causes Docker to create the parent /home/runner/.cache as root:root.
+# When Cypress's postinstall script runs `mkdir /home/runner/.cache/Cypress`,
+# it fails with:
+#
+#   EACCES: permission denied, mkdir '/home/runner/.cache/Cypress'
+#
+# This smoke test creates a minimal npm project whose inner workflow
+# verifies that /home/runner/.cache is writable — the same operation
+# Cypress needs during its postinstall.
+
+on:
+  pull_request_target:
+    types: [opened, labeled, synchronize]
+
+jobs:
+  cypress-cache:
+    if: '!github.event.pull_request.draft && (contains(fromJSON(''["MEMBER", "OWNER", "COLLABORATOR"]''), github.event.pull_request.author_association) || contains(github.event.pull_request.labels.*.name, ''safe-to-run''))'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.30.1
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: "pnpm"
+
+      - run: pnpm install
+
+      - name: Build agent-ci
+        run: pnpm --filter @redwoodjs/agent-ci... -r build
+
+      - name: Create temp npm project
+        run: |
+          mkdir -p /tmp/cypress-repro/.github/workflows
+
+          cat > /tmp/cypress-repro/package.json << 'PKG'
+          { "name": "cypress-repro", "private": true }
+          PKG
+
+          # Minimal package-lock.json so detectPackageManager() returns "npm"
+          cat > /tmp/cypress-repro/package-lock.json << 'LOCK'
+          {
+            "name": "cypress-repro",
+            "lockfileVersion": 3,
+            "requires": true,
+            "packages": {
+              "": { "name": "cypress-repro" }
+            }
+          }
+          LOCK
+
+          # Inner workflow: reproduce the mkdir that Cypress postinstall performs
+          cat > /tmp/cypress-repro/.github/workflows/test.yml << 'WF'
+          name: Test
+          on: push
+          jobs:
+            test:
+              runs-on: ubuntu-latest
+              steps:
+                - name: Verify .cache is writable (Cypress postinstall needs this)
+                  run: |
+                    echo "Parent .cache owner:"
+                    ls -la /home/runner/ | grep .cache || echo ".cache does not exist"
+                    echo "---"
+                    # This is what Cypress postinstall does — mkdir its cache dir
+                    mkdir -p /home/runner/.cache/Cypress
+                    echo "Successfully created /home/runner/.cache/Cypress"
+                    touch /home/runner/.cache/Cypress/test-file
+                    echo "Successfully wrote to /home/runner/.cache/Cypress"
+          WF
+
+          cd /tmp/cypress-repro
+          git init
+          git remote add origin https://github.com/test-org/cypress-repro.git
+          git add -A
+          git -c user.name="test" -c user.email="test@test.com" commit -m "init"
+
+      - name: Run agent-ci against npm project
+        working-directory: /tmp/cypress-repro
+        run: |
+          node "$GITHUB_WORKSPACE/packages/cli/dist/cli.js" \
+            run --workflow .github/workflows/test.yml --quiet

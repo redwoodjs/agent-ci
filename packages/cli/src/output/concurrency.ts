@@ -92,8 +92,8 @@ function getDockerAvailableMemoryBytes(): number | undefined {
   return undefined;
 }
 
-/** Estimated memory per container: runner binary + Ubuntu + typical workload. */
-const BYTES_PER_CONTAINER = 3 * 1024 * 1024 * 1024; // 3 GB
+/** Estimated memory per container: runner binary + Ubuntu + heavy workloads (vitest, full builds). */
+const BYTES_PER_CONTAINER = 4 * 1024 * 1024 * 1024; // 4 GB
 
 /**
  * Determine the default max concurrent jobs based on CPU count and available

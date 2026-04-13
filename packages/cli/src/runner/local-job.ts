@@ -2,7 +2,8 @@ import Docker from "dockerode";
 import path from "path";
 import fs from "fs";
 import fsp from "fs/promises";
-import { execSync } from "child_process";
+import { exec, execSync } from "child_process";
+import { promisify } from "util";
 import { createInterface } from "readline";
 import { config } from "../config.js";
 import { Job } from "../types.js";
@@ -337,7 +338,7 @@ export async function executeLocalJob(
     const workspacePrepStart = Date.now();
     const workspacePrepPromise = (async () => {
       try {
-        prepareWorkspace({
+        await prepareWorkspace({
           workflowPath: job.workflowPath,
           headSha: job.headSha,
           githubRepo: job.githubRepo,
@@ -348,7 +349,8 @@ export async function executeLocalJob(
       }
 
       try {
-        execSync(`chmod -R 777 "${dirs.containerWorkDir}" "${dirs.diagDir}"`, { stdio: "pipe" });
+        const execAsync = promisify(exec);
+        await execAsync(`chmod -R 777 "${dirs.containerWorkDir}" "${dirs.diagDir}"`);
       } catch {
         // Non-fatal: entrypoint has a fallback
       }

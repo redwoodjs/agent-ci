@@ -9,6 +9,8 @@
 
 const ESC = "\x1b";
 const CUD1 = `${ESC}[1B`; // cursor down 1 row (no scroll, no CR)
+const SYNC_START = `${ESC}[?2026h`; // DEC synchronized output — begin
+const SYNC_END = `${ESC}[?2026l`; // DEC synchronized output — end
 
 export interface DiffRenderer {
   /** Diff-render the output, only updating changed lines. */
@@ -42,8 +44,10 @@ export function createDiffRenderer(): DiffRenderer {
         return;
       }
 
-      // Move cursor to the top of the previous output
-      let buf = `${ESC}[${prevLines.length}A\r`;
+      // Begin synchronized update — terminal buffers all changes and
+      // repaints once at SYNC_END, eliminating mid-frame flicker.
+      // Terminals that don't support DEC sync silently ignore the markers.
+      let buf = `${SYNC_START}${ESC}[${prevLines.length}A\r`;
 
       // Diff lines that exist in both old and new output.
       // Use CUD1+\r for movement — never bare \n — so column is always 0.
@@ -69,6 +73,7 @@ export function createDiffRenderer(): DiffRenderer {
         buf += `${ESC}[${prevLines.length - newLines.length}A\r`;
       }
 
+      buf += SYNC_END;
       process.stdout.write(buf);
       prevLines = newLines;
     },

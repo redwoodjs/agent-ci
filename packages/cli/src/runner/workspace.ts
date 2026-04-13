@@ -1,6 +1,9 @@
-import { execSync } from "child_process";
+import { exec, execSync } from "child_process";
+import { promisify } from "util";
 import { copyWorkspace } from "../output/cleanup.js";
 import { findRepoRoot } from "./metadata.js";
+
+const execAsync = promisify(exec);
 
 // ─── Workspace preparation ────────────────────────────────────────────────────
 
@@ -15,7 +18,7 @@ export interface PrepareWorkspaceOpts {
  * Copy source files into the workspace directory, then initialise a fake
  * git repo so `actions/checkout` finds a valid workspace.
  */
-export function prepareWorkspace(opts: PrepareWorkspaceOpts): void {
+export async function prepareWorkspace(opts: PrepareWorkspaceOpts): Promise<void> {
   const { workflowPath, headSha, githubRepo, workspaceDir } = opts;
 
   // Resolve repo root — needed for both archive and rsync paths.
@@ -31,8 +34,7 @@ export function prepareWorkspace(opts: PrepareWorkspaceOpts): void {
 
   if (headSha && headSha !== "HEAD") {
     // Specific SHA requested — use git archive (clean snapshot)
-    execSync(`git archive ${headSha} | tar -x -C ${workspaceDir}`, {
-      stdio: "pipe",
+    await execAsync(`git archive ${headSha} | tar -x -C ${workspaceDir}`, {
       cwd: repoRoot,
     });
   } else {
@@ -43,7 +45,7 @@ export function prepareWorkspace(opts: PrepareWorkspaceOpts): void {
   }
 
   if (githubRepo) {
-    initFakeGitRepo(workspaceDir, githubRepo);
+    await initFakeGitRepo(workspaceDir, githubRepo);
   }
 }
 
@@ -52,30 +54,22 @@ export function prepareWorkspace(opts: PrepareWorkspaceOpts): void {
 /**
  * Initialise a fake git repository in `dir` so that `actions/checkout`
  * finds a valid workspace with a remote origin and detached HEAD.
+ *
+ * Each command is awaited individually so the event loop can service the
+ * render timer between git process spawns (avoids freezing all spinners).
  */
-export function initFakeGitRepo(dir: string, githubRepo: string): void {
+async function initFakeGitRepo(dir: string, githubRepo: string): Promise<void> {
+  const opts = { cwd: dir };
   // The remote URL must exactly match what actions/checkout computes via URL.origin.
   // Node.js URL.origin strips the default port (80), so we must NOT include :80.
-  execSync(`git init`, { cwd: dir, stdio: "pipe" });
-  execSync(`git config user.name "agent-ci"`, { cwd: dir, stdio: "pipe" });
-  execSync(`git config user.email "agent-ci@example.com"`, {
-    cwd: dir,
-    stdio: "pipe",
-  });
-  execSync(`git remote add origin http://127.0.0.1/${githubRepo}`, {
-    cwd: dir,
-    stdio: "pipe",
-  });
-  execSync(`git add . && git commit -m "workspace" || true`, {
-    cwd: dir,
-    stdio: "pipe",
-  });
+  await execAsync(`git init`, opts);
+  await execAsync(`git config user.name "agent-ci"`, opts);
+  await execAsync(`git config user.email "agent-ci@example.com"`, opts);
+  await execAsync(`git remote add origin http://127.0.0.1/${githubRepo}`, opts);
+  await execAsync(`git add . && git commit -m "workspace" || true`, opts);
   // Create main and refs/remotes/origin/main pointing to this commit
-  execSync(`git branch -M main`, { cwd: dir, stdio: "pipe" });
-  execSync(`git update-ref refs/remotes/origin/main HEAD`, {
-    cwd: dir,
-    stdio: "pipe",
-  });
+  await execAsync(`git branch -M main`, opts);
+  await execAsync(`git update-ref refs/remotes/origin/main HEAD`, opts);
   // Detach HEAD so checkout can freely delete ALL branches (it can't delete the current branch)
-  execSync(`git checkout --detach HEAD`, { cwd: dir, stdio: "pipe" });
+  await execAsync(`git checkout --detach HEAD`, opts);
 }

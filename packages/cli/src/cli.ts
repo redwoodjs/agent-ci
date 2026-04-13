@@ -11,13 +11,13 @@ import {
 } from "./output/working-directory.js";
 import { debugCli } from "./output/debug.js";
 
+import type Docker from "dockerode";
 import { executeLocalJob, getDocker } from "./runner/local-job.js";
 import {
   discoverRunnerImage,
   ensureRunnerImage,
   UPSTREAM_RUNNER_IMAGE,
 } from "./runner/runner-image.js";
-import { ensureImagePulled } from "./docker/image-pull.js";
 import {
   parseWorkflowSteps,
   parseWorkflowServices,
@@ -337,7 +337,10 @@ async function prefetchRunnerImages(workflowPaths: string[]): Promise<void> {
 
   // The upstream runner image is always needed: default mode uses it
   // directly, direct-container mode uses it to seed the runner binary.
-  const pulls: Promise<unknown>[] = [ensureImagePulled(docker, UPSTREAM_RUNNER_IMAGE)];
+  // Check whether it's already cached — if not, pull with visible progress
+  // so first-time users understand what's happening instead of seeing a
+  // frozen spinner. See https://github.com/redwoodjs/agent-ci/issues/242
+  const pulls: Promise<unknown>[] = [pullUpstreamRunnerImage(docker)];
 
   // Additionally, each unique repo root may resolve to a custom runner
   // image (env override or Dockerfile). Build/pull each unique one.
@@ -360,10 +363,119 @@ async function prefetchRunnerImages(workflowPaths: string[]): Promise<void> {
   try {
     await Promise.all(pulls);
   } catch (err) {
-    // Don't block startup on prefetch failure — per-job calls will retry
-    // and produce a clearer error for the specific job that needs it.
-    debugCli(`[Agent CI] Image prefetch failed: ${(err as Error).message}`);
+    // Surface the error so users know what went wrong. Per-job calls in
+    // local-job.ts will retry, so this doesn't block startup.
+    console.error(`[Agent CI] Image prefetch failed: ${(err as Error).message}`);
   }
+}
+
+/**
+ * Pull the upstream runner image with user-visible progress output.
+ * On a cold cache (first run), pulling ~300 MB can take 30-60s — without
+ * feedback the CLI appears stuck. This mirrors the progress tracking that
+ * direct-container mode already does in local-job.ts.
+ */
+async function pullUpstreamRunnerImage(docker: Docker): Promise<void> {
+  try {
+    await docker.getImage(UPSTREAM_RUNNER_IMAGE).inspect();
+    return; // already cached
+  } catch {
+    // not present — fall through to pull
+  }
+
+  process.stderr.write(
+    `\nPulling runner image ${UPSTREAM_RUNNER_IMAGE}...\n` +
+      `  First run downloads the image (~300 MB); subsequent runs use the cache.\n\n`,
+  );
+
+  await new Promise<void>((resolve, reject) => {
+    docker.pull(UPSTREAM_RUNNER_IMAGE, (err: Error | null, stream: NodeJS.ReadableStream) => {
+      if (err) {
+        return reject(
+          new Error(`Failed to pull runner image '${UPSTREAM_RUNNER_IMAGE}': ${err.message}`),
+        );
+      }
+
+      const layerProgress = new Map<string, { current: number; total: number }>();
+      let currentPhase: "downloading" | "extracting" = "downloading";
+      let lastUpdate = 0;
+
+      const flushProgress = (force = false) => {
+        const now = Date.now();
+        if (!force && now - lastUpdate < 500) {
+          return;
+        }
+        lastUpdate = now;
+        let totalBytes = 0;
+        let currentBytes = 0;
+        for (const l of layerProgress.values()) {
+          totalBytes += l.total;
+          currentBytes += l.current;
+        }
+        if (totalBytes > 0) {
+          const pct = Math.round((currentBytes / totalBytes) * 100);
+          const currentMB = (currentBytes / 1_048_576).toFixed(0);
+          const totalMB = (totalBytes / 1_048_576).toFixed(0);
+          const label = currentPhase === "downloading" ? "Downloading" : "Extracting";
+          process.stderr.write(`\r  ${label}: ${pct}% (${currentMB} MB / ${totalMB} MB)  `);
+        }
+      };
+
+      docker.modem.followProgress(
+        stream,
+        (err: Error | null) => {
+          process.stderr.write("\r" + " ".repeat(60) + "\r");
+          if (err) {
+            reject(
+              new Error(`Failed to pull runner image '${UPSTREAM_RUNNER_IMAGE}': ${err.message}`),
+            );
+          } else {
+            process.stderr.write(`  Done.\n\n`);
+            resolve();
+          }
+        },
+        (event: {
+          status?: string;
+          id?: string;
+          progressDetail?: { current?: number; total?: number };
+        }) => {
+          if (!event.id) {
+            return;
+          }
+          const detail = event.progressDetail;
+          const hasByteCounts =
+            detail &&
+            typeof detail.current === "number" &&
+            typeof detail.total === "number" &&
+            detail.total > 0;
+
+          if (event.status === "Downloading" && hasByteCounts) {
+            layerProgress.set(event.id, { current: detail.current!, total: detail.total! });
+          } else if (event.status === "Download complete") {
+            const existing = layerProgress.get(event.id);
+            if (existing) {
+              existing.current = existing.total;
+            }
+          } else if (event.status === "Extracting" && hasByteCounts) {
+            if (currentPhase !== "extracting") {
+              currentPhase = "extracting";
+              layerProgress.clear();
+              flushProgress(true);
+            }
+            layerProgress.set(event.id, { current: detail.current!, total: detail.total! });
+          } else if (event.status === "Pull complete") {
+            const existing = layerProgress.get(event.id);
+            if (existing) {
+              existing.current = existing.total;
+            }
+          } else {
+            return;
+          }
+          flushProgress();
+        },
+      );
+    });
+  });
 }
 
 // ─── runWorkflows ──────────────────────────────────────────────────────────────

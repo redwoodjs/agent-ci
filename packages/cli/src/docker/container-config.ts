@@ -155,7 +155,7 @@ export function buildContainerCmd(opts: ContainerCmdOpts): string[] {
     // chmod is done host-side in workspacePrepPromise — skip it here
     `if [ -f /usr/bin/git ]; then MAYBE_SUDO mv /usr/bin/git /usr/bin/git.real 2>/dev/null; MAYBE_SUDO cp -p /tmp/agent-ci-shims/git /usr/bin/git 2>/dev/null; MAYBE_SUDO chmod +x /usr/bin/git 2>/dev/null; fi`,
     T("git-shim"),
-    `${svcPortForwardSnippet}MAYBE_SUDO chmod 666 /var/run/docker.sock 2>/dev/null || true`,
+    `${svcPortForwardSnippet}chmod 666 /var/run/docker.sock 2>/dev/null || true`,
     T("docker-sock"),
     `cd /home/runner`,
     `${credentialSnippet}true`,

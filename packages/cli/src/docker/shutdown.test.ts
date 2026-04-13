@@ -350,100 +350,109 @@ function dockerAvailable(): boolean {
   }
 }
 
-describe.skipIf(!dockerAvailable())("killOrphanedContainers (Docker integration)", () => {
-  const containerName = "agent-ci-orphan-smoke-svc-testdb";
-  const runnerName = "agent-ci-orphan-smoke";
+function insideDocker(): boolean {
+  return fs.existsSync("/.dockerenv");
+}
 
-  // Import the real function eagerly, outside vitest's mock system.
-  // The unit tests above use vi.doMock("node:child_process") which poisons
-  // dynamic imports even after vi.resetModules()/vi.unmock(). Spawning a
-  // fresh node process sidesteps that entirely — and this IS a smoke test,
-  // so exercising the real module resolution path is a feature, not a hack.
-  function runKillOrphanedContainers() {
-    execSync(
-      `npx tsx -e "import { killOrphanedContainers } from './src/docker/shutdown.ts'; killOrphanedContainers();"`,
-      { stdio: "pipe" },
-    );
-  }
+// Skip inside containers: killOrphanedContainers bails when /.dockerenv
+// exists (PID namespace mismatch), so integration tests can't exercise it.
+describe.skipIf(!dockerAvailable() || insideDocker())(
+  "killOrphanedContainers (Docker integration)",
+  () => {
+    const containerName = "agent-ci-orphan-smoke-svc-testdb";
+    const runnerName = "agent-ci-orphan-smoke";
 
-  afterEach(() => {
-    // Belt-and-suspenders: ensure we don't leak the test container
-    try {
-      execSync(`docker rm -f ${containerName}`, { stdio: "pipe" });
-    } catch {
-      // already gone — good
+    // Import the real function eagerly, outside vitest's mock system.
+    // The unit tests above use vi.doMock("node:child_process") which poisons
+    // dynamic imports even after vi.resetModules()/vi.unmock(). Spawning a
+    // fresh node process sidesteps that entirely — and this IS a smoke test,
+    // so exercising the real module resolution path is a feature, not a hack.
+    function runKillOrphanedContainers() {
+      execSync(
+        `npx tsx -e "import { killOrphanedContainers } from './src/docker/shutdown.ts'; killOrphanedContainers();"`,
+        { stdio: "pipe" },
+      );
     }
-    try {
-      execSync(`docker network rm agent-ci-net-${runnerName}`, { stdio: "pipe" });
-    } catch {
-      // already gone
-    }
-  });
 
-  it("cleans up an unlabeled service container", () => {
-    // Create a container that mimics a leaked pre-fix service container: no agent-ci.pid label
-    execSync(`docker create --name ${containerName} busybox sleep 300`, { stdio: "pipe" });
-    execSync(`docker start ${containerName}`, { stdio: "pipe" });
+    afterEach(() => {
+      // Belt-and-suspenders: ensure we don't leak the test container
+      try {
+        execSync(`docker rm -f ${containerName}`, { stdio: "pipe" });
+      } catch {
+        // already gone — good
+      }
+      try {
+        execSync(`docker network rm agent-ci-net-${runnerName}`, { stdio: "pipe" });
+      } catch {
+        // already gone
+      }
+    });
 
-    // Confirm it's running
-    const before = execSync(
-      `docker ps -q --filter "name=${containerName}" --filter "status=running"`,
-      { encoding: "utf8", stdio: "pipe" },
-    ).trim();
-    expect(before).not.toBe("");
+    it("cleans up an unlabeled service container", () => {
+      // Create a container that mimics a leaked pre-fix service container: no agent-ci.pid label
+      execSync(`docker create --name ${containerName} busybox sleep 300`, { stdio: "pipe" });
+      execSync(`docker start ${containerName}`, { stdio: "pipe" });
 
-    runKillOrphanedContainers();
+      // Confirm it's running
+      const before = execSync(
+        `docker ps -q --filter "name=${containerName}" --filter "status=running"`,
+        { encoding: "utf8", stdio: "pipe" },
+      ).trim();
+      expect(before).not.toBe("");
 
-    // Container should be gone
-    const after = execSync(`docker ps -aq --filter "name=${containerName}"`, {
-      encoding: "utf8",
-      stdio: "pipe",
-    }).trim();
-    expect(after).toBe("");
-  });
+      runKillOrphanedContainers();
 
-  it("cleans up a labeled service container whose parent PID is dead", () => {
-    // Use a PID that's guaranteed dead (PID 2^22 - 1 is extremely unlikely to exist)
-    const deadPid = "4194303";
+      // Container should be gone
+      const after = execSync(`docker ps -aq --filter "name=${containerName}"`, {
+        encoding: "utf8",
+        stdio: "pipe",
+      }).trim();
+      expect(after).toBe("");
+    });
 
-    execSync(
-      `docker create --name ${containerName} --label "agent-ci.pid=${deadPid}" busybox sleep 300`,
-      { stdio: "pipe" },
-    );
-    execSync(`docker start ${containerName}`, { stdio: "pipe" });
+    it("cleans up a labeled service container whose parent PID is dead", () => {
+      // Use a PID that's guaranteed dead (PID 2^22 - 1 is extremely unlikely to exist)
+      const deadPid = "4194303";
 
-    const before = execSync(
-      `docker ps -q --filter "name=${containerName}" --filter "status=running"`,
-      { encoding: "utf8", stdio: "pipe" },
-    ).trim();
-    expect(before).not.toBe("");
+      execSync(
+        `docker create --name ${containerName} --label "agent-ci.pid=${deadPid}" busybox sleep 300`,
+        { stdio: "pipe" },
+      );
+      execSync(`docker start ${containerName}`, { stdio: "pipe" });
 
-    runKillOrphanedContainers();
+      const before = execSync(
+        `docker ps -q --filter "name=${containerName}" --filter "status=running"`,
+        { encoding: "utf8", stdio: "pipe" },
+      ).trim();
+      expect(before).not.toBe("");
 
-    const after = execSync(`docker ps -aq --filter "name=${containerName}"`, {
-      encoding: "utf8",
-      stdio: "pipe",
-    }).trim();
-    expect(after).toBe("");
-  });
+      runKillOrphanedContainers();
 
-  it("does NOT kill a service container whose parent PID is alive", () => {
-    // Label with our own PID — should be left alone
-    const myPid = String(process.pid);
+      const after = execSync(`docker ps -aq --filter "name=${containerName}"`, {
+        encoding: "utf8",
+        stdio: "pipe",
+      }).trim();
+      expect(after).toBe("");
+    });
 
-    execSync(
-      `docker create --name ${containerName} --label "agent-ci.pid=${myPid}" busybox sleep 300`,
-      { stdio: "pipe" },
-    );
-    execSync(`docker start ${containerName}`, { stdio: "pipe" });
+    it("does NOT kill a service container whose parent PID is alive", () => {
+      // Label with our own PID — should be left alone
+      const myPid = String(process.pid);
 
-    runKillOrphanedContainers();
+      execSync(
+        `docker create --name ${containerName} --label "agent-ci.pid=${myPid}" busybox sleep 300`,
+        { stdio: "pipe" },
+      );
+      execSync(`docker start ${containerName}`, { stdio: "pipe" });
 
-    // Container should still be running
-    const after = execSync(
-      `docker ps -q --filter "name=${containerName}" --filter "status=running"`,
-      { encoding: "utf8", stdio: "pipe" },
-    ).trim();
-    expect(after).not.toBe("");
-  });
-});
+      runKillOrphanedContainers();
+
+      // Container should still be running
+      const after = execSync(
+        `docker ps -q --filter "name=${containerName}" --filter "status=running"`,
+        { encoding: "utf8", stdio: "pipe" },
+      ).trim();
+      expect(after).not.toBe("");
+    });
+  },
+);

@@ -532,7 +532,7 @@ export const Home = () => {
             <Terminal
               title="Agent Instructions"
               language="markdown"
-              code={`## CI\n\nBefore completing any work, run the \`agent-ci\` skill to validate your changes locally. If it fails, fix the issue and re-run. Do not report work as done until it passes.`}
+              code={`## CI\n\nIf this is a Node.js project, install Agent CI as a dev dependency\nusing the project's package manager (npm, pnpm, yarn, or bun):\n\n\`\`\`bash\n<package-manager> install -D @redwoodjs/agent-ci\n\`\`\`\n\nIf this is not a Node.js project, you can run Agent CI directly\nwith npx:\n\n\`\`\`bash\nnpx @redwoodjs/agent-ci\n\`\`\`\n\nInstall the agent skill:\n\n\`\`\`bash\nnpx skills add redwoodjs/agent-ci --skill agent-ci\n\`\`\`\n\nBefore completing any work, run the \`agent-ci\` skill to validate\nyour changes locally. If it fails, fix the issue and re-run.\nDo not report work as done until it passes.`}
             />
 
             <p className="text-[#9bc5b3] mt-6 leading-relaxed">

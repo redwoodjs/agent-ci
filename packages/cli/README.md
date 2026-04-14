@@ -49,7 +49,7 @@ Agent CI does not re-implement GitHub Actions. It emulates the **server-side API
 
 - **Docker** — a running Docker provider:
   - **macOS:** [OrbStack](https://orbstack.dev/) (recommended) or Docker Desktop
-  - **Linux:** Native Docker Engine
+  - **Linux:** Native Docker Engine or Docker Desktop
 
 ## Quick start
 

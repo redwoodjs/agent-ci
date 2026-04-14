@@ -174,7 +174,7 @@ RUN sudo apt-get update \
 
 Agent CI picks it up automatically — no flags, no config. The image is built once and cached by content hash.
 
-For the full guide — directory form with `COPY` support, per-job overrides, common recipes (Rust, Node native modules, Go, Ruby, Nix), the `AGENT_CI_RUNNER_IMAGE` escape hatch, and build caching details — see [runner-image.md](./runner-image.md).
+For the full guide — directory form with `COPY` support, per-job overrides, common recipes (Rust, Node native modules, Go, Ruby, Nix), the `AGENT_CI_RUNNER_IMAGE` escape hatch, and build caching details — see [runner-image.md](https://github.com/redwoodjs/agent-ci/blob/main/packages/cli/runner-image.md).
 
 ---
 
@@ -233,7 +233,7 @@ npx @redwoodjs/agent-ci run --all --jobs 1
 
 ## YAML compatibility
 
-See [compatibility.md](./compatibility.md) for detailed GitHub Actions workflow syntax support.
+See [compatibility.md](https://github.com/redwoodjs/agent-ci/blob/main/packages/cli/compatibility.md) for detailed GitHub Actions workflow syntax support.
 
 ## Debugging
 

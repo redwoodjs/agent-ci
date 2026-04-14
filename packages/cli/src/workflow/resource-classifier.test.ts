@@ -135,7 +135,7 @@ describe("classifyJobResources", () => {
       summary: "job resource hints exceed the available host capacity",
       reasons: ["requestedCpuCount (8) exceeds host cpuCount (4)"],
       action:
-        "Use a larger host or set DOCKER_HOST=ssh://<user>@<host> for a remote Docker daemon.",
+        "Use a larger host or adjust the workflow resource hints to fit the available machine.",
     });
   });
 
@@ -158,7 +158,7 @@ describe("classifyJobResources", () => {
         "requestedNodeHeapMb (7168) plus 1024 MB safety margin exceeds host totalMemoryMb (8000)",
       ],
       action:
-        "Use a larger host or set DOCKER_HOST=ssh://<user>@<host> for a remote Docker daemon.",
+        "Use a larger host or adjust the workflow resource hints to fit the available machine.",
     });
   });
 
@@ -174,7 +174,7 @@ describe("classifyJobResources", () => {
       summary: "job resource hints exceed the available host capacity",
       reasons: ["host resource inspection failed while explicit resource hints were present"],
       action:
-        "Use a larger host or set DOCKER_HOST=ssh://<user>@<host> for a remote Docker daemon.",
+        "Use a larger host or adjust the workflow resource hints to fit the available machine.",
     });
   });
 });

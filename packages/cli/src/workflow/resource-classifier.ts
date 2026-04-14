@@ -96,11 +96,7 @@ function hasUnknownRunnerLabel(hints: JobResourceHints): boolean {
   return hints.requestedNodeHeapMb === undefined && hints.requestedCpuCount === undefined;
 }
 
-function buildAction(dockerHost: string): string {
-  if (dockerHost.startsWith("unix://")) {
-    return "Use a larger host or set DOCKER_HOST=ssh://<user>@<host> for a remote Docker daemon.";
-  }
-
+function buildAction(_dockerHost: string): string {
   return "Use a larger host or adjust the workflow resource hints to fit the available machine.";
 }
 

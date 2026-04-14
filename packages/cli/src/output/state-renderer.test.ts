@@ -103,7 +103,7 @@ describe("renderRunState", () => {
                 bootDurationMs: 2300,
                 classification: "degraded",
                 classificationSummary:
-                  "job resource hints exceed the available host capacity. Use a larger host or set DOCKER_HOST=ssh://<user>@<host> for a remote Docker daemon.",
+                  "job resource hints exceed the available host capacity. Use a larger host or adjust the workflow resource hints to fit the available machine.",
                 classificationReasons: ["requestedCpuCount (8) exceeds host cpuCount (4)"],
                 steps: [{ name: "Run pnpm check", index: 1, status: "pending" }],
               },
@@ -115,7 +115,7 @@ describe("renderRunState", () => {
       const output = renderRunState(state);
       expect(output).toContain("test [degraded]");
       expect(output).toContain(
-        "job resource hints exceed the available host capacity. Use a larger host or set DOCKER_HOST=ssh://<user>@<host> for a remote Docker daemon.",
+        "job resource hints exceed the available host capacity. Use a larger host or adjust the workflow resource hints to fit the available machine.",
       );
       expect(output).toContain("○ 1. Run pnpm check");
     });
@@ -351,6 +351,44 @@ describe("renderRunState", () => {
       const output = renderRunState(state);
       expect(output).toContain("retrying");
       expect(output).toContain("Run tests");
+    });
+  });
+
+  describe("multi-workflow mode", () => {
+    it("renders degraded tag in compact job nodes", () => {
+      const state = makeState({
+        workflows: [
+          {
+            id: "ci.yml",
+            path: "/repo/.github/workflows/ci.yml",
+            status: "running",
+            jobs: [
+              {
+                id: "lint",
+                runnerId: "agent-ci-1-j1",
+                status: "running",
+                classification: "degraded",
+                steps: [],
+              },
+              {
+                id: "test",
+                runnerId: "agent-ci-1-j2",
+                status: "queued",
+                steps: [],
+              },
+            ],
+          },
+          {
+            id: "deploy.yml",
+            path: "/repo/.github/workflows/deploy.yml",
+            status: "queued",
+            jobs: [],
+          },
+        ],
+      });
+
+      const output = renderRunState(state);
+      expect(output).toContain("lint [degraded]");
     });
   });
 

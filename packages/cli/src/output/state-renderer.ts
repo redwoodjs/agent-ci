@@ -235,6 +235,7 @@ function getJobStepHint(job: JobState): string {
  */
 function buildCompactJobNode(job: JobState): TreeNode {
   const dur = job.durationMs !== undefined ? ` (${Math.round(job.durationMs / 1000)}s)` : "";
+  const degradedTag = job.classification === "degraded" ? " [degraded]" : "";
   // Append matrix values to distinguish matrix-expanded jobs
   const matrix =
     job.matrixValues && Object.keys(job.matrixValues).length > 0
@@ -242,15 +243,17 @@ function buildCompactJobNode(job: JobState): TreeNode {
       : "";
   switch (job.status) {
     case "completed":
-      return { label: `✓ ${job.id}${matrix}${dur}` };
+      return { label: `✓ ${job.id}${degradedTag}${matrix}${dur}` };
     case "failed":
-      return { label: `${RED}✗ ${job.id}${RESET}${matrix}${dur}` };
+      return { label: `${RED}✗ ${job.id}${degradedTag}${RESET}${matrix}${dur}` };
     case "booting":
     case "running":
-      return { label: `${getSpinnerFrame()} ${job.id}${matrix}${getJobStepHint(job)}` };
+      return {
+        label: `${getSpinnerFrame()} ${job.id}${degradedTag}${matrix}${getJobStepHint(job)}`,
+      };
     case "queued":
     default:
-      return { label: `○ ${job.id}${matrix}` };
+      return { label: `○ ${job.id}${degradedTag}${matrix}` };
   }
 }
 

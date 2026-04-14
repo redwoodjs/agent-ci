@@ -14,7 +14,9 @@ Actions like `actions/checkout`, `actions/setup-node`, and `actions/cache` work 
 
 ## Why Agent CI?
 
-Remote CI is a debugging tool. You push, you wait, you read logs, you push again — every retry pays the full cost of a fresh run. Agent CI is a **quality gate**: you run CI on your own machine before you commit, catch the failure in seconds, and only push work that's already green.
+Remote CI is the final gatekeeper — it runs on every push and decides what ships. That's its job. The problem is what happens when it fails: you push, you wait, you read logs, you push again. Every retry pays the full cost of a fresh run, and the gatekeeper ends up being used as a debugger.
+
+Agent CI is a **pre-flight check** that runs on your own machine before you commit. Catch the failure in seconds, fix it locally, only push work that's already green — and let remote CI stay the gatekeeper.
 
 Existing "run actions locally" tools either re-implement steps in a compatibility layer or require you to maintain a separate config. Agent CI does neither.
 

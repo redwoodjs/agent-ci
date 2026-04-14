@@ -45,6 +45,33 @@ import {
 } from "./runner-image.js";
 import { findRepoRoot } from "./metadata.js";
 
+// Fix permissions after extracting runner from container.
+// docker cp and cp -a copy files with restrictive permissions (often root-owned),
+// which breaks the runner's ability to create files like run-helper.sh.
+// Directories get 777 (world-writable), files get 755 (world-readable + executable).
+function ensureRunnerWriteable(rootDir: string): void {
+  const stack = [rootDir];
+
+  while (stack.length > 0) {
+    const current = stack.pop();
+    if (!current) {
+      continue;
+    }
+
+    const stat = fs.statSync(current);
+    // Directories need full write access (777), files need read+execute for all (755)
+    fs.chmodSync(current, stat.isDirectory() ? 0o777 : 0o755);
+
+    if (!stat.isDirectory()) {
+      continue;
+    }
+
+    for (const entry of fs.readdirSync(current)) {
+      stack.push(path.join(current, entry));
+    }
+  }
+}
+
 // ─── Docker setup ─────────────────────────────────────────────────────────────
 
 import { resolveDockerSocket, type DockerSocket } from "../docker/docker-socket.js";
@@ -447,6 +474,7 @@ export async function executeLocalJob(
         );
         await fs.promises.writeFile(configShPath, configSh);
         await fs.promises.writeFile(markerFile, new Date().toISOString());
+        ensureRunnerWriteable(hostRunnerSeedDir);
         debugRunner(`Runner extracted.`);
       }
       for (const staleFile of [".runner", ".credentials", ".credentials_rsaparams"]) {

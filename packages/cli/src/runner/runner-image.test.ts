@@ -5,6 +5,7 @@ import os from "node:os";
 import {
   discoverRunnerImage,
   detectMissingToolHint,
+  detectToolcacheHint,
   UPSTREAM_RUNNER_IMAGE,
   type ResolvedRunnerImage,
 } from "./runner-image.js";
@@ -214,6 +215,37 @@ describe("detectMissingToolHint", () => {
 
   it("returns null for unrelated failures", () => {
     const hint = detectMissingToolHint("Error: assertion failed at line 42", defaultResolved);
+    expect(hint).toBeNull();
+  });
+});
+
+describe("detectToolcacheHint", () => {
+  const toolCacheDir = "/var/folders/xx/T/agent-ci/slug/cache/toolcache";
+
+  it("matches tar `Cannot open: Permission denied` and returns an rm command", () => {
+    const output = [
+      "/usr/bin/tar: bin/npm: Cannot open: Permission denied",
+      "/usr/bin/tar: bin/npx: Cannot open: Permission denied",
+      "/usr/bin/tar: Exiting with failure status due to previous errors",
+    ].join("\n");
+    const hint = detectToolcacheHint(output, toolCacheDir);
+    expect(hint).not.toBeNull();
+    expect(hint).toContain("sudo rm -rf");
+    expect(hint).toContain(toolCacheDir);
+  });
+
+  it("returns null when no toolCacheDir is supplied", () => {
+    const hint = detectToolcacheHint("tar: bin/npm: Cannot open: Permission denied", undefined);
+    expect(hint).toBeNull();
+  });
+
+  it("returns null for unrelated failures", () => {
+    const hint = detectToolcacheHint("npm ERR! code ENOENT", toolCacheDir);
+    expect(hint).toBeNull();
+  });
+
+  it("does not fire on generic Permission denied without the tar prefix", () => {
+    const hint = detectToolcacheHint("Permission denied: /home/runner/x", toolCacheDir);
     expect(hint).toBeNull();
   });
 });

@@ -35,7 +35,7 @@ function actionTarballPath(repoPath: string, ref: string): string {
 // slow fallback download from nodejs.org. We rewrite the literal URL inside
 // the bundled `dist/setup/index.js` so the call routes through the DTU. See
 // issue #249.
-function rewriteSetupNodeTarball(srcGzPath: string, destGzPath: string): void {
+export function rewriteSetupNodeTarball(srcGzPath: string, destGzPath: string): void {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "dtu-setup-node-rewrite-"));
   try {
     execSync(`tar -xzf ${JSON.stringify(srcGzPath)} -C ${JSON.stringify(tmpDir)}`);

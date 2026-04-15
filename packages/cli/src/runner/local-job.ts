@@ -963,6 +963,7 @@ export async function executeLocalJob(
       debugLogPath,
       stepOutputs,
       resolvedRunnerImage,
+      toolCacheDir: dirs.toolCacheDir,
     });
   } finally {
     // Cleanup: always runs even when errors occur mid-run.

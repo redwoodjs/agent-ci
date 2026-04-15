@@ -1,8 +1,10 @@
 import { Polka } from "polka";
+import { execSync } from "node:child_process";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import https from "node:https";
 import http from "node:http";
+import os from "node:os";
 import path from "node:path";
 import { state, getActionTarballsDir } from "../../store.js";
 import { getBaseUrl } from "../dtu.js";
@@ -16,9 +18,125 @@ import { createJobResponse } from "./generators.js";
  *  coalesce into a single GitHub fetch instead of racing on the same tmp file. */
 const inflightDownloads = new Map<string, Promise<void>>();
 
+// Bump when the setup-node rewrite changes so stale caches invalidate (scoped
+// to setup-node only — other action caches are untouched).
+const SETUP_NODE_REWRITE_VERSION = 1;
+
 function actionTarballPath(repoPath: string, ref: string): string {
   const key = `${repoPath.replace("/", "__")}@${ref.replace(/[^a-zA-Z0-9._-]/g, "-")}`;
-  return path.join(getActionTarballsDir(), `${key}.tar.gz`);
+  const suffix = repoPath === "actions/setup-node" ? `.rw${SETUP_NODE_REWRITE_VERSION}` : "";
+  return path.join(getActionTarballsDir(), `${key}${suffix}.tar.gz`);
+}
+
+// ─── Setup-node tarball rewrite ──────────────────────────────────────────────
+// @actions/tool-cache's getManifestFromRepo() hardcodes `https://api.github.com`
+// and ignores GITHUB_API_URL, so setup-node's manifest fetch escapes the DTU
+// and hits real GitHub with our fake-token — 401 "Bad credentials", then a
+// slow fallback download from nodejs.org. We rewrite the literal URL inside
+// the bundled `dist/setup/index.js` so the call routes through the DTU. See
+// issue #249.
+function rewriteSetupNodeTarball(srcGzPath: string, destGzPath: string): void {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "dtu-setup-node-rewrite-"));
+  try {
+    execSync(`tar -xzf ${JSON.stringify(srcGzPath)} -C ${JSON.stringify(tmpDir)}`);
+    const entries = fs.readdirSync(tmpDir);
+    if (entries.length !== 1) {
+      throw new Error(`unexpected tarball shape: ${entries.length} root entries`);
+    }
+    const rootEntry = entries[0];
+    const indexPath = path.join(tmpDir, rootEntry, "dist", "setup", "index.js");
+    if (fs.existsSync(indexPath)) {
+      const src = fs.readFileSync(indexPath, "utf-8");
+      const rewritten = src.replace(
+        /`https:\/\/api\.github\.com\/repos\//g,
+        "`${process.env.GITHUB_API_URL||'https://api.github.com'}/repos/",
+      );
+      if (rewritten !== src) {
+        fs.writeFileSync(indexPath, rewritten);
+      }
+    }
+    execSync(
+      `tar -czf ${JSON.stringify(destGzPath)} -C ${JSON.stringify(tmpDir)} ${JSON.stringify(rootEntry)}`,
+    );
+  } finally {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+}
+
+// ─── Unauthenticated api.github.com proxy (for mocked manifest endpoints) ─────
+// The git-tree/blob endpoints used by @actions/tool-cache for Node/Go/Python
+// version manifests don't require auth for public repos, so we proxy them
+// without the fake GITHUB_TOKEN (which would 401). Response is cached on disk.
+interface CachedResponse {
+  statusCode: number;
+  contentType: string;
+  body: Buffer;
+}
+
+function apiProxyCachePath(cacheKey: string): string {
+  const safe = cacheKey.replace(/[^a-zA-Z0-9._-]/g, "_");
+  return path.join(getActionTarballsDir(), "..", "api-github-proxy", `${safe}.json`);
+}
+
+function fetchApiGithubUnauth(
+  url: string,
+  headers: Record<string, string> = {},
+): Promise<CachedResponse> {
+  return new Promise((resolve, reject) => {
+    fetchWithRedirects(
+      url,
+      (upstream) => {
+        const chunks: Buffer[] = [];
+        upstream.on("data", (c: Buffer) => chunks.push(c));
+        upstream.on("end", () =>
+          resolve({
+            statusCode: upstream.statusCode ?? 502,
+            contentType: upstream.headers["content-type"] ?? "application/json",
+            body: Buffer.concat(chunks),
+          }),
+        );
+        upstream.on("error", reject);
+      },
+      0,
+      headers,
+    );
+  });
+}
+
+/** Download the setup-node tarball, rewrite its hardcoded api.github.com URL,
+ *  and atomically save the rewritten tarball to `destGzPath`. */
+function downloadAndRewriteSetupNode(githubUrl: string, destGzPath: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const rawTmp = destGzPath + ".raw.tmp." + process.pid;
+    const finalTmp = destGzPath + ".tmp." + process.pid;
+    fs.mkdirSync(path.dirname(destGzPath), { recursive: true });
+    fetchWithRedirects(githubUrl, (upstream) => {
+      if (upstream.statusCode !== 200) {
+        reject(new Error(`upstream ${upstream.statusCode}`));
+        return;
+      }
+      const file = fs.createWriteStream(rawTmp);
+      upstream.pipe(file);
+      file.on("finish", () =>
+        file.close(() => {
+          try {
+            rewriteSetupNodeTarball(rawTmp, finalTmp);
+            fs.renameSync(finalTmp, destGzPath);
+            resolve();
+          } catch (err) {
+            reject(err);
+          } finally {
+            fs.rmSync(rawTmp, { force: true });
+            fs.rmSync(finalTmp, { force: true });
+          }
+        }),
+      );
+      file.on("error", (err) => {
+        fs.rmSync(rawTmp, { force: true });
+        reject(err);
+      });
+    });
+  });
 }
 
 /** Follow redirects and invoke callback with the final response. */
@@ -26,15 +144,16 @@ function fetchWithRedirects(
   url: string,
   callback: (res: http.IncomingMessage) => void,
   redirects = 0,
+  extraHeaders: Record<string, string> = {},
 ): void {
   if (redirects > 5) {
     return;
   }
   const mod = url.startsWith("https") ? https : http;
-  mod.get(url, { headers: { "User-Agent": "agent-ci/1.0" } }, (res) => {
+  mod.get(url, { headers: { "User-Agent": "agent-ci/1.0", ...extraHeaders } }, (res) => {
     if ((res.statusCode === 301 || res.statusCode === 302) && res.headers.location) {
       res.resume();
-      return fetchWithRedirects(res.headers.location, callback, redirects + 1);
+      return fetchWithRedirects(res.headers.location, callback, redirects + 1, extraHeaders);
     }
     callback(res);
   });
@@ -80,6 +199,30 @@ export function registerActionRoutes(app: Polka) {
       return;
     }
 
+    fs.mkdirSync(path.dirname(dest), { recursive: true });
+    const githubUrl = `https://api.github.com/repos/${repoPath}/tarball/${ref}`;
+
+    // setup-node needs a post-download rewrite (see rewriteSetupNodeTarball),
+    // so we buffer the full tarball first, rewrite, then serve from cache.
+    // All other actions stream through to the client while caching in parallel.
+    if (repoPath === "actions/setup-node") {
+      const downloadPromise = downloadAndRewriteSetupNode(githubUrl, dest);
+      downloadPromise.catch(() => {});
+      inflightDownloads.set(dest, downloadPromise);
+      downloadPromise.then(
+        () => {
+          inflightDownloads.delete(dest);
+          serveFromDisk();
+        },
+        (err) => {
+          inflightDownloads.delete(dest);
+          res.writeHead(502);
+          res.end(String(err?.message ?? err));
+        },
+      );
+      return;
+    }
+
     // Cache miss: proxy from GitHub, write to disk simultaneously.
     // Register a promise so concurrent requests can coalesce.
     let resolveDownload: () => void;
@@ -92,8 +235,6 @@ export function registerActionRoutes(app: Polka) {
     downloadPromise.catch(() => {});
     inflightDownloads.set(dest, downloadPromise);
 
-    fs.mkdirSync(path.dirname(dest), { recursive: true });
-    const githubUrl = `https://api.github.com/repos/${repoPath}/tarball/${ref}`;
     fetchWithRedirects(githubUrl, (upstream) => {
       if (upstream.statusCode !== 200) {
         inflightDownloads.delete(dest);
@@ -124,6 +265,100 @@ export function registerActionRoutes(app: Polka) {
         rejectDownload!(new Error("write failed"));
       });
     });
+  });
+
+  // ── tool-cache manifest proxy: /repos/:owner/:repo/git/trees/:branch ────────
+  // Proxies to api.github.com *unauthenticated* (the fake GITHUB_TOKEN in the
+  // container would 401) and rewrites blob URLs to point back here, so the
+  // subsequent blob fetch also routes through the DTU. Cached on disk.
+  app.get("/repos/:owner/:repo/git/trees/:branch", async (req: any, res) => {
+    const { owner, repo, branch } = req.params;
+    const baseUrl = getBaseUrl(req);
+    const cacheKey = `tree__${owner}__${repo}__${branch}`;
+    const cachePath = apiProxyCachePath(cacheKey);
+
+    try {
+      let payload: any;
+      if (fs.existsSync(cachePath)) {
+        payload = JSON.parse(fs.readFileSync(cachePath, "utf-8"));
+      } else {
+        const upstream = await fetchApiGithubUnauth(
+          `https://api.github.com/repos/${owner}/${repo}/git/trees/${branch}`,
+        );
+        if (upstream.statusCode !== 200) {
+          res.writeHead(upstream.statusCode, { "Content-Type": upstream.contentType });
+          res.end(upstream.body);
+          return;
+        }
+        payload = JSON.parse(upstream.body.toString("utf-8"));
+        // Rewrite blob URLs to route through the DTU.
+        if (Array.isArray(payload?.tree)) {
+          for (const item of payload.tree) {
+            if (typeof item?.url === "string" && item.sha) {
+              item.url = `${baseUrl}/repos/${owner}/${repo}/git/blobs/${item.sha}`;
+            }
+          }
+        }
+        fs.mkdirSync(path.dirname(cachePath), { recursive: true });
+        fs.writeFileSync(cachePath, JSON.stringify(payload));
+      }
+      // Even on cache hit the blob URLs need the current request's baseUrl.
+      if (Array.isArray(payload?.tree)) {
+        for (const item of payload.tree) {
+          if (typeof item?.url === "string" && item.sha) {
+            item.url = `${baseUrl}/repos/${owner}/${repo}/git/blobs/${item.sha}`;
+          }
+        }
+      }
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify(payload));
+    } catch (err: any) {
+      res.writeHead(502, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ message: String(err?.message ?? err) }));
+    }
+  });
+
+  // ── tool-cache blob proxy: /repos/:owner/:repo/git/blobs/:sha ──────────────
+  // Blobs are content-addressed by SHA — cache keyed by sha + accept header
+  // since `accept: application/vnd.github.VERSION.raw` returns raw bytes
+  // while the default accept returns JSON with base64 content.
+  app.get("/repos/:owner/:repo/git/blobs/:sha", async (req: any, res) => {
+    const { owner, repo, sha } = req.params;
+    const accept = typeof req.headers.accept === "string" ? req.headers.accept : "application/json";
+    const acceptKey = accept.includes("raw") ? "raw" : "json";
+    const cacheKey = `blob__${owner}__${repo}__${sha}__${acceptKey}`;
+    const cachePath = apiProxyCachePath(cacheKey);
+
+    try {
+      if (fs.existsSync(cachePath)) {
+        const cached = JSON.parse(fs.readFileSync(cachePath, "utf-8"));
+        res.writeHead(200, { "Content-Type": cached.contentType });
+        res.end(Buffer.from(cached.bodyB64, "base64"));
+        return;
+      }
+      const upstream = await fetchApiGithubUnauth(
+        `https://api.github.com/repos/${owner}/${repo}/git/blobs/${sha}`,
+        { Accept: accept },
+      );
+      if (upstream.statusCode !== 200) {
+        res.writeHead(upstream.statusCode, { "Content-Type": upstream.contentType });
+        res.end(upstream.body);
+        return;
+      }
+      fs.mkdirSync(path.dirname(cachePath), { recursive: true });
+      fs.writeFileSync(
+        cachePath,
+        JSON.stringify({
+          contentType: upstream.contentType,
+          bodyB64: upstream.body.toString("base64"),
+        }),
+      );
+      res.writeHead(200, { "Content-Type": upstream.contentType });
+      res.end(upstream.body);
+    } catch (err: any) {
+      res.writeHead(502, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ message: String(err?.message ?? err) }));
+    }
   });
 
   // 7. Pipeline Service Discovery Mock

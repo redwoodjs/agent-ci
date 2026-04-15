@@ -114,7 +114,9 @@ describe("Action Tarball Cache", () => {
     const content1 = Buffer.from("tarball-for-checkout");
     const content2 = Buffer.from("tarball-for-setup-node");
     fs.writeFileSync(path.join(dir, "actions__checkout@v4.tar.gz"), content1);
-    fs.writeFileSync(path.join(dir, "actions__setup-node@v4.tar.gz"), content2);
+    // setup-node tarballs are cached under an .rwN suffix because the DTU
+    // rewrites them in-flight to route getManifestFromRepo through itself.
+    fs.writeFileSync(path.join(dir, "actions__setup-node@v4.rw1.tar.gz"), content2);
 
     const res1 = await fetch(`${baseUrl}/_dtu/action-tarball/actions/checkout/v4`);
     const res2 = await fetch(`${baseUrl}/_dtu/action-tarball/actions/setup-node/v4`);

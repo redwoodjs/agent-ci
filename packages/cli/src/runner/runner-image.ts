@@ -230,6 +230,38 @@ function formatHint(tool: string): string {
   ].join("\n");
 }
 
+// ─── Toolcache permission-denied hint ─────────────────────────────────────────
+
+// tar prints lines like `tar: bin/npm: Cannot open: Permission denied` when it
+// cannot overwrite a file left behind by an earlier run. Our hostedtoolcache
+// bind mount persists across runs, and if a previous run wrote files as a
+// different uid the current one can't replace them. See issue #171.
+const TAR_PERMISSION_DENIED_RE = /tar: .+: Cannot open: Permission denied/;
+
+/**
+ * Detect tar-extraction permission failures under `/opt/hostedtoolcache` and
+ * return a hint pointing the user at the host-side toolcache directory to
+ * remove. Returns null if the failure doesn't match.
+ */
+export function detectToolcacheHint(
+  errorContent: string,
+  toolCacheDir: string | undefined,
+): string | null {
+  if (!toolCacheDir) {
+    return null;
+  }
+  if (!TAR_PERMISSION_DENIED_RE.test(errorContent)) {
+    return null;
+  }
+  return [
+    `Hint: extraction under /opt/hostedtoolcache failed because files from a`,
+    `previous run are owned by a user this run can't overwrite. Delete the`,
+    `host-side toolcache and re-run:`,
+    ``,
+    `    sudo rm -rf ${shellQuote(toolCacheDir)}`,
+  ].join("\n");
+}
+
 // Test-only: reset the build-promise cache between tests
 export function __test_resetBuildCache(): void {
   buildPromises.clear();

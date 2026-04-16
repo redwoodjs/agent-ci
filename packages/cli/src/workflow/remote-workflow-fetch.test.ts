@@ -306,6 +306,44 @@ jobs:
     await expect(prefetchRemoteWorkflows(wf, cacheDir)).rejects.toThrow(/AGENT_CI_GITHUB_TOKEN/);
   });
 
+  it("throws on 401 with token-invalid hint when githubToken is provided", async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 401,
+    });
+
+    const wf = writeWorkflow(`
+jobs:
+  lint:
+    uses: org/private-repo/.github/workflows/lint.yml@v1
+`);
+
+    const rejection = prefetchRemoteWorkflows(wf, cacheDir, "ghp_test123");
+    await expect(rejection).rejects.toThrow(/invalid|expired|scope/i);
+    await expect(prefetchRemoteWorkflows(wf, cacheDir, "ghp_test123")).rejects.not.toThrow(
+      /--github-token/,
+    );
+  });
+
+  it("throws on 403 with token-invalid hint when githubToken is provided", async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 403,
+    });
+
+    const wf = writeWorkflow(`
+jobs:
+  lint:
+    uses: org/private-repo/.github/workflows/lint.yml@v1
+`);
+
+    const rejection = prefetchRemoteWorkflows(wf, cacheDir, "ghp_test123");
+    await expect(rejection).rejects.toThrow(/invalid|expired|scope/i);
+    await expect(prefetchRemoteWorkflows(wf, cacheDir, "ghp_test123")).rejects.not.toThrow(
+      /--github-token/,
+    );
+  });
+
   it("succeeds fetching a public remote workflow without auth", async () => {
     const remoteYaml = `
 on: workflow_call

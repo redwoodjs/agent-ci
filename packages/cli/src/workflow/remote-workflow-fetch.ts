@@ -113,7 +113,9 @@ export async function prefetchRemoteWorkflows(
         if (!response.ok) {
           const hint =
             response.status === 401 || response.status === 403
-              ? ` Run with: agent-ci run --github-token\n  Or set: export AGENT_CI_GITHUB_TOKEN=$(gh auth token)`
+              ? githubToken
+                ? ` The provided token may be invalid, expired, or lack the 'repo' scope required for private repositories.`
+                : ` Run with: agent-ci run --github-token\n  Or set: export AGENT_CI_GITHUB_TOKEN=$(gh auth token)`
               : "";
           errors.push(
             `Failed to fetch remote workflow ${ref.raw} (HTTP ${response.status}).${hint}`,

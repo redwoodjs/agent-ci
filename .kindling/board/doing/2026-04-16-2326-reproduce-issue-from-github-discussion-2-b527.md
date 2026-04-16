@@ -18,19 +18,6 @@ Reproduce issue from GitHub discussion 261
 
 ## Progress Log
 
-
-
-
-
-
-
-
-
-
-
-
-
-
 - [2026-04-16T21:38:16.694Z] [harness] Auditor: skipped
 - [2026-04-16T21:37:51.804Z] [harness] Dispatching Reviewer for phase 3 (review) of 4.
 - [2026-04-16T21:37:38.787Z] [developer] Addressed review feedback:
@@ -38,6 +25,7 @@ Reproduce issue from GitHub discussion 261
 > The tests confirm this: all **4 new tests** pass (plus the full suite of **562 others**, 0 failures).
 
 Corrected to "The 2 new tests (covering the token-provided 401 and 403 cases) both pass, alongside the full suite of 564 existing tests — 566 total, 0 failures." The PR diff shows only two tests were added in this PR (the token-provided 401 and 403 cases); the other two 401/403 tests were pre-existing. The edit was applied directly to the original comment via PATCH so there is no duplicate comment thread.
+
 - [2026-04-16T21:37:36.223Z] [harness] Auditor: skipped
 - [2026-04-16T21:37:12.162Z] [harness] Dispatching Developer for phase 2 (address comment and quality gate) of 4.
 - [2026-04-16T21:36:54.842Z] [harness] Auditor: skipped

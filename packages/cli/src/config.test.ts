@@ -315,7 +315,7 @@ describe("loadMachineVars", () => {
 
   function writeEnvFile(content: string): string {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "vars-test-"));
-    fs.writeFileSync(path.join(tmpDir, ".env.agent-ci"), content);
+    fs.writeFileSync(path.join(tmpDir, ".env.agent-ci.vars"), content);
     return tmpDir;
   }
 
@@ -325,7 +325,7 @@ describe("loadMachineVars", () => {
   }
 
   // SPEC-V-011: no vars config at all — not an error
-  it("returns empty object when .env.agent-ci does not exist", () => {
+  it("returns empty object when .env.agent-ci.vars does not exist", () => {
     const dir = makeTmpDir();
     expect(loadMachineVars(dir)).toEqual({});
   });

@@ -116,6 +116,7 @@ function resolveExprAtom(
   matrixContext?: Record<string, string>,
   needsContext?: Record<string, Record<string, string>>,
   inputsContext?: Record<string, string>,
+  vars?: Record<string, string>,
 ): string {
   // hashFiles('glob1', 'glob2', ...)
   const hashFilesMatch = trimmed.match(/^hashFiles\(([\s\S]+)\)$/);
@@ -173,6 +174,7 @@ function resolveExprAtom(
         matrixContext,
         needsContext,
         inputsContext,
+        vars,
       );
     }
     try {
@@ -204,6 +206,7 @@ function resolveExprAtom(
         matrixContext,
         needsContext,
         inputsContext,
+        vars,
       );
     }
     return JSON.stringify(rawValue);
@@ -225,6 +228,7 @@ function resolveExprAtom(
           matrixContext,
           needsContext,
           inputsContext,
+          vars,
         );
       }
       return "";
@@ -243,6 +247,7 @@ function resolveExprAtom(
         matrixContext,
         needsContext,
         inputsContext,
+        vars,
       );
       const needle = evaluateExprValue(
         args[1],
@@ -251,6 +256,7 @@ function resolveExprAtom(
         matrixContext,
         needsContext,
         inputsContext,
+        vars,
       );
       // Try JSON array first
       try {
@@ -280,6 +286,7 @@ function resolveExprAtom(
         matrixContext,
         needsContext,
         inputsContext,
+        vars,
       );
       const prefix = evaluateExprValue(
         args[1],
@@ -288,6 +295,7 @@ function resolveExprAtom(
         matrixContext,
         needsContext,
         inputsContext,
+        vars,
       );
       return str.toLowerCase().startsWith(prefix.toLowerCase()) ? "true" : "false";
     }
@@ -306,6 +314,7 @@ function resolveExprAtom(
         matrixContext,
         needsContext,
         inputsContext,
+        vars,
       );
       const suffix = evaluateExprValue(
         args[1],
@@ -314,6 +323,7 @@ function resolveExprAtom(
         matrixContext,
         needsContext,
         inputsContext,
+        vars,
       );
       return str.toLowerCase().endsWith(suffix.toLowerCase()) ? "true" : "false";
     }
@@ -331,10 +341,19 @@ function resolveExprAtom(
       matrixContext,
       needsContext,
       inputsContext,
+      vars,
     );
     const sep =
       args.length >= 2
-        ? evaluateExprValue(args[1], repoPath, secrets, matrixContext, needsContext, inputsContext)
+        ? evaluateExprValue(
+            args[1],
+            repoPath,
+            secrets,
+            matrixContext,
+            needsContext,
+            inputsContext,
+            vars,
+          )
         : ", ";
     try {
       const arr = JSON.parse(val);
@@ -409,6 +428,10 @@ function resolveExprAtom(
     const name = trimmed.slice("secrets.".length);
     return secrets?.[name] ?? "";
   }
+  if (trimmed.startsWith("vars.")) {
+    const name = trimmed.slice("vars.".length);
+    return vars?.[name] ?? "";
+  }
   if (trimmed.startsWith("inputs.")) {
     const name = trimmed.slice("inputs.".length);
     return inputsContext?.[name] ?? "";
@@ -455,6 +478,7 @@ function evaluateExprValue(
   matrixContext?: Record<string, string>,
   needsContext?: Record<string, Record<string, string>>,
   inputsContext?: Record<string, string>,
+  vars?: Record<string, string>,
 ): string {
   const trimmed = expr.trim();
   if (!trimmed) {
@@ -491,6 +515,7 @@ function evaluateExprValue(
           matrixContext,
           needsContext,
           inputsContext,
+          vars,
         );
       }
       if (depth === 0) {
@@ -511,6 +536,7 @@ function evaluateExprValue(
         matrixContext,
         needsContext,
         inputsContext,
+        vars,
       );
       if (isExprTruthy(lastVal)) {
         return lastVal;
@@ -531,6 +557,7 @@ function evaluateExprValue(
         matrixContext,
         needsContext,
         inputsContext,
+        vars,
       );
       if (!isExprTruthy(lastVal)) {
         return lastVal;
@@ -551,6 +578,7 @@ function evaluateExprValue(
         matrixContext,
         needsContext,
         inputsContext,
+        vars,
       );
       const right = evaluateExprValue(
         cmpParts[1].trim(),
@@ -559,6 +587,7 @@ function evaluateExprValue(
         matrixContext,
         needsContext,
         inputsContext,
+        vars,
       );
       const result = compareValues(left, right, op);
       return result ? "true" : "false";
@@ -574,6 +603,7 @@ function evaluateExprValue(
       matrixContext,
       needsContext,
       inputsContext,
+      vars,
     );
     return isExprTruthy(inner) ? "false" : "true";
   }
@@ -603,7 +633,15 @@ function evaluateExprValue(
   }
 
   // Atom: function call or context variable
-  return resolveExprAtom(trimmed, repoPath, secrets, matrixContext, needsContext, inputsContext);
+  return resolveExprAtom(
+    trimmed,
+    repoPath,
+    secrets,
+    matrixContext,
+    needsContext,
+    inputsContext,
+    vars,
+  );
 }
 
 /**
@@ -619,6 +657,7 @@ export function expandExpressions(
   matrixContext?: Record<string, string>,
   needsContext?: Record<string, Record<string, string>>,
   inputsContext?: Record<string, string>,
+  vars?: Record<string, string>,
 ): string {
   return value.replace(/\$\{\{([\s\S]*?)\}\}/g, (_match, expr: string) => {
     const result = evaluateExprValue(
@@ -628,6 +667,7 @@ export function expandExpressions(
       matrixContext,
       needsContext,
       inputsContext,
+      vars,
     );
     // Steps references are deferred to runtime — preserve the ${{ }} syntax
     if (result === STEPS_DEFERRED_SENTINEL) {
@@ -760,6 +800,7 @@ export async function parseWorkflowSteps(
   matrixContext?: Record<string, string>,
   needsContext?: Record<string, Record<string, string>>,
   inputsContext?: Record<string, string>,
+  vars?: Record<string, string>,
 ) {
   const template = await getWorkflowTemplate(filePath);
   const rawYaml = parseYaml(fs.readFileSync(filePath, "utf8"));
@@ -791,7 +832,15 @@ export async function parseWorkflowSteps(
       // Prefer raw YAML name to preserve ${{ }} expressions for our own expansion
       const rawName = rawStep.name != null ? String(rawStep.name) : step.name?.toString();
       let stepName = rawName
-        ? expandExpressions(rawName, repoPath, secrets, matrixContext, needsContext, inputsContext)
+        ? expandExpressions(
+            rawName,
+            repoPath,
+            secrets,
+            matrixContext,
+            needsContext,
+            inputsContext,
+            vars,
+          )
         : stepId;
 
       // If a step lacks an explicit name, we map it to standard GitHub Actions defaults
@@ -824,6 +873,7 @@ export async function parseWorkflowSteps(
             matrixContext,
             needsContext,
             inputsContext,
+            vars,
           ),
         };
         if (rawStep["working-directory"]) {
@@ -850,6 +900,7 @@ export async function parseWorkflowSteps(
                     undefined,
                     needsContext,
                     inputsContext,
+                    vars,
                   ),
                 ]),
               )
@@ -898,6 +949,7 @@ export async function parseWorkflowSteps(
                       matrixContext,
                       needsContext,
                       inputsContext,
+                      vars,
                     ),
                   ]),
                 )
@@ -913,6 +965,7 @@ export async function parseWorkflowSteps(
                   matrixContext,
                   needsContext,
                   inputsContext,
+                  vars,
                 ),
               ]),
             ),
@@ -931,6 +984,7 @@ export async function parseWorkflowSteps(
                         undefined,
                         needsContext,
                         inputsContext,
+                        vars,
                       );
                       // The zero hash is a placeholder for "no SHA available" —
                       // normalize it to empty string so actions/checkout uses the
@@ -955,6 +1009,7 @@ export async function parseWorkflowSteps(
                     matrixContext,
                     needsContext,
                     inputsContext,
+                    vars,
                   ),
                 ]),
               )
@@ -1225,6 +1280,58 @@ export function validateSecrets(
   throw new Error(
     `[Agent CI] Missing secrets required by workflow job "${taskName}".\n` +
       `Add the following to ${secretsFilePath} or set them as environment variables:\n\n` +
+      missing.map((n) => `${n}=`).join("\n") +
+      "\n",
+  );
+}
+
+/**
+ * Scan a workflow file for all `${{ vars.FOO }}` references.
+ * If `taskName` is provided, only the YAML subtree for that job is scanned.
+ * Returns a sorted, de-duplicated list of var names.
+ */
+export function extractVarRefs(filePath: string, taskName?: string): string[] {
+  const raw = fs.readFileSync(filePath, "utf8");
+  // Scope to the job subtree when a taskName is given so we don't pick up
+  // vars from other jobs.
+  let source = raw;
+  if (taskName) {
+    try {
+      const parsed = parseYaml(raw);
+      const jobDef = parsed?.jobs?.[taskName];
+      if (jobDef) {
+        source = JSON.stringify(jobDef);
+      }
+    } catch {
+      // Fall back to scanning the whole file
+    }
+  }
+  const names = new Set<string>();
+  for (const m of source.matchAll(/\$\{\{\s*vars\.([A-Za-z_][A-Za-z0-9_]*)\s*\}\}/g)) {
+    names.add(m[1]);
+  }
+  return Array.from(names).sort();
+}
+
+/**
+ * Validate that all vars referenced in a workflow job are present in the
+ * provided vars map. Throws with a descriptive message listing the missing
+ * var names and the expected file path if any are absent.
+ */
+export function validateVars(
+  filePath: string,
+  taskName: string,
+  vars: Record<string, string>,
+  varsFilePath: string,
+): void {
+  const required = extractVarRefs(filePath, taskName);
+  const missing = required.filter((name) => !vars[name]);
+  if (missing.length === 0) {
+    return;
+  }
+  throw new Error(
+    `[Agent CI] Missing vars required by workflow job "${taskName}".\n` +
+      `Add the following to ${varsFilePath} or set them as environment variables:\n\n` +
       missing.map((n) => `${n}=`).join("\n") +
       "\n",
   );

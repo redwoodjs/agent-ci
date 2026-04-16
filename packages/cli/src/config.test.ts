@@ -280,3 +280,133 @@ describe("loadMachineSecrets", () => {
     expect(secrets).toEqual({ FROM_FILE: "file-val", FROM_ENV: "env-val" });
   });
 });
+
+// ─── loadMachineVars ──────────────────────────────────────────────────────────
+
+import { loadMachineVars } from "./config.js";
+
+describe("loadMachineVars", () => {
+  // SPEC-V-011: absence of vars config is not an error
+  // SPEC-V-003: reads dotenv file
+  // SPEC-V-004 / SPEC-V-005 / SPEC-V-006: env fallback with allowlist
+  // SPEC-V-009: values with equals signs parsed completely
+
+  let tmpDir: string;
+  const savedEnv: Record<string, string | undefined> = {};
+
+  function saveEnv(...keys: string[]) {
+    for (const k of keys) {
+      savedEnv[k] = process.env[k];
+    }
+  }
+
+  afterEach(() => {
+    if (tmpDir) {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+    for (const [k, v] of Object.entries(savedEnv)) {
+      if (v === undefined) {
+        delete process.env[k];
+      } else {
+        process.env[k] = v;
+      }
+    }
+  });
+
+  function writeEnvFile(content: string): string {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "vars-test-"));
+    fs.writeFileSync(path.join(tmpDir, ".env.agent-ci"), content);
+    return tmpDir;
+  }
+
+  function makeTmpDir(): string {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "vars-test-"));
+    return tmpDir;
+  }
+
+  // SPEC-V-011: no vars config at all — not an error
+  it("returns empty object when .env.agent-ci does not exist", () => {
+    const dir = makeTmpDir();
+    expect(loadMachineVars(dir)).toEqual({});
+  });
+
+  // SPEC-V-003: reads KEY=VALUE pairs from the dotenv file
+  it("parses KEY=VALUE pairs from file", () => {
+    const dir = writeEnvFile("APP_ENV=production\nDEPLOY_REGION=us-east-1\n");
+    expect(loadMachineVars(dir)).toEqual({ APP_ENV: "production", DEPLOY_REGION: "us-east-1" });
+  });
+
+  // SPEC-V-003: comment lines and blank lines are ignored
+  it("ignores comment lines and blank lines", () => {
+    const dir = writeEnvFile("# a comment\nAPP_ENV=staging\n\n# another comment\nTIER=free\n");
+    expect(loadMachineVars(dir)).toEqual({ APP_ENV: "staging", TIER: "free" });
+  });
+
+  // SPEC-V-003: surrounding quotes are stripped from values
+  it("strips surrounding double quotes from values", () => {
+    const dir = writeEnvFile('APP_ENV="production"\n');
+    expect(loadMachineVars(dir)["APP_ENV"]).toBe("production");
+  });
+
+  it("strips surrounding single quotes from values", () => {
+    const dir = writeEnvFile("APP_ENV='production'\n");
+    expect(loadMachineVars(dir)["APP_ENV"]).toBe("production");
+  });
+
+  // SPEC-V-009: values containing equals signs are parsed completely
+  it("handles values containing equals signs", () => {
+    const dir = writeEnvFile("DATABASE_URL=postgres://host/db?ssl=true&key=val\n");
+    expect(loadMachineVars(dir)["DATABASE_URL"]).toBe("postgres://host/db?ssl=true&key=val");
+  });
+
+  // SPEC-V-004: allowed env var key is used as fallback when absent from file
+  it("fills missing vars from process.env when envFallbackKeys provided", () => {
+    const dir = makeTmpDir();
+    saveEnv("TEST_VAR_XYZ");
+    process.env.TEST_VAR_XYZ = "from-env";
+
+    const vars = loadMachineVars(dir, ["TEST_VAR_XYZ"]);
+    expect(vars.TEST_VAR_XYZ).toBe("from-env");
+  });
+
+  // SPEC-V-006: file value wins over env var fallback
+  it("file values take precedence over process.env", () => {
+    const dir = writeEnvFile("APP_ENV=from-file\n");
+    saveEnv("APP_ENV");
+    process.env.APP_ENV = "from-env";
+
+    const vars = loadMachineVars(dir, ["APP_ENV"]);
+    expect(vars.APP_ENV).toBe("from-file");
+  });
+
+  // SPEC-V-005: env var NOT in allowlist is never picked up
+  it("does not pull from process.env for keys not in envFallbackKeys", () => {
+    const dir = makeTmpDir();
+    saveEnv("UNRELATED_VAR");
+    process.env.UNRELATED_VAR = "should-not-appear";
+
+    const vars = loadMachineVars(dir, ["OTHER_KEY"]);
+    expect(vars.UNRELATED_VAR).toBeUndefined();
+    expect(vars.OTHER_KEY).toBeUndefined();
+  });
+
+  // SPEC-V-005: no env fallback at all when envFallbackKeys is omitted
+  it("does not pull from process.env when envFallbackKeys is omitted", () => {
+    const dir = makeTmpDir();
+    saveEnv("SOME_VAR");
+    process.env.SOME_VAR = "env-value";
+
+    const vars = loadMachineVars(dir);
+    expect(vars.SOME_VAR).toBeUndefined();
+  });
+
+  // combined: file + env fallback both contribute
+  it("merges file vars and env fallbacks", () => {
+    const dir = writeEnvFile("FROM_FILE=file-val\n");
+    saveEnv("FROM_ENV");
+    process.env.FROM_ENV = "env-val";
+
+    const vars = loadMachineVars(dir, ["FROM_FILE", "FROM_ENV"]);
+    expect(vars).toEqual({ FROM_FILE: "file-val", FROM_ENV: "env-val" });
+  });
+});

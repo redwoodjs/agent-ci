@@ -2,7 +2,7 @@
 import { execSync } from "child_process";
 import path from "path";
 import fs from "fs";
-import { config, loadMachineSecrets, resolveRepoSlug } from "./config.js";
+import { config, loadMachineSecrets, loadMachineVars, resolveRepoSlug } from "./config.js";
 import { getNextLogNum } from "./output/logger.js";
 import {
   setWorkingDirectory,
@@ -24,6 +24,8 @@ import {
   parseWorkflowContainer,
   validateSecrets,
   extractSecretRefs,
+  validateVars,
+  extractVarRefs,
   parseMatrixDef,
   expandMatrixCombinations,
   collapseMatrixToSingle,
@@ -859,6 +861,10 @@ async function handleWorkflow(options: {
     }
     const secretsFilePath = path.join(repoRoot, ".env.agent-ci");
     validateSecrets(ej.workflowPath, actualTaskName, secrets, secretsFilePath);
+    const requiredVarRefs = extractVarRefs(ej.workflowPath, actualTaskName);
+    const vars = loadMachineVars(repoRoot, requiredVarRefs);
+    const varsFilePath = path.join(repoRoot, ".env.agent-ci.vars");
+    validateVars(ej.workflowPath, actualTaskName, vars, varsFilePath);
 
     // Resolve inputs for called workflow jobs
     let inputsContext: Record<string, string> | undefined;
@@ -866,7 +872,15 @@ async function handleWorkflow(options: {
       inputsContext = { ...ej.inputDefaults };
       if (ej.inputs) {
         for (const [k, v] of Object.entries(ej.inputs)) {
-          inputsContext[k] = expandExpressions(v, repoRoot, secrets);
+          inputsContext[k] = expandExpressions(
+            v,
+            repoRoot,
+            secrets,
+            undefined,
+            undefined,
+            undefined,
+            vars,
+          );
         }
       }
       if (Object.keys(inputsContext).length === 0) {
@@ -881,6 +895,7 @@ async function handleWorkflow(options: {
       ej.matrixContext,
       undefined,
       inputsContext,
+      vars,
     );
     const services = await parseWorkflowServices(ej.workflowPath, actualTaskName);
     const container = await parseWorkflowContainer(ej.workflowPath, actualTaskName);
@@ -947,6 +962,10 @@ async function handleWorkflow(options: {
     }
     const secretsFilePath = path.join(repoRoot, ".env.agent-ci");
     validateSecrets(ej.workflowPath, actualTaskName, secrets, secretsFilePath);
+    const requiredVarRefs = extractVarRefs(ej.workflowPath, actualTaskName);
+    const vars = loadMachineVars(repoRoot, requiredVarRefs);
+    const varsFilePath = path.join(repoRoot, ".env.agent-ci.vars");
+    validateVars(ej.workflowPath, actualTaskName, vars, varsFilePath);
 
     // Use the job's position in expandedJobs (not a mutable counter) so the
     // runnerId is deterministic and matches the pre-registration at line 716.
@@ -993,6 +1012,7 @@ async function handleWorkflow(options: {
     ej: ExpandedJob,
     secrets: Record<string, string>,
     needsContext?: Record<string, Record<string, string>>,
+    vars?: Record<string, string>,
   ): Record<string, string> | undefined => {
     if (!ej.callerJobId) {
       return undefined;
@@ -1006,7 +1026,15 @@ async function handleWorkflow(options: {
     const resolved: Record<string, string> = { ...ej.inputDefaults };
     if (ej.inputs) {
       for (const [k, v] of Object.entries(ej.inputs)) {
-        resolved[k] = expandExpressions(v, repoRoot, secrets, undefined, needsContext);
+        resolved[k] = expandExpressions(
+          v,
+          repoRoot,
+          secrets,
+          undefined,
+          needsContext,
+          undefined,
+          vars,
+        );
       }
     }
     resolvedInputsCache.set(ej.callerJobId, resolved);
@@ -1029,7 +1057,11 @@ async function handleWorkflow(options: {
     }
     const secretsFilePath = path.join(repoRoot, ".env.agent-ci");
     validateSecrets(ej.workflowPath, actualTaskName, secrets, secretsFilePath);
-    const inputsContext = resolveInputsForJob(ej, secrets, needsContext);
+    const requiredVarRefs = extractVarRefs(ej.workflowPath, actualTaskName);
+    const vars = loadMachineVars(repoRoot, requiredVarRefs);
+    const varsFilePath = path.join(repoRoot, ".env.agent-ci.vars");
+    validateVars(ej.workflowPath, actualTaskName, vars, varsFilePath);
+    const inputsContext = resolveInputsForJob(ej, secrets, needsContext, vars);
     const steps = await parseWorkflowSteps(
       ej.workflowPath,
       actualTaskName,
@@ -1037,6 +1069,7 @@ async function handleWorkflow(options: {
       matrixContext,
       needsContext,
       inputsContext,
+      vars,
     );
     const services = await parseWorkflowServices(ej.workflowPath, actualTaskName);
     const container = await parseWorkflowContainer(ej.workflowPath, actualTaskName);

@@ -134,6 +134,23 @@ agent-ci run -w .github/workflows/ci.yml --github-token
 
 ---
 
+## Vars
+
+Workflow variables (`${{ vars.FOO }}`) are resolved in order:
+
+1. **`.env.agent-ci.vars`** file in the repo root (`KEY=VALUE` syntax, `#` comments supported)
+2. **Shell environment variables** — any env var matching a required var name acts as a fallback
+
+```bash
+# .env.agent-ci.vars — non-sensitive values that can be committed to source control
+DEPLOY_ENV=production
+API_URL=https://api.example.com
+```
+
+Unlike secrets, vars values are not sensitive and the `.env.agent-ci.vars` file can safely be committed to version control.
+
+---
+
 ## Environment variables
 
 All configuration is available via environment variables. For persistent machine-local overrides, create a `.env.agent-ci` file in your project root — Agent CI loads it automatically (`KEY=VALUE` syntax, `#` comments supported).

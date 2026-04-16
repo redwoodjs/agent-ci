@@ -1762,7 +1762,7 @@ jobs:
 describe("validateVars", () => {
   // SPEC-V-002: missing var → error naming the var
   // SPEC-V-011: no var refs → not an error
-  // SPEC-V-012: error message names missing vars and references config file path
+  // SPEC-V-012: error message names missing vars and tells user how to pass them
   // SPEC-V-013: only missing vars appear in error
 
   let tmpDir: string;
@@ -1793,9 +1793,7 @@ jobs:
     steps:
       - run: echo ok
 `);
-    expect(() =>
-      validateVars(filePath, "run", { APP_ENV: "production" }, "/repo/.env.agent-ci"),
-    ).not.toThrow();
+    expect(() => validateVars(filePath, "run", { APP_ENV: "production" })).not.toThrow();
   });
 
   // SPEC-V-011: workflow with no var refs → not an error even with empty vars map
@@ -1809,11 +1807,11 @@ jobs:
     steps:
       - run: echo ok
 `);
-    expect(() => validateVars(filePath, "run", {}, "/repo/.env.agent-ci")).not.toThrow();
+    expect(() => validateVars(filePath, "run", {})).not.toThrow();
   });
 
-  // SPEC-V-002 + SPEC-V-012: error names missing var and references the config file path
-  it("throws listing missing vars and the vars file path", () => {
+  // SPEC-V-002 + SPEC-V-012: error names missing vars and instructs to pass --var flags
+  it("throws listing missing vars and the --var flag syntax", () => {
     const filePath = writeWorkflow(`
 name: Test
 on: [push]
@@ -1826,17 +1824,9 @@ jobs:
     steps:
       - run: echo deploy
 `);
-    expect(() => validateVars(filePath, "deploy", {}, "/home/user/repo/.env.agent-ci")).toThrow(
-      /DB_HOST/,
-    );
-
-    expect(() => validateVars(filePath, "deploy", {}, "/home/user/repo/.env.agent-ci")).toThrow(
-      /DB_PORT/,
-    );
-
-    expect(() => validateVars(filePath, "deploy", {}, "/home/user/repo/.env.agent-ci")).toThrow(
-      /\/home\/user\/repo\/.env.agent-ci/,
-    );
+    expect(() => validateVars(filePath, "deploy", {})).toThrow(/DB_HOST/);
+    expect(() => validateVars(filePath, "deploy", {})).toThrow(/DB_PORT/);
+    expect(() => validateVars(filePath, "deploy", {})).toThrow(/--var/);
   });
 
   // SPEC-V-013: only missing vars appear in error — supplied vars are not mentioned
@@ -1853,12 +1843,9 @@ jobs:
     steps:
       - run: echo ok
 `);
-    expect(() =>
-      validateVars(filePath, "run", { PRESENT_VAR: "value" }, "/repo/.env.agent-ci"),
-    ).toThrow(/MISSING_VAR/);
-
-    expect(() =>
-      validateVars(filePath, "run", { PRESENT_VAR: "value" }, "/repo/.env.agent-ci"),
-    ).not.toThrow(/PRESENT_VAR/);
+    expect(() => validateVars(filePath, "run", { PRESENT_VAR: "value" })).toThrow(/MISSING_VAR/);
+    expect(() => validateVars(filePath, "run", { PRESENT_VAR: "value" })).not.toThrow(
+      /PRESENT_VAR/,
+    );
   });
 });

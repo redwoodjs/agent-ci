@@ -136,18 +136,15 @@ agent-ci run -w .github/workflows/ci.yml --github-token
 
 ## Vars
 
-Workflow variables (`${{ vars.FOO }}`) are resolved in order:
-
-1. **`.env.agent-ci.vars`** file in the repo root (`KEY=VALUE` syntax, `#` comments supported)
-2. **Shell environment variables** — any env var matching a required var name acts as a fallback
+Workflow variables (`${{ vars.FOO }}`) are provided exclusively via the `--var` CLI flag. There's no file-based lookup and no fallback to shell environment variables — this keeps workflow vars distinct from shell env vars and ensures every value is explicit on the command line.
 
 ```bash
-# .env.agent-ci.vars — non-sensitive values that can be committed to source control
-DEPLOY_ENV=production
-API_URL=https://api.example.com
+agent-ci run -w .github/workflows/deploy.yml \
+  --var DEPLOY_ENV=production \
+  --var API_URL=https://api.example.com
 ```
 
-Unlike secrets, vars values are not sensitive and the `.env.agent-ci.vars` file can safely be committed to version control.
+If a workflow references a var (`${{ vars.FOO }}`) and no matching `--var FOO=...` flag is passed, the run fails with a message listing the missing vars.
 
 ---
 

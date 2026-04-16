@@ -2,7 +2,7 @@
 import { execSync } from "child_process";
 import path from "path";
 import fs from "fs";
-import { config, loadMachineSecrets, loadMachineVars, resolveRepoSlug } from "./config.js";
+import { config, loadMachineSecrets, resolveRepoSlug } from "./config.js";
 import { getNextLogNum } from "./output/logger.js";
 import {
   setWorkingDirectory,
@@ -25,7 +25,6 @@ import {
   validateSecrets,
   extractSecretRefs,
   validateVars,
-  extractVarRefs,
   parseMatrixDef,
   expandMatrixCombinations,
   collapseMatrixToSingle,
@@ -90,6 +89,7 @@ async function run() {
     let githubToken: string | undefined;
     let commitStatus = false;
     let maxJobs: number | undefined;
+    const cliVars: Record<string, string> = {};
 
     for (let i = 1; i < args.length; i++) {
       if ((args[i] === "--workflow" || args[i] === "-w") && args[i + 1]) {
@@ -112,6 +112,21 @@ async function run() {
         i++;
       } else if (args[i] === "--commit-status") {
         commitStatus = true;
+      } else if (args[i] === "--var" && args[i + 1]) {
+        const raw = args[i + 1];
+        const eqIdx = raw.indexOf("=");
+        if (eqIdx < 1) {
+          console.error(`[Agent CI] Error: --var expects KEY=VALUE, got: ${raw}`);
+          process.exit(1);
+        }
+        const key = raw.slice(0, eqIdx).trim();
+        const value = raw.slice(eqIdx + 1);
+        if (!key) {
+          console.error(`[Agent CI] Error: --var expects KEY=VALUE, got: ${raw}`);
+          process.exit(1);
+        }
+        cliVars[key] = value;
+        i++;
       } else if (args[i] === "--github-token") {
         // If the next arg looks like a token value (not another flag), use it.
         // Otherwise, auto-resolve via `gh auth token`.
@@ -208,6 +223,7 @@ async function run() {
         noMatrix,
         githubToken,
         maxJobs,
+        vars: cliVars,
       });
       if (results.length > 0) {
         printSummary(results);
@@ -249,6 +265,7 @@ async function run() {
       noMatrix,
       githubToken,
       maxJobs,
+      vars: cliVars,
     });
     if (results.length > 0) {
       printSummary(results);
@@ -491,8 +508,9 @@ async function runWorkflows(options: {
   noMatrix?: boolean;
   githubToken?: string;
   maxJobs?: number;
+  vars?: Record<string, string>;
 }): Promise<JobResult[]> {
-  const { workflowPaths, sha, pauseOnFailure, noMatrix = false, githubToken } = options;
+  const { workflowPaths, sha, pauseOnFailure, noMatrix = false, githubToken, vars } = options;
 
   // Suppress EventEmitter MaxListenersExceeded warnings when running many
   // parallel jobs (each job adds SIGINT/SIGTERM listeners).
@@ -616,6 +634,7 @@ async function runWorkflows(options: {
         store,
         githubToken,
         globalLimiter,
+        vars,
       });
       allResults.push(...results);
     } else {
@@ -669,6 +688,7 @@ async function runWorkflows(options: {
               baseRunNum: runNums[i + 1],
               githubToken,
               globalLimiter,
+              vars,
             }),
           ),
         );
@@ -691,6 +711,7 @@ async function runWorkflows(options: {
               baseRunNum: runNums[i],
               githubToken,
               globalLimiter,
+              vars,
             }),
           ),
         );
@@ -737,8 +758,10 @@ async function handleWorkflow(options: {
   baseRunNum?: number;
   githubToken?: string;
   globalLimiter: ReturnType<typeof createConcurrencyLimiter>;
+  vars?: Record<string, string>;
 }): Promise<JobResult[]> {
   const { sha, pauseOnFailure, noMatrix = false, store, githubToken } = options;
+  const vars = options.vars ?? {};
   let workflowPath = options.workflowPath;
 
   if (!fs.existsSync(workflowPath)) {
@@ -861,10 +884,7 @@ async function handleWorkflow(options: {
     }
     const secretsFilePath = path.join(repoRoot, ".env.agent-ci");
     validateSecrets(ej.workflowPath, actualTaskName, secrets, secretsFilePath);
-    const requiredVarRefs = extractVarRefs(ej.workflowPath, actualTaskName);
-    const vars = loadMachineVars(repoRoot, requiredVarRefs);
-    const varsFilePath = path.join(repoRoot, ".env.agent-ci.vars");
-    validateVars(ej.workflowPath, actualTaskName, vars, varsFilePath);
+    validateVars(ej.workflowPath, actualTaskName, vars);
 
     // Resolve inputs for called workflow jobs
     let inputsContext: Record<string, string> | undefined;
@@ -962,10 +982,7 @@ async function handleWorkflow(options: {
     }
     const secretsFilePath = path.join(repoRoot, ".env.agent-ci");
     validateSecrets(ej.workflowPath, actualTaskName, secrets, secretsFilePath);
-    const requiredVarRefs = extractVarRefs(ej.workflowPath, actualTaskName);
-    const vars = loadMachineVars(repoRoot, requiredVarRefs);
-    const varsFilePath = path.join(repoRoot, ".env.agent-ci.vars");
-    validateVars(ej.workflowPath, actualTaskName, vars, varsFilePath);
+    validateVars(ej.workflowPath, actualTaskName, vars);
 
     // Use the job's position in expandedJobs (not a mutable counter) so the
     // runnerId is deterministic and matches the pre-registration at line 716.
@@ -1057,10 +1074,7 @@ async function handleWorkflow(options: {
     }
     const secretsFilePath = path.join(repoRoot, ".env.agent-ci");
     validateSecrets(ej.workflowPath, actualTaskName, secrets, secretsFilePath);
-    const requiredVarRefs = extractVarRefs(ej.workflowPath, actualTaskName);
-    const vars = loadMachineVars(repoRoot, requiredVarRefs);
-    const varsFilePath = path.join(repoRoot, ".env.agent-ci.vars");
-    validateVars(ej.workflowPath, actualTaskName, vars, varsFilePath);
+    validateVars(ej.workflowPath, actualTaskName, vars);
     const inputsContext = resolveInputsForJob(ej, secrets, needsContext, vars);
     const steps = await parseWorkflowSteps(
       ej.workflowPath,
@@ -1381,12 +1395,19 @@ function printUsage() {
   console.log(
     "      --commit-status           Post a GitHub commit status after the run (requires --github-token)",
   );
+  console.log(
+    "      --var KEY=VALUE           Provide a workflow variable (${{ vars.KEY }}); repeat for multiple",
+  );
   console.log("");
   console.log("Secrets:");
   console.log("  Workflow secrets (${{ secrets.FOO }}) are resolved from:");
   console.log("    1. .env.agent-ci file in the repo root");
   console.log("    2. Environment variables (shell env acts as fallback)");
   console.log("    3. --github-token automatically provides secrets.GITHUB_TOKEN");
+  console.log("");
+  console.log("Vars:");
+  console.log("  Workflow vars (${{ vars.FOO }}) must be provided via --var FOO=VALUE.");
+  console.log("  The run fails if any referenced var is missing.");
 }
 
 function resolveRepoRoot() {

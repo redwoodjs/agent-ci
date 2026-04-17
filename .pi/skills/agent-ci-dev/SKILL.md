@@ -1,11 +1,11 @@
 ---
-name: validate
-description: Run local CI via agent-ci to verify changes before completing work. Executes `pnpm agent-ci-dev run --all` in the background, monitors for step failures, and retries failed runners after fixes. Use before reporting work as complete, or whenever the user asks to validate, run CI, or check that changes pass.
+name: agent-ci-dev
+description: Run local CI via the in-tree dev build of agent-ci (`pnpm agent-ci-dev`) to verify changes to this repo before completing work. Runs `pnpm agent-ci-dev run --all` in the background, monitors for step failures, and retries failed runners after fixes. Use before reporting work as complete, or whenever the user asks to validate, run CI, or check that changes pass. Distinct from the published `agent-ci` skill, which targets downstream users via `npx @redwoodjs/agent-ci`.
 ---
 
-# Validate
+# Agent CI (dev build)
 
-Run local CI to verify changes before completing work.
+Run local CI against the in-tree dev build (`pnpm agent-ci-dev`) to verify changes to this repo before completing work.
 
 ## Steps
 

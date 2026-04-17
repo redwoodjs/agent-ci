@@ -1,6 +1,6 @@
 name: "Smoke: --var pre-flight"
 
-# Proves that `${{ vars.FOO }}` references are caught up-front:
+# Proves that `vars.FOO` references in a workflow are caught up-front:
 #   - Missing vars → agent-ci fails before any container setup, error
 #     message lists every missing var with the --var flag syntax.
 #   - Partial fill → only the still-missing var appears in the error.
@@ -38,23 +38,30 @@ jobs:
 
       - name: Create temp project with a vars-using workflow
         run: |
-          mkdir -p /tmp/vars-repro/.github/workflows
+          # Build the `${X}` GHA-expression opener from parts — the literal
+          # string `${X}` must never appear in this run: script, because the
+          # outer runner's template engine would substitute it before writing
+          # test.yml, stripping the vars.X references the inner agent-ci needs.
+          D='$'
+          OPEN="${D}{{"
+          CLOSE='}}'
 
-          cat > /tmp/vars-repro/.github/workflows/test.yml << 'WF'
+          mkdir -p /tmp/vars-repro/.github/workflows
+          cat > /tmp/vars-repro/.github/workflows/test.yml <<WF
           name: Test
           on: push
           jobs:
             test:
               runs-on: ubuntu-latest
               env:
-                API_URL: ${{ vars.API_URL }}
-                DEPLOY_ENV: ${{ vars.DEPLOY_ENV }}
+                API_URL: ${OPEN} vars.API_URL ${CLOSE}
+                DEPLOY_ENV: ${OPEN} vars.DEPLOY_ENV ${CLOSE}
               steps:
                 - run: |
-                    echo "api=$API_URL"
-                    echo "env=$DEPLOY_ENV"
-                    [ "$API_URL" = "https://api.example.com" ]
-                    [ "$DEPLOY_ENV" = "production" ]
+                    echo "api=\$API_URL"
+                    echo "env=\$DEPLOY_ENV"
+                    [ "\$API_URL" = "https://api.example.com" ]
+                    [ "\$DEPLOY_ENV" = "production" ]
           WF
 
           cd /tmp/vars-repro

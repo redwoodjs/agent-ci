@@ -134,6 +134,20 @@ agent-ci run -w .github/workflows/ci.yml --github-token
 
 ---
 
+## Vars
+
+Workflow variables (`${{ vars.FOO }}`) are provided exclusively via the `--var` CLI flag. There's no file-based lookup and no fallback to shell environment variables — this keeps workflow vars distinct from shell env vars and ensures every value is explicit on the command line.
+
+```bash
+agent-ci run -w .github/workflows/deploy.yml \
+  --var DEPLOY_ENV=production \
+  --var API_URL=https://api.example.com
+```
+
+If a workflow references a var (`${{ vars.FOO }}`) and no matching `--var FOO=...` flag is passed, the run fails with a message listing the missing vars.
+
+---
+
 ## Environment variables
 
 All configuration is available via environment variables. For persistent machine-local overrides, create a `.env.agent-ci` file in your project root — Agent CI loads it automatically (`KEY=VALUE` syntax, `#` comments supported).

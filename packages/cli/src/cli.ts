@@ -24,6 +24,8 @@ import {
   parseWorkflowContainer,
   validateSecrets,
   extractSecretRefs,
+  validateVars,
+  extractVarRefs,
   parseMatrixDef,
   expandMatrixCombinations,
   collapseMatrixToSingle,
@@ -88,6 +90,7 @@ async function run() {
     let githubToken: string | undefined;
     let commitStatus = false;
     let maxJobs: number | undefined;
+    const cliVars: Record<string, string> = {};
 
     for (let i = 1; i < args.length; i++) {
       if ((args[i] === "--workflow" || args[i] === "-w") && args[i + 1]) {
@@ -110,6 +113,21 @@ async function run() {
         i++;
       } else if (args[i] === "--commit-status") {
         commitStatus = true;
+      } else if (args[i] === "--var" && args[i + 1]) {
+        const raw = args[i + 1];
+        const eqIdx = raw.indexOf("=");
+        if (eqIdx < 1) {
+          console.error(`[Agent CI] Error: --var expects KEY=VALUE, got: ${raw}`);
+          process.exit(1);
+        }
+        const key = raw.slice(0, eqIdx).trim();
+        const value = raw.slice(eqIdx + 1);
+        if (!key) {
+          console.error(`[Agent CI] Error: --var expects KEY=VALUE, got: ${raw}`);
+          process.exit(1);
+        }
+        cliVars[key] = value;
+        i++;
       } else if (args[i] === "--github-token") {
         // If the next arg looks like a token value (not another flag), use it.
         // Otherwise, auto-resolve via `gh auth token`.
@@ -206,6 +224,7 @@ async function run() {
         noMatrix,
         githubToken,
         maxJobs,
+        vars: cliVars,
       });
       if (results.length > 0) {
         printSummary(results);
@@ -247,6 +266,7 @@ async function run() {
       noMatrix,
       githubToken,
       maxJobs,
+      vars: cliVars,
     });
     if (results.length > 0) {
       printSummary(results);
@@ -478,6 +498,53 @@ async function pullUpstreamRunnerImage(docker: Docker): Promise<void> {
   });
 }
 
+/**
+ * Scan every workflow for `${{ vars.FOO }}` references and exit with a
+ * combined error listing the missing vars and the `--var` flags needed.
+ * Called at the start of a run so users find out before any setup work
+ * happens.
+ */
+function preflightVars(workflowPaths: string[], vars: Record<string, string>): void {
+  const perFile: { file: string; missing: string[] }[] = [];
+  const allMissing = new Set<string>();
+  for (const wf of workflowPaths) {
+    let refs: string[];
+    try {
+      refs = extractVarRefs(wf);
+    } catch {
+      continue;
+    }
+    const missing = refs.filter((n) => !vars[n]);
+    if (missing.length > 0) {
+      perFile.push({ file: wf, missing });
+      for (const n of missing) {
+        allMissing.add(n);
+      }
+    }
+  }
+  if (allMissing.size === 0) {
+    return;
+  }
+  const lines: string[] = [
+    `[Agent CI] Missing vars required by workflow(s):`,
+    "",
+    ...perFile.map((m) => {
+      const rel = path.relative(process.cwd(), m.file);
+      const display = rel.startsWith("..") ? m.file : rel;
+      return `  ${display}: ${m.missing.join(", ")}`;
+    }),
+    "",
+    `Pass them via --var NAME=value (one flag per variable):`,
+    "",
+    ...Array.from(allMissing)
+      .sort()
+      .map((n) => `  --var ${n}=<value>`),
+    "",
+  ];
+  console.error(lines.join("\n"));
+  process.exit(1);
+}
+
 // ─── runWorkflows ──────────────────────────────────────────────────────────────
 // Single entry point for both `--workflow` and `--all`.
 // One workflow = --all with a single entry.
@@ -489,8 +556,13 @@ async function runWorkflows(options: {
   noMatrix?: boolean;
   githubToken?: string;
   maxJobs?: number;
+  vars?: Record<string, string>;
 }): Promise<JobResult[]> {
-  const { workflowPaths, sha, pauseOnFailure, noMatrix = false, githubToken } = options;
+  const { workflowPaths, sha, pauseOnFailure, noMatrix = false, githubToken, vars } = options;
+
+  // Pre-flight: scan all workflows for required vars before doing any setup
+  // work. Catches missing vars up front instead of mid-run.
+  preflightVars(workflowPaths, vars ?? {});
 
   // Suppress EventEmitter MaxListenersExceeded warnings when running many
   // parallel jobs (each job adds SIGINT/SIGTERM listeners).
@@ -614,6 +686,7 @@ async function runWorkflows(options: {
         store,
         githubToken,
         globalLimiter,
+        vars,
       });
       allResults.push(...results);
     } else {
@@ -667,6 +740,7 @@ async function runWorkflows(options: {
               baseRunNum: runNums[i + 1],
               githubToken,
               globalLimiter,
+              vars,
             }),
           ),
         );
@@ -689,6 +763,7 @@ async function runWorkflows(options: {
               baseRunNum: runNums[i],
               githubToken,
               globalLimiter,
+              vars,
             }),
           ),
         );
@@ -735,8 +810,10 @@ async function handleWorkflow(options: {
   baseRunNum?: number;
   githubToken?: string;
   globalLimiter: ReturnType<typeof createConcurrencyLimiter>;
+  vars?: Record<string, string>;
 }): Promise<JobResult[]> {
   const { sha, pauseOnFailure, noMatrix = false, store, githubToken } = options;
+  const vars = options.vars ?? {};
   let workflowPath = options.workflowPath;
 
   if (!fs.existsSync(workflowPath)) {
@@ -859,6 +936,7 @@ async function handleWorkflow(options: {
     }
     const secretsFilePath = path.join(repoRoot, ".env.agent-ci");
     validateSecrets(ej.workflowPath, actualTaskName, secrets, secretsFilePath);
+    validateVars(ej.workflowPath, actualTaskName, vars);
 
     // Resolve inputs for called workflow jobs
     let inputsContext: Record<string, string> | undefined;
@@ -866,7 +944,15 @@ async function handleWorkflow(options: {
       inputsContext = { ...ej.inputDefaults };
       if (ej.inputs) {
         for (const [k, v] of Object.entries(ej.inputs)) {
-          inputsContext[k] = expandExpressions(v, repoRoot, secrets);
+          inputsContext[k] = expandExpressions(
+            v,
+            repoRoot,
+            secrets,
+            undefined,
+            undefined,
+            undefined,
+            vars,
+          );
         }
       }
       if (Object.keys(inputsContext).length === 0) {
@@ -881,6 +967,7 @@ async function handleWorkflow(options: {
       ej.matrixContext,
       undefined,
       inputsContext,
+      vars,
     );
     const services = await parseWorkflowServices(ej.workflowPath, actualTaskName);
     const container = await parseWorkflowContainer(ej.workflowPath, actualTaskName);
@@ -947,6 +1034,7 @@ async function handleWorkflow(options: {
     }
     const secretsFilePath = path.join(repoRoot, ".env.agent-ci");
     validateSecrets(ej.workflowPath, actualTaskName, secrets, secretsFilePath);
+    validateVars(ej.workflowPath, actualTaskName, vars);
 
     // Use the job's position in expandedJobs (not a mutable counter) so the
     // runnerId is deterministic and matches the pre-registration at line 716.
@@ -993,6 +1081,7 @@ async function handleWorkflow(options: {
     ej: ExpandedJob,
     secrets: Record<string, string>,
     needsContext?: Record<string, Record<string, string>>,
+    vars?: Record<string, string>,
   ): Record<string, string> | undefined => {
     if (!ej.callerJobId) {
       return undefined;
@@ -1006,7 +1095,15 @@ async function handleWorkflow(options: {
     const resolved: Record<string, string> = { ...ej.inputDefaults };
     if (ej.inputs) {
       for (const [k, v] of Object.entries(ej.inputs)) {
-        resolved[k] = expandExpressions(v, repoRoot, secrets, undefined, needsContext);
+        resolved[k] = expandExpressions(
+          v,
+          repoRoot,
+          secrets,
+          undefined,
+          needsContext,
+          undefined,
+          vars,
+        );
       }
     }
     resolvedInputsCache.set(ej.callerJobId, resolved);
@@ -1029,7 +1126,8 @@ async function handleWorkflow(options: {
     }
     const secretsFilePath = path.join(repoRoot, ".env.agent-ci");
     validateSecrets(ej.workflowPath, actualTaskName, secrets, secretsFilePath);
-    const inputsContext = resolveInputsForJob(ej, secrets, needsContext);
+    validateVars(ej.workflowPath, actualTaskName, vars);
+    const inputsContext = resolveInputsForJob(ej, secrets, needsContext, vars);
     const steps = await parseWorkflowSteps(
       ej.workflowPath,
       actualTaskName,
@@ -1037,6 +1135,7 @@ async function handleWorkflow(options: {
       matrixContext,
       needsContext,
       inputsContext,
+      vars,
     );
     const services = await parseWorkflowServices(ej.workflowPath, actualTaskName);
     const container = await parseWorkflowContainer(ej.workflowPath, actualTaskName);
@@ -1348,12 +1447,19 @@ function printUsage() {
   console.log(
     "      --commit-status           Post a GitHub commit status after the run (requires --github-token)",
   );
+  console.log(
+    "      --var KEY=VALUE           Provide a workflow variable (${{ vars.KEY }}); repeat for multiple",
+  );
   console.log("");
   console.log("Secrets:");
   console.log("  Workflow secrets (${{ secrets.FOO }}) are resolved from:");
   console.log("    1. .env.agent-ci file in the repo root");
   console.log("    2. Environment variables (shell env acts as fallback)");
   console.log("    3. --github-token automatically provides secrets.GITHUB_TOKEN");
+  console.log("");
+  console.log("Vars:");
+  console.log("  Workflow vars (${{ vars.FOO }}) must be provided via --var FOO=VALUE.");
+  console.log("  The run fails if any referenced var is missing.");
 }
 
 function resolveRepoRoot() {

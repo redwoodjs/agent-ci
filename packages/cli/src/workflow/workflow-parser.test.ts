@@ -1661,3 +1661,191 @@ jobs:
     expect(inputs["cache-key"]).toBe("my-cache");
   });
 });
+
+// ─── extractVarRefs & validateVars ────────────────────────────────────────────
+
+import { extractVarRefs, validateVars } from "./workflow-parser.js";
+
+describe("extractVarRefs", () => {
+  // SPEC-V-011: workflow with no var refs returns empty array
+  // SPEC-V-014: duplicate refs deduplicate
+  // SPEC-V-015: job scoping
+
+  let tmpDir: string;
+
+  afterEach(() => {
+    if (tmpDir) {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  function writeWorkflow(content: string): string {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "oa-var-refs-"));
+    const filePath = path.join(tmpDir, "workflow.yml");
+    fs.writeFileSync(filePath, content);
+    return filePath;
+  }
+
+  // SPEC-V-011: workflow with no var references → empty array (not an error)
+  it("returns empty array when workflow has no vars references", () => {
+    const filePath = writeWorkflow(`
+name: No Vars
+on: [push]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo hello
+`);
+    expect(extractVarRefs(filePath)).toEqual([]);
+  });
+
+  // SPEC-V-014 + basic extraction: extracts unique sorted var names from whole file
+  it("extracts unique sorted var names from the whole file", () => {
+    const filePath = writeWorkflow(`
+name: Vars Test
+on: [push]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      ENV: \${{ vars.APP_ENV }}
+      REGION: \${{ vars.DEPLOY_REGION }}
+      DUP: \${{ vars.APP_ENV }}
+    steps:
+      - run: echo ok
+`);
+    expect(extractVarRefs(filePath)).toEqual(["APP_ENV", "DEPLOY_REGION"]);
+  });
+
+  // SPEC-V-015: job scoping — only extracts refs for the named job
+  it("scopes to the specified job when taskName is provided", () => {
+    const filePath = writeWorkflow(`
+name: Multi Job
+on: [push]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      ENV: \${{ vars.BUILD_ENV }}
+    steps:
+      - run: echo build
+  test:
+    runs-on: ubuntu-latest
+    env:
+      ENV: \${{ vars.TEST_ENV }}
+    steps:
+      - run: echo test
+`);
+    expect(extractVarRefs(filePath, "test")).toEqual(["TEST_ENV"]);
+    expect(extractVarRefs(filePath, "build")).toEqual(["BUILD_ENV"]);
+  });
+
+  // SPEC-V-008: vars refs are not confused with secrets refs
+  it("does not return secrets refs as var refs", () => {
+    const filePath = writeWorkflow(`
+name: Mixed
+on: [push]
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    env:
+      TOKEN: \${{ secrets.API_KEY }}
+      ENV: \${{ vars.APP_ENV }}
+    steps:
+      - run: echo ok
+`);
+    expect(extractVarRefs(filePath)).toEqual(["APP_ENV"]);
+  });
+});
+
+describe("validateVars", () => {
+  // SPEC-V-002: missing var → error naming the var
+  // SPEC-V-011: no var refs → not an error
+  // SPEC-V-012: error message names missing vars and tells user how to pass them
+  // SPEC-V-013: only missing vars appear in error
+
+  let tmpDir: string;
+
+  afterEach(() => {
+    if (tmpDir) {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  function writeWorkflow(content: string): string {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "oa-validate-vars-"));
+    const filePath = path.join(tmpDir, "workflow.yml");
+    fs.writeFileSync(filePath, content);
+    return filePath;
+  }
+
+  // SPEC-V-001: all vars present → no error
+  it("does not throw when all required vars are present", () => {
+    const filePath = writeWorkflow(`
+name: Test
+on: [push]
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    env:
+      ENV: \${{ vars.APP_ENV }}
+    steps:
+      - run: echo ok
+`);
+    expect(() => validateVars(filePath, "run", { APP_ENV: "production" })).not.toThrow();
+  });
+
+  // SPEC-V-011: workflow with no var refs → not an error even with empty vars map
+  it("does not throw when workflow has no vars references", () => {
+    const filePath = writeWorkflow(`
+name: Test
+on: [push]
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo ok
+`);
+    expect(() => validateVars(filePath, "run", {})).not.toThrow();
+  });
+
+  // SPEC-V-002 + SPEC-V-012: error names missing vars and instructs to pass --var flags
+  it("throws listing missing vars and the --var flag syntax", () => {
+    const filePath = writeWorkflow(`
+name: Test
+on: [push]
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      HOST: \${{ vars.DB_HOST }}
+      PORT: \${{ vars.DB_PORT }}
+    steps:
+      - run: echo deploy
+`);
+    expect(() => validateVars(filePath, "deploy", {})).toThrow(/DB_HOST/);
+    expect(() => validateVars(filePath, "deploy", {})).toThrow(/DB_PORT/);
+    expect(() => validateVars(filePath, "deploy", {})).toThrow(/--var/);
+  });
+
+  // SPEC-V-013: only missing vars appear in error — supplied vars are not mentioned
+  it("only fails for missing vars, not for ones that are present", () => {
+    const filePath = writeWorkflow(`
+name: Test
+on: [push]
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    env:
+      A: \${{ vars.PRESENT_VAR }}
+      B: \${{ vars.MISSING_VAR }}
+    steps:
+      - run: echo ok
+`);
+    expect(() => validateVars(filePath, "run", { PRESENT_VAR: "value" })).toThrow(/MISSING_VAR/);
+    expect(() => validateVars(filePath, "run", { PRESENT_VAR: "value" })).not.toThrow(
+      /PRESENT_VAR/,
+    );
+  });
+});

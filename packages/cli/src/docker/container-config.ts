@@ -155,7 +155,16 @@ export function buildContainerCmd(opts: ContainerCmdOpts): string[] {
     // chmod is done host-side in workspacePrepPromise — skip it here
     `if [ -f /usr/bin/git ]; then MAYBE_SUDO mv /usr/bin/git /usr/bin/git.real 2>/dev/null; MAYBE_SUDO cp -p /tmp/agent-ci-shims/git /usr/bin/git 2>/dev/null; MAYBE_SUDO chmod +x /usr/bin/git 2>/dev/null; fi`,
     T("git-shim"),
-    `${svcPortForwardSnippet}chmod 666 /var/run/docker.sock 2>/dev/null || true`,
+    // The bind-mounted /var/run/docker.sock inherits host ownership (root:docker,
+    // 0660 on native Linux Docker). The runner user inside the container is
+    // not in the host's docker group, so without this chmod, any step that
+    // talks to the Docker socket (docker/setup-buildx-action, docker login,
+    // buildx, compose, ...) fails with "permission denied while trying to
+    // connect to the docker API at unix:///var/run/docker.sock" (#257).
+    // MAYBE_SUDO is required because runner (UID 1001) cannot chmod a
+    // root-owned socket without escalation. macOS/OrbStack/Colima usually
+    // ship the socket as world-accessible so this is a no-op there.
+    `${svcPortForwardSnippet}MAYBE_SUDO chmod 666 /var/run/docker.sock 2>/dev/null || true`,
     T("docker-sock"),
     // The Playwright bind mount creates /home/runner/.cache as root — make it
     // world-writable so tools like Cypress can mkdir inside it (#234).

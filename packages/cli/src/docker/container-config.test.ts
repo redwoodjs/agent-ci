@@ -203,6 +203,24 @@ describe("buildContainerCmd", () => {
 
     expect(cmd[2]).toContain("socat TCP-LISTEN:5432");
   });
+
+  // Regression for #257: on native Linux Docker the bind-mounted
+  // /var/run/docker.sock is root:docker 0660 and the runner user can't
+  // chmod it without sudo. If this line drops MAYBE_SUDO, every step that
+  // talks to the Docker socket (buildx, compose, docker login, ...) fails
+  // with "permission denied".
+  it("chmods the docker socket via MAYBE_SUDO so it works on native Linux Docker (#257)", async () => {
+    const { buildContainerCmd } = await import("./container-config.js");
+    const cmd = buildContainerCmd({
+      svcPortForwardSnippet: "",
+      dtuPort: "3000",
+      dtuHost: "localhost",
+      useDirectContainer: false,
+      containerName: "test-runner",
+    });
+
+    expect(cmd[2]).toContain("MAYBE_SUDO chmod 666 /var/run/docker.sock");
+  });
 });
 
 // ── resolveDockerApiUrl ───────────────────────────────────────────────────────

@@ -20,6 +20,18 @@ export const setCommonHeaders =
     // Explicitly disables access to specific browser features/APIs
     response.headers.set("Permissions-Policy", "geolocation=(), microphone=(), camera=()");
 
+    // Advertise discoverable resources to agents via Link headers (RFC 8288).
+    // Relations are from the IANA Link Relation Types registry plus the
+    // Agent Skills Discovery extension rel "agent-skills".
+    response.headers.set(
+      "Link",
+      [
+        '</sitemap.xml>; rel="sitemap"; type="application/xml"',
+        '</.well-known/agent-skills/index.json>; rel="agent-skills"; type="application/json"',
+        '</docs/README.md>; rel="service-doc"; type="text/markdown"',
+      ].join(", "),
+    );
+
     // Defines trusted sources for content loading and script execution:
     response.headers.set(
       "Content-Security-Policy",

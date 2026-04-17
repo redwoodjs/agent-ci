@@ -1,0 +1,93 @@
+# agent-ci.dev
+# Crawl rules for search engines and AI agents.
+# Reference: RFC 9309 (https://www.rfc-editor.org/rfc/rfc9309)
+
+Sitemap: https://agent-ci.dev/sitemap.xml
+
+# Content Signals declare our preferences for how content may be used.
+# Reference: https://contentsignals.org/
+#   search    — allow indexing for search engines
+#   ai-input  — allow grounding / retrieval for AI answers
+#   ai-train  — do not use for training generative models
+Content-Signal: search=yes, ai-input=yes, ai-train=no
+
+# Default: everything is crawlable.
+User-agent: *
+Allow: /
+
+# --- Search ---
+
+User-agent: Googlebot
+Allow: /
+
+User-agent: Bingbot
+Allow: /
+
+User-agent: DuckDuckBot
+Allow: /
+
+# --- Google AI (Gemini / Vertex) — opt-in separately from Googlebot ---
+
+User-agent: Google-Extended
+Allow: /
+
+# --- OpenAI ---
+
+User-agent: GPTBot
+Allow: /
+
+User-agent: OAI-SearchBot
+Allow: /
+
+User-agent: ChatGPT-User
+Allow: /
+
+# --- Anthropic ---
+
+User-agent: ClaudeBot
+Allow: /
+
+User-agent: Claude-Web
+Allow: /
+
+User-agent: anthropic-ai
+Allow: /
+
+# --- Perplexity ---
+
+User-agent: PerplexityBot
+Allow: /
+
+User-agent: Perplexity-User
+Allow: /
+
+# --- Apple ---
+
+User-agent: Applebot
+Allow: /
+
+User-agent: Applebot-Extended
+Allow: /
+
+# --- Common Crawl ---
+
+User-agent: CCBot
+Allow: /
+
+# --- Meta ---
+
+User-agent: Meta-ExternalAgent
+Allow: /
+
+User-agent: FacebookBot
+Allow: /
+
+# --- ByteDance ---
+
+User-agent: Bytespider
+Allow: /
+
+# --- DuckDuckGo assistant ---
+
+User-agent: DuckAssistBot
+Allow: /

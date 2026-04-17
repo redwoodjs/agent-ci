@@ -1,0 +1,95 @@
+name: "Smoke: docker/setup-buildx-action fails to run"
+
+# Reproduces #257 — docker/setup-buildx-action@v4 fails to run under agent-ci.
+#
+# Reported by @PatrikTheDev. A workflow step as trivial as
+#
+#   - uses: docker/setup-buildx-action@v4
+#
+# never successfully completes inside the runner container. The action needs
+# to shell out to the host's Docker daemon (via the bind-mounted socket) and
+# install/start a buildx builder; something in our runner environment or
+# Docker-in-Docker setup is preventing that from working the way it does on
+# github.com.
+#
+# This smoke test creates a throwaway project with a minimal workflow that
+# runs setup-buildx-action, executes it through agent-ci, and fails if
+# either agent-ci exits non-zero or if `docker buildx version` can't be
+# resolved after the action claims to have completed.
+
+on:
+  pull_request_target:
+    types: [opened, labeled, synchronize]
+
+jobs:
+  docker-buildx:
+    if: '!github.event.pull_request.draft && (contains(fromJSON(''["MEMBER", "OWNER", "COLLABORATOR"]''), github.event.pull_request.author_association) || contains(github.event.pull_request.labels.*.name, ''safe-to-run''))'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.30.1
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: "pnpm"
+
+      - run: pnpm install
+
+      - name: Build agent-ci
+        run: pnpm --filter @redwoodjs/agent-ci... -r build
+
+      - name: Create temp docker-buildx project
+        run: |
+          mkdir -p /tmp/docker-buildx-repro/.github/workflows
+
+          cat > /tmp/docker-buildx-repro/package.json << 'PKG'
+          { "name": "docker-buildx-repro", "private": true }
+          PKG
+
+          # Inner workflow: the one agent-ci will execute inside a container
+          cat > /tmp/docker-buildx-repro/.github/workflows/test.yml << 'WF'
+          name: Test
+          on: push
+          jobs:
+            test:
+              runs-on: ubuntu-latest
+              steps:
+                - uses: docker/setup-buildx-action@v4
+                - name: Verify buildx
+                  run: |
+                    docker buildx version
+                    docker buildx ls
+                    echo "buildx is working"
+          WF
+
+          # agent-ci needs a git repo with a remote to resolve the repo slug
+          cd /tmp/docker-buildx-repro
+          git init
+          git remote add origin https://github.com/test-org/docker-buildx-repro.git
+          git add -A
+          git -c user.name="test" -c user.email="test@test.com" commit -m "init"
+
+      - name: Run agent-ci against docker-buildx project
+        id: run
+        working-directory: /tmp/docker-buildx-repro
+        run: |
+          node "$GITHUB_WORKSPACE/packages/cli/dist/cli.js" \
+            run --workflow .github/workflows/test.yml --quiet 2>&1 | tee /tmp/docker-buildx.out
+
+      - name: Assert setup-buildx-action completed and `docker buildx` is usable
+        run: |
+          if ! grep -q "buildx is working" /tmp/docker-buildx.out; then
+            echo "::error::docker/setup-buildx-action@v4 did not complete — 'Verify buildx' step never ran or failed."
+            grep -n -iE "buildx|error|fail" /tmp/docker-buildx.out || true
+            exit 1
+          fi
+          echo "OK: docker/setup-buildx-action@v4 ran and buildx is usable."

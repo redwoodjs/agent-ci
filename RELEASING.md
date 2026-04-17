@@ -50,3 +50,29 @@ The GitHub repo needs an `NPM_TOKEN` secret with publish access.
 | `pnpm version`   | Apply pending changesets locally (for testing) |
 | `pnpm release`   | Build all packages and publish to npm          |
 | `pnpm -r build`  | Build all packages without publishing          |
+
+## Releasing the Website (agent-ci.dev)
+
+The marketing site at `apps/website/` is deployed to Cloudflare Workers on the
+**RedwoodJS** Cloudflare account. It is not part of the npm release flow above
+— it's deployed manually.
+
+```sh
+cd apps/website
+CLOUDFLARE_ACCOUNT_ID=1634a8e653b2ce7e0f7a23cca8cbd86a CLOUDFLARE_ENV=production pnpm release
+```
+
+Notes:
+
+- `CLOUDFLARE_ACCOUNT_ID` picks the `RedwoodJS` Cloudflare account
+  non-interactively (the OAuth user may have access to multiple accounts).
+- `CLOUDFLARE_ENV=production` selects the production deploy target.
+- `pnpm release` runs: `ensure-deploy-env → clean → build → wrangler deploy`.
+  The `prebuild` hook copies the public CLI docs into `public/docs/` and
+  regenerates `public/.well-known/agent-skills/index.json`, so the site never
+  drifts from `packages/cli/*.md`.
+- After deploying, smoke-test with
+  `curl -I https://agent-ci.dev/robots.txt` and
+  `curl https://agent-ci.dev/sitemap.xml`.
+- You need to be logged in to Wrangler on an account with write access to the
+  RedwoodJS Cloudflare org: `pnpm dlx wrangler login`.

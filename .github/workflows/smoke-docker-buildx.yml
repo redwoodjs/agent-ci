@@ -18,18 +18,15 @@ name: "Smoke: docker/setup-buildx-action fails to run"
 # resolved after the action claims to have completed.
 
 on:
-  pull_request_target:
-    types: [opened, labeled, synchronize]
+  pull_request:
+    types: [opened, synchronize, reopened]
 
 jobs:
   docker-buildx:
-    if: '!github.event.pull_request.draft && (contains(fromJSON(''["MEMBER", "OWNER", "COLLABORATOR"]''), github.event.pull_request.author_association) || contains(github.event.pull_request.labels.*.name, ''safe-to-run''))'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4

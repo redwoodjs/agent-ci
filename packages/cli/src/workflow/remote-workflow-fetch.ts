@@ -51,6 +51,45 @@ export function remoteCachePath(cacheDir: string, ref: RemoteWorkflowRef): strin
   return path.join(cacheDir, `${ref.owner}__${ref.repo}@${sanitizedRef}`, ref.path);
 }
 
+const AUTH_INSTRUCTIONS = [
+  "  To authenticate, either:",
+  "    - Install and log in with the GitHub CLI, then run:",
+  "        gh auth login",
+  "        agent-ci run --github-token",
+  "    - Or pass a token value directly:",
+  "        agent-ci run --github-token <token>",
+  "    - Or export it:",
+  "        export AGENT_CI_GITHUB_TOKEN=<token>",
+].join("\n");
+
+const INSUFFICIENT_TOKEN_HINT =
+  "  If a token is already provided, it may lack the 'repo' scope (classic PAT) or 'contents: read' permission (fine-grained PAT), or the organization may require SSO authorization for the token.";
+
+/**
+ * Build a human-readable hint for a failed remote-workflow fetch, based on the
+ * HTTP status and whether a token was supplied. 404 is included because GitHub
+ * returns 404 (not 401/403) for private repos when auth is missing or
+ * insufficient, to avoid leaking repo existence.
+ */
+export function buildAuthHint(status: number, hasToken: boolean): string {
+  if (status === 404) {
+    const lines = [
+      "",
+      "  The repository or ref was not found. If this is a private repository, GitHub returns 404 when authentication is missing or insufficient.",
+      "",
+    ];
+    lines.push(hasToken ? INSUFFICIENT_TOKEN_HINT : AUTH_INSTRUCTIONS);
+    return lines.join("\n");
+  }
+  if (status === 401 || status === 403) {
+    if (hasToken) {
+      return `\n${INSUFFICIENT_TOKEN_HINT}`;
+    }
+    return `\n${AUTH_INSTRUCTIONS}`;
+  }
+  return "";
+}
+
 /**
  * Scan a workflow YAML and prefetch all remote reusable workflow refs.
  * Downloaded files are written to cacheDir.
@@ -60,7 +99,9 @@ export function remoteCachePath(cacheDir: string, ref: RemoteWorkflowRef): strin
  *
  * Authentication is opt-in via the `githubToken` parameter.
  * Public repos may work without auth (within rate limits).
- * On 401/403 responses, throws with instructions for how to authenticate.
+ * On 401/403/404 responses, throws with instructions for how to authenticate —
+ * 404 is included because GitHub returns it for private repos when auth is
+ * missing or insufficient, to avoid leaking repo existence.
  */
 export async function prefetchRemoteWorkflows(
   workflowPath: string,
@@ -111,10 +152,7 @@ export async function prefetchRemoteWorkflows(
 
         const response = await fetch(url, { headers });
         if (!response.ok) {
-          const hint =
-            response.status === 401 || response.status === 403
-              ? ` Run with: agent-ci run --github-token\n  Or set: export AGENT_CI_GITHUB_TOKEN=$(gh auth token)`
-              : "";
+          const hint = buildAuthHint(response.status, Boolean(githubToken));
           errors.push(
             `Failed to fetch remote workflow ${ref.raw} (HTTP ${response.status}).${hint}`,
           );

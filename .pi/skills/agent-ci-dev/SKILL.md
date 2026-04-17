@@ -1,0 +1,59 @@
+---
+name: agent-ci-dev
+description: Run local CI via the in-tree dev build of agent-ci (`pnpm agent-ci-dev`) to verify changes to this repo before completing work. Runs `pnpm agent-ci-dev run --all` in the background, watches the log for step failures, and retries failed runners after fixes. Use before reporting work as complete, or whenever the user asks to validate, run CI, or check that changes pass. Distinct from the published `agent-ci` skill, which targets downstream users via `npx @redwoodjs/agent-ci`.
+---
+
+# Agent CI (dev build)
+
+Run local CI against the in-tree dev build (`pnpm agent-ci-dev`) to verify changes to this repo before completing work.
+
+This skill relies on two pi-native tools added by `.pi/extensions/background-shell.ts`: **`bash_background`** (start a command, return immediately) and **`monitor_wait`** (block until the log matches a pattern or the task exits). If those tools aren't available in your pi, load/reload the extension — `/reload` if you're already in a session, or relaunch pi — before continuing.
+
+## Steps
+
+1. **Start agent-ci in the background** with `bash_background`:
+
+   ```json
+   { "command": "pnpm agent-ci-dev run --all -q -p" }
+   ```
+
+   This returns `{ taskId, outputFile, pid }` without blocking.
+
+2. **Wait for a failure or completion** with `monitor_wait`, covering both happy and failure paths in one regex (silence is not success — a crash or hang with a success-only filter looks identical to still-running):
+
+   ```json
+   {
+     "taskId": "<from step 1>",
+     "pattern": "Step failed|Traceback|Error|FAILED",
+     "timeoutMs": 600000
+   }
+   ```
+
+   `monitor_wait` returns when **any** of the following happens:
+   - the regex matches a new line → `stoppedBecause: "match"`, inspect `matches`
+   - the task exits → `stoppedBecause: "exit"`, inspect `state` (`succeeded` or `failed`) and `exitCode`
+   - the timeout elapses → `stoppedBecause: "timeout"`, loop back and call `monitor_wait` again (it resumes from the previous byte offset automatically)
+
+3. **On success** (`state: "succeeded"`), you're done.
+
+4. **On failure**, read the full output file for details:
+
+   ```bash
+   tail -n 200 <outputFile>
+   ```
+
+   **CI was passing before your work started**, so the failure is caused by your changes. Fix the issue in your code, then retry the failed runner — again via `bash_background` + `monitor_wait`:
+
+   ```bash
+   pnpm agent-ci-dev retry --name <runner-name>
+   ```
+
+   If the fix requires re-running from an earlier step:
+
+   ```bash
+   pnpm agent-ci-dev retry --name <runner-name> --from-step <N>
+   ```
+
+   Repeat until the job passes.
+
+5. Once all jobs have passed, you're done.

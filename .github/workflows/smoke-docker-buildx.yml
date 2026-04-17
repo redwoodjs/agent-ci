@@ -78,9 +78,38 @@ jobs:
       - name: Run agent-ci against docker-buildx project
         id: run
         working-directory: /tmp/docker-buildx-repro
+        env:
+          DEBUG: "agent-ci:*"
+          AI_AGENT: "1" # same as --quiet: no animated TUI, but still full logs
         run: |
           node "$GITHUB_WORKSPACE/packages/cli/dist/cli.js" \
-            run --workflow .github/workflows/test.yml --quiet 2>&1 | tee /tmp/docker-buildx.out
+            run --workflow .github/workflows/test.yml 2>&1 | tee /tmp/docker-buildx.out
+
+      - name: Dump agent-ci step logs
+        if: always()
+        run: |
+          echo "::group::agent-ci runs dir"
+          ls -la /tmp/agent-ci/ 2>/dev/null || echo "no /tmp/agent-ci"
+          find /tmp/agent-ci -maxdepth 6 -type d 2>/dev/null | head -50
+          echo "::endgroup::"
+          for f in $(find /tmp/agent-ci -path '*/logs/steps/*.log' 2>/dev/null); do
+            echo "::group::$f"
+            cat "$f"
+            echo "::endgroup::"
+          done
+          for f in $(find /tmp/agent-ci -name 'debug.log' 2>/dev/null); do
+            echo "::group::$f"
+            tail -500 "$f"
+            echo "::endgroup::"
+          done
+
+      - name: Upload agent-ci logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: agent-ci-logs
+          path: /tmp/agent-ci/**/logs/**
+          if-no-files-found: warn
 
       - name: Assert setup-buildx-action completed and `docker buildx` is usable
         run: |

@@ -35,13 +35,13 @@
 
 ## Architecture Comparison
 
-| Feature           | GitHub Actions     | Other local runners      | Agent CI                        |
-| ----------------- | ------------------ | ------------------------ | ------------------------------- |
-| Runner binary     | Official           | Custom re-implementation | **Official**                    |
-| API layer         | GitHub.com         | Compatibility shim       | **Full local emulation**        |
-| Cache round-trip  | Network (~seconds) | Varies                   | **~0 ms (bind-mount)**          |
-| On failure        | Start over         | Start over               | **Pause → fix → retry step**    |
-| Container state   | Destroyed          | Destroyed                | **Kept alive**                  |
+| Feature          | GitHub Actions     | Other local runners      | Agent CI                     |
+| ---------------- | ------------------ | ------------------------ | ---------------------------- |
+| Runner binary    | Official           | Custom re-implementation | **Official**                 |
+| API layer        | GitHub.com         | Compatibility shim       | **Full local emulation**     |
+| Cache round-trip | Network (~seconds) | Varies                   | **~0 ms (bind-mount)**       |
+| On failure       | Start over         | Start over               | **Pause → fix → retry step** |
+| Container state  | Destroyed          | Destroyed                | **Kept alive**               |
 
 ---
 

@@ -1849,3 +1849,122 @@ jobs:
     );
   });
 });
+
+// ─── parseWorkflowSteps env merging (workflow → job → step) ──────────────────────
+describe("parseWorkflowSteps env merging", () => {
+  let tmpDir: string;
+
+  afterEach(() => {
+    if (tmpDir) {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  function writeWorkflowTree(content: string): string {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "oa-env-merge-"));
+    const workflowDir = path.join(tmpDir, ".github", "workflows");
+    fs.mkdirSync(workflowDir, { recursive: true });
+    const filePath = path.join(workflowDir, "test.yml");
+    fs.writeFileSync(filePath, content);
+    return filePath;
+  }
+
+  it("propagates job-level env to steps", async () => {
+    const filePath = writeWorkflowTree(`
+name: Job Env
+on: [push]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      FROM_JOB: job-value
+    steps:
+      - run: echo hi
+`);
+    const steps = await parseWorkflowSteps(filePath, "test");
+    expect((steps[0] as any).Env).toEqual({ FROM_JOB: "job-value" });
+  });
+
+  it("propagates workflow-level env to steps", async () => {
+    const filePath = writeWorkflowTree(`
+name: Workflow Env
+on: [push]
+env:
+  FROM_WORKFLOW: workflow-value
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo hi
+`);
+    const steps = await parseWorkflowSteps(filePath, "test");
+    expect((steps[0] as any).Env).toEqual({ FROM_WORKFLOW: "workflow-value" });
+  });
+
+  it("merges workflow + job + step env with step-overrides-job-overrides-workflow precedence", async () => {
+    const filePath = writeWorkflowTree(`
+name: Precedence
+on: [push]
+env:
+  LEVEL: workflow
+  WF_ONLY: workflow
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      LEVEL: job
+      JOB_ONLY: job
+    steps:
+      - env:
+          LEVEL: step
+          STEP_ONLY: step
+        run: echo hi
+`);
+    const steps = await parseWorkflowSteps(filePath, "test");
+    expect((steps[0] as any).Env).toEqual({
+      LEVEL: "step",
+      WF_ONLY: "workflow",
+      JOB_ONLY: "job",
+      STEP_ONLY: "step",
+    });
+  });
+
+  it("expands \\${{ vars.X }} in job-level env", async () => {
+    const filePath = writeWorkflowTree(`
+name: Vars In Job Env
+on: [push]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      API_URL: \${{ vars.API_URL }}
+    steps:
+      - run: echo hi
+`);
+    const vars = { API_URL: "https://api.example.com" };
+    const steps = await parseWorkflowSteps(
+      filePath,
+      "test",
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      vars,
+    );
+    expect((steps[0] as any).Env).toEqual({ API_URL: "https://api.example.com" });
+  });
+
+  it("returns undefined Env when no env declared at any level", async () => {
+    const filePath = writeWorkflowTree(`
+name: No Env
+on: [push]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo hi
+`);
+    const steps = await parseWorkflowSteps(filePath, "test");
+    expect((steps[0] as any).Env).toBeUndefined();
+  });
+});

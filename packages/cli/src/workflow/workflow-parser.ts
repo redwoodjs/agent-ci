@@ -793,6 +793,57 @@ export async function parseMatrixDef(
   return Object.keys(result).length > 0 ? result : null;
 }
 
+/**
+ * Build a step's effective env by merging workflow-level, job-level, and
+ * step-level `env:` blocks in that order — step overrides job overrides
+ * workflow, per GitHub Actions semantics — then expanding each value's
+ * `${{ }}` expressions.
+ *
+ * Returns undefined when no env is declared at any level, matching the
+ * prior shape so a step with no env produces no `Env` field.
+ */
+function buildStepEnv(
+  rawYaml: unknown,
+  rawJob: unknown,
+  rawStep: unknown,
+  repoPath: string | undefined,
+  secrets: Record<string, string> | undefined,
+  matrixContext: Record<string, string> | undefined,
+  needsContext: Record<string, Record<string, string>> | undefined,
+  inputsContext: Record<string, string> | undefined,
+  vars: Record<string, string> | undefined,
+): Record<string, string> | undefined {
+  const pick = (source: unknown): Record<string, unknown> => {
+    if (!source || typeof source !== "object") {
+      return {};
+    }
+    const env = (source as { env?: unknown }).env;
+    return env && typeof env === "object" ? (env as Record<string, unknown>) : {};
+  };
+  const merged: Record<string, unknown> = {
+    ...pick(rawYaml),
+    ...pick(rawJob),
+    ...pick(rawStep),
+  };
+  if (Object.keys(merged).length === 0) {
+    return undefined;
+  }
+  return Object.fromEntries(
+    Object.entries(merged).map(([k, v]) => [
+      k,
+      expandExpressions(
+        String(v),
+        repoPath,
+        secrets,
+        matrixContext,
+        needsContext,
+        inputsContext,
+        vars,
+      ),
+    ]),
+  );
+}
+
 export async function parseWorkflowSteps(
   filePath: string,
   taskName: string,
@@ -889,22 +940,17 @@ export async function parseWorkflowSteps(
             Type: "Script",
           },
           Inputs: inputs,
-          Env: rawStep.env
-            ? Object.fromEntries(
-                Object.entries(rawStep.env).map(([k, v]) => [
-                  k,
-                  expandExpressions(
-                    String(v),
-                    repoPath,
-                    secrets,
-                    undefined,
-                    needsContext,
-                    inputsContext,
-                    vars,
-                  ),
-                ]),
-              )
-            : undefined,
+          Env: buildStepEnv(
+            rawYaml,
+            rawJob,
+            rawStep,
+            repoPath,
+            secrets,
+            undefined,
+            needsContext,
+            inputsContext,
+            vars,
+          ),
         };
       } else if ("uses" in step) {
         // Basic support for 'uses' steps
@@ -998,22 +1044,17 @@ export async function parseWorkflowSteps(
                 }
               : {}), // Prevent actions/checkout from wiping the rsynced workspace
           },
-          Env: rawStep.env
-            ? Object.fromEntries(
-                Object.entries(rawStep.env).map(([k, v]) => [
-                  k,
-                  expandExpressions(
-                    String(v),
-                    repoPath,
-                    secrets,
-                    matrixContext,
-                    needsContext,
-                    inputsContext,
-                    vars,
-                  ),
-                ]),
-              )
-            : undefined,
+          Env: buildStepEnv(
+            rawYaml,
+            rawJob,
+            rawStep,
+            repoPath,
+            secrets,
+            matrixContext,
+            needsContext,
+            inputsContext,
+            vars,
+          ),
         };
       }
       return null;

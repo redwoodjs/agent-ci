@@ -25,6 +25,7 @@ import {
   validateSecrets,
   extractSecretRefs,
   validateVars,
+  extractVarRefs,
   parseMatrixDef,
   expandMatrixCombinations,
   collapseMatrixToSingle,
@@ -497,6 +498,53 @@ async function pullUpstreamRunnerImage(docker: Docker): Promise<void> {
   });
 }
 
+/**
+ * Scan every workflow for `${{ vars.FOO }}` references and exit with a
+ * combined error listing the missing vars and the `--var` flags needed.
+ * Called at the start of a run so users find out before any setup work
+ * happens.
+ */
+function preflightVars(workflowPaths: string[], vars: Record<string, string>): void {
+  const perFile: { file: string; missing: string[] }[] = [];
+  const allMissing = new Set<string>();
+  for (const wf of workflowPaths) {
+    let refs: string[];
+    try {
+      refs = extractVarRefs(wf);
+    } catch {
+      continue;
+    }
+    const missing = refs.filter((n) => !vars[n]);
+    if (missing.length > 0) {
+      perFile.push({ file: wf, missing });
+      for (const n of missing) {
+        allMissing.add(n);
+      }
+    }
+  }
+  if (allMissing.size === 0) {
+    return;
+  }
+  const lines: string[] = [
+    `[Agent CI] Missing vars required by workflow(s):`,
+    "",
+    ...perFile.map((m) => {
+      const rel = path.relative(process.cwd(), m.file);
+      const display = rel.startsWith("..") ? m.file : rel;
+      return `  ${display}: ${m.missing.join(", ")}`;
+    }),
+    "",
+    `Pass them via --var NAME=value (one flag per variable):`,
+    "",
+    ...Array.from(allMissing)
+      .sort()
+      .map((n) => `  --var ${n}=<value>`),
+    "",
+  ];
+  console.error(lines.join("\n"));
+  process.exit(1);
+}
+
 // ─── runWorkflows ──────────────────────────────────────────────────────────────
 // Single entry point for both `--workflow` and `--all`.
 // One workflow = --all with a single entry.
@@ -511,6 +559,10 @@ async function runWorkflows(options: {
   vars?: Record<string, string>;
 }): Promise<JobResult[]> {
   const { workflowPaths, sha, pauseOnFailure, noMatrix = false, githubToken, vars } = options;
+
+  // Pre-flight: scan all workflows for required vars before doing any setup
+  // work. Catches missing vars up front instead of mid-run.
+  preflightVars(workflowPaths, vars ?? {});
 
   // Suppress EventEmitter MaxListenersExceeded warnings when running many
   // parallel jobs (each job adds SIGINT/SIGTERM listeners).

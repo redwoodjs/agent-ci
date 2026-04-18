@@ -36,6 +36,7 @@ jobs:
       - run: pnpm check
       - run: pnpm --include-workspace-root=false -r test
       - name: Create Release PR or Publish
+        id: changesets
         uses: changesets/action@v1
         with:
           publish: pnpm release
@@ -46,3 +47,8 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
           NPM_CONFIG_PROVENANCE: true
+      - name: Close resolved issues
+        if: steps.changesets.outputs.published == 'true'
+        run: node scripts/release-closes.mjs apply
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

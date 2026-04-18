@@ -17,7 +17,7 @@
     "start": "./scripts/run.sh",
     "prepare": "husky || true",
     "changeset": "changeset",
-    "version": "changeset version && oxfmt",
+    "version": "node scripts/release-closes.mjs capture && changeset version && oxfmt",
     "release": "pnpm -r build && changeset publish"
   },
   "devDependencies": {

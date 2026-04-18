@@ -50,6 +50,11 @@ Agent CI does not re-implement GitHub Actions. It emulates the **server-side API
 - **Docker** — a running Docker provider:
   - **macOS:** [OrbStack](https://orbstack.dev/) (recommended) or Docker Desktop
   - **Linux:** Native Docker Engine or Docker Desktop
+- **Optional — for `runs-on: macos-*` jobs** (Apple Silicon Macs only):
+  - [tart](https://github.com/cirruslabs/tart) — `brew install cirruslabs/cli/tart`
+  - `sshpass` — `brew install hudochenkov/sshpass/sshpass`
+
+  Without both, macOS jobs are skipped with a reason. See [macOS jobs](#macos-jobs) below.
 
 ## Quick start
 
@@ -191,6 +196,36 @@ RUN sudo apt-get update \
 Agent CI picks it up automatically — no flags, no config. The image is built once and cached by content hash.
 
 For the full guide — directory form with `COPY` support, per-job overrides, common recipes (Rust, Node native modules, Go, Ruby, Nix), the `AGENT_CI_RUNNER_IMAGE` escape hatch, and build caching details — see [runner-image.md](https://github.com/redwoodjs/agent-ci/blob/main/packages/cli/runner-image.md).
+
+---
+
+## macOS jobs
+
+Jobs with `runs-on: macos-*` run in a real, throwaway macOS VM on Apple Silicon hosts with [tart](https://github.com/cirruslabs/tart) and `sshpass` installed. On any other host (Linux, Intel Mac, or missing tools), macOS jobs are skipped with a clear reason message.
+
+The VM uses the official [cirruslabs](https://github.com/cirruslabs/macos-image-templates) images and is destroyed after the job finishes. The runner binary is fetched once and cached on the host.
+
+Default image mapping:
+
+| `runs-on:`                  | Image                           |
+| --------------------------- | ------------------------------- |
+| `macos-13`                  | `macos-ventura-xcode:latest`    |
+| `macos-14`                  | `macos-sonoma-xcode:latest`     |
+| `macos-15`                  | `macos-sequoia-xcode:latest`    |
+| `macos-26`                  | `macos-tahoe-xcode:latest`      |
+| `macos` / `macos-latest`    | `macos-sonoma-xcode:latest`     |
+
+### Environment variables
+
+| Variable                         | Default          | Description                                                                                      |
+| -------------------------------- | ---------------- | ------------------------------------------------------------------------------------------------ |
+| `AGENT_CI_MACOS_VM_IMAGE`        | see table above  | Override the image (e.g. `ghcr.io/cirruslabs/macos-sonoma-xcode:latest`).                        |
+| `AGENT_CI_MACOS_VM_CONCURRENCY`  | `2`              | Max concurrent macOS VMs. tart's free tier allows 2 simultaneously — raise only if you have a tart license. |
+
+### Caveats
+
+- Only Apple Silicon hosts are supported — Virtualization.framework cannot run macOS guests on Intel Macs.
+- Windows jobs (`runs-on: windows-*`) are not yet supported and always skip.
 
 ---
 

@@ -20,6 +20,16 @@ This opens an interactive prompt where you:
 
 This creates a markdown file in `.changeset/` — commit it with your PR.
 
+#### Linking issues
+
+If the change resolves a reported issue, write `Closes #N` (or `Fixes #N` / `Resolves #N`) in the changeset body. During `pnpm run version`, the release workflow:
+
+1. Captures each closing reference into `.release-closes.json`, pairing it with the PR that introduced the changeset.
+2. Rewrites the keywords to `Refs #N` in the changeset body so the generated CHANGELOG and the "Version Packages" PR carry only references, not closers. GitHub therefore does **not** close the issue when the Version PR merges.
+3. After the packages are published, the workflow runs `gh issue close` on each captured issue with the comment `Closes Issue #N via PR #M.`
+
+If you only want to _reference_ an issue without closing it on release, use `Refs #N` or `(#N)` — those pass through untouched.
+
 ### 2. Merge to `main`
 
 When your PR is merged, the [release workflow](.github/workflows/release.yml) runs automatically and creates a **"Version Packages"** PR that:

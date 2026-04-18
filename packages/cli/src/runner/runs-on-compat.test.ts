@@ -70,11 +70,30 @@ describe("formatUnsupportedOSWarning", () => {
     expect(msg).toContain("issues/258");
   });
 
+  it("includes the host capability reason and hint when provided", () => {
+    const msg = formatUnsupportedOSWarning("build-test", ["macos-15"], "macos", {
+      reason: "macOS VM runner requires `tart` to be installed.",
+      hint: "Install with: brew install cirruslabs/cli/tart",
+    });
+    expect(msg).toContain("tart` to be installed");
+    expect(msg).toContain("brew install cirruslabs/cli/tart");
+    // The generic "only runs in Linux container" line must not appear for
+    // macOS, since macOS jobs *can* run locally when the host supports it.
+    expect(msg).not.toContain("Linux container");
+  });
+
+  it("falls back to a generic macOS reason when no capability is provided", () => {
+    const msg = formatUnsupportedOSWarning("build-test", ["macos-15"], "macos");
+    expect(msg).toContain("cannot run macOS VMs");
+    expect(msg).not.toContain("Linux container");
+  });
+
   it("produces a Windows-specific message with the #254 tracker", () => {
     const msg = formatUnsupportedOSWarning("build", ["windows-2022"], "windows");
     expect(msg).toContain("Windows");
     expect(msg).toContain("windows-2022");
     expect(msg).toContain("issues/254");
+    expect(msg).toContain("Linux container");
   });
 
   it("lists all labels when multiple were provided", () => {

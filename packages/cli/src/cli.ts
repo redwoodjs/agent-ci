@@ -964,7 +964,10 @@ async function handleWorkflow(options: {
     }
     if (!warnedUnsupportedOS.has(ej.taskName)) {
       warnedUnsupportedOS.add(ej.taskName);
-      process.stderr.write(formatUnsupportedOSWarning(ej.taskName, labels, kind) + "\n\n");
+      const capability = kind === "macos" && !macosVmHost.supported ? macosVmHost : undefined;
+      process.stderr.write(
+        formatUnsupportedOSWarning(ej.taskName, labels, kind, capability) + "\n\n",
+      );
     }
     return skippedResult(ej);
   };

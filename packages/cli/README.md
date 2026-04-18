@@ -207,20 +207,20 @@ The VM uses the official [cirruslabs](https://github.com/cirruslabs/macos-image-
 
 Default image mapping:
 
-| `runs-on:`                  | Image                           |
-| --------------------------- | ------------------------------- |
-| `macos-13`                  | `macos-ventura-xcode:latest`    |
-| `macos-14`                  | `macos-sonoma-xcode:latest`     |
-| `macos-15`                  | `macos-sequoia-xcode:latest`    |
-| `macos-26`                  | `macos-tahoe-xcode:latest`      |
-| `macos` / `macos-latest`    | `macos-sonoma-xcode:latest`     |
+| `runs-on:`               | Image                        |
+| ------------------------ | ---------------------------- |
+| `macos-13`               | `macos-ventura-xcode:latest` |
+| `macos-14`               | `macos-sonoma-xcode:latest`  |
+| `macos-15`               | `macos-sequoia-xcode:latest` |
+| `macos-26`               | `macos-tahoe-xcode:latest`   |
+| `macos` / `macos-latest` | `macos-sonoma-xcode:latest`  |
 
 ### Environment variables
 
-| Variable                         | Default          | Description                                                                                      |
-| -------------------------------- | ---------------- | ------------------------------------------------------------------------------------------------ |
-| `AGENT_CI_MACOS_VM_IMAGE`        | see table above  | Override the image (e.g. `ghcr.io/cirruslabs/macos-sonoma-xcode:latest`).                        |
-| `AGENT_CI_MACOS_VM_CONCURRENCY`  | `2`              | Max concurrent macOS VMs. tart's free tier allows 2 simultaneously — raise only if you have a tart license. |
+| Variable                        | Default         | Description                                                                                                 |
+| ------------------------------- | --------------- | ----------------------------------------------------------------------------------------------------------- |
+| `AGENT_CI_MACOS_VM_IMAGE`       | see table above | Override the image (e.g. `ghcr.io/cirruslabs/macos-sonoma-xcode:latest`).                                   |
+| `AGENT_CI_MACOS_VM_CONCURRENCY` | `2`             | Max concurrent macOS VMs. tart's free tier allows 2 simultaneously — raise only if you have a tart license. |
 
 ### Caveats
 

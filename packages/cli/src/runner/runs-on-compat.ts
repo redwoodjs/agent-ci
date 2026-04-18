@@ -67,18 +67,19 @@ export function formatUnsupportedOSWarning(
 ): string {
   const labelStr = labels.length > 0 ? labels.join(", ") : "(none)";
   const osName = kind === "macos" ? "macOS" : kind === "windows" ? "Windows" : kind;
-  const lines = [`[Agent CI] Skipping job "${taskName}": runs-on targets ${osName} (${labelStr}).`];
-  if (kind === "macos") {
-    lines.push(`  ${hostCapability?.reason ?? "This host cannot run macOS VMs."}`);
-    if (hostCapability?.hint) {
-      lines.push(`  ${hostCapability.hint}`);
-    }
-    lines.push(`  Tracking: https://github.com/redwoodjs/agent-ci/issues/258`);
-  } else {
-    lines.push(`  agent-ci currently only runs jobs in a Linux container, so this job`);
-    lines.push(
-      `  cannot execute locally. Tracking: https://github.com/redwoodjs/agent-ci/issues/254`,
-    );
-  }
-  return lines.join("\n");
+  const body: (string | undefined)[] =
+    kind === "macos"
+      ? [
+          hostCapability?.reason ?? "This host cannot run macOS VMs.",
+          hostCapability?.hint,
+          "Tracking: https://github.com/redwoodjs/agent-ci/issues/258",
+        ]
+      : [
+          "agent-ci currently only runs jobs in a Linux container, so this job",
+          "cannot execute locally. Tracking: https://github.com/redwoodjs/agent-ci/issues/254",
+        ];
+  return [
+    `[Agent CI] Skipping job "${taskName}": runs-on targets ${osName} (${labelStr}).`,
+    ...body.filter((l): l is string => Boolean(l)).map((l) => `  ${l}`),
+  ].join("\n");
 }

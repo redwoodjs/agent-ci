@@ -44,6 +44,7 @@ import {
   classifyRunsOn,
   isUnsupportedOS,
   formatUnsupportedOSWarning,
+  type RunnerOSKind,
 } from "./runner/runs-on-compat.js";
 import { resolveJobOutputs } from "./runner/result-builder.js";
 import { Job } from "./types.js";
@@ -951,15 +952,14 @@ async function handleWorkflow(options: {
   });
   const warnedUnsupportedOS = new Set<string>();
   const macosVmHost = checkMacosVmHost();
+  const classifyJob = (ej: ExpandedJob) => {
+    const labels = parseJobRunsOn(ej.workflowPath, ej.sourceTaskName ?? ej.taskName);
+    return { labels, kind: classifyRunsOn(labels) };
+  };
+  const canRunMacosHere = (kind: RunnerOSKind) => kind === "macos" && macosVmHost.supported;
   const maybeSkipUnsupportedOS = (ej: ExpandedJob): JobResult | null => {
-    const actualTaskName = ej.sourceTaskName ?? ej.taskName;
-    const labels = parseJobRunsOn(ej.workflowPath, actualTaskName);
-    const kind = classifyRunsOn(labels);
-    if (!isUnsupportedOS(kind)) {
-      return null;
-    }
-    // macOS jobs run in a real VM via tart when the host supports it.
-    if (kind === "macos" && macosVmHost.supported) {
+    const { labels, kind } = classifyJob(ej);
+    if (!isUnsupportedOS(kind) || canRunMacosHere(kind)) {
       return null;
     }
     if (!warnedUnsupportedOS.has(ej.taskName)) {
@@ -971,14 +971,10 @@ async function handleWorkflow(options: {
     }
     return skippedResult(ej);
   };
-  // Returns the executor to use for a job: the macOS VM runner for macOS jobs
-  // (on capable hosts), the Linux docker runner otherwise. Callers have already
-  // filtered out OS-skipped jobs via maybeSkipUnsupportedOS.
+  // Returns the executor for a job. Callers have already filtered out
+  // OS-skipped jobs via maybeSkipUnsupportedOS.
   const runJobExecutor = (ej: ExpandedJob, job: Job): Promise<JobResult> => {
-    const actualTaskName = ej.sourceTaskName ?? ej.taskName;
-    const labels = parseJobRunsOn(ej.workflowPath, actualTaskName);
-    const kind = classifyRunsOn(labels);
-    if (kind === "macos" && macosVmHost.supported) {
+    if (canRunMacosHere(classifyJob(ej).kind)) {
       return executeMacosVmJob(job);
     }
     return executeLocalJob(job, { pauseOnFailure, store });

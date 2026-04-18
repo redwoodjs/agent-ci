@@ -54,21 +54,32 @@ export function isUnsupportedOS(kind: RunnerOSKind): boolean {
 /**
  * Format a user-facing warning for a job skipped because its `runs-on:`
  * targets an OS agent-ci can't execute locally. Written for stderr.
+ *
+ * For macOS, `hostCapability` (from `checkMacosVmHost`) lets us say *why* the
+ * host can't run the VM — e.g. "tart not installed" vs "Intel Mac" vs
+ * "not macOS" — plus an install hint when relevant.
  */
 export function formatUnsupportedOSWarning(
   taskName: string,
   labels: string[],
   kind: RunnerOSKind,
+  hostCapability?: { reason: string; hint?: string },
 ): string {
   const labelStr = labels.length > 0 ? labels.join(", ") : "(none)";
   const osName = kind === "macos" ? "macOS" : kind === "windows" ? "Windows" : kind;
-  const tracker =
+  const body: (string | undefined)[] =
     kind === "macos"
-      ? "https://github.com/redwoodjs/agent-ci/issues/258"
-      : "https://github.com/redwoodjs/agent-ci/issues/254";
+      ? [
+          hostCapability?.reason ?? "This host cannot run macOS VMs.",
+          hostCapability?.hint,
+          "Tracking: https://github.com/redwoodjs/agent-ci/issues/258",
+        ]
+      : [
+          "agent-ci currently only runs jobs in a Linux container, so this job",
+          "cannot execute locally. Tracking: https://github.com/redwoodjs/agent-ci/issues/254",
+        ];
   return [
     `[Agent CI] Skipping job "${taskName}": runs-on targets ${osName} (${labelStr}).`,
-    `  agent-ci currently only runs jobs in a Linux container, so this job`,
-    `  cannot execute locally. Tracking: ${tracker}`,
+    ...body.filter((l): l is string => Boolean(l)).map((l) => `  ${l}`),
   ].join("\n");
 }

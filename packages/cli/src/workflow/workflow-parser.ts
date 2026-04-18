@@ -1571,6 +1571,42 @@ function resolveValue(raw: string, needsCtx?: Record<string, Record<string, stri
  * Parse `strategy.fail-fast` for a job.
  * Returns true/false if explicitly set, undefined if not specified.
  */
+/**
+ * Parse the `runs-on:` field of a workflow job and return the labels as a flat
+ * array of strings. Accepts all three shapes GitHub allows:
+ *
+ *   - String:        `runs-on: ubuntu-latest`
+ *   - Array:         `runs-on: [self-hosted, macos, arm64]`
+ *   - Object form:   `runs-on: { group: foo, labels: [x, y] }`
+ *
+ * Returns an empty array if the job has no `runs-on:` (or the workflow is
+ * unparseable). Callers that need to detect a missing value should treat an
+ * empty array as "unknown".
+ */
+export function parseJobRunsOn(filePath: string, jobId: string): string[] {
+  const yaml = parseYaml(fs.readFileSync(filePath, "utf8"));
+  const raw = yaml?.jobs?.[jobId]?.["runs-on"];
+  if (raw == null) {
+    return [];
+  }
+  if (typeof raw === "string") {
+    return [raw];
+  }
+  if (Array.isArray(raw)) {
+    return raw.map((v) => String(v));
+  }
+  if (typeof raw === "object") {
+    const labels = (raw as Record<string, unknown>).labels;
+    if (Array.isArray(labels)) {
+      return labels.map((v) => String(v));
+    }
+    if (typeof labels === "string") {
+      return [labels];
+    }
+  }
+  return [];
+}
+
 export function parseFailFast(filePath: string, jobId: string): boolean | undefined {
   const yaml = parseYaml(fs.readFileSync(filePath, "utf8"));
   const strategy = yaml?.jobs?.[jobId]?.strategy;

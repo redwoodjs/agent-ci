@@ -35,8 +35,14 @@ import {
   parseJobIf,
   evaluateJobIf,
   parseFailFast,
+  parseJobRunsOn,
   expandExpressions,
 } from "./workflow/workflow-parser.js";
+import {
+  classifyRunsOn,
+  isUnsupportedOS,
+  formatUnsupportedOSWarning,
+} from "./runner/runs-on-compat.js";
 import { resolveJobOutputs } from "./runner/result-builder.js";
 import { Job } from "./types.js";
 import { createConcurrencyLimiter, getDefaultMaxConcurrentJobs } from "./output/concurrency.js";
@@ -925,9 +931,44 @@ async function handleWorkflow(options: {
     }
   }
 
+  // ── Unsupported-OS skip (shared between single- and multi-job paths) ──────
+  // Jobs with `runs-on: macos-*` or `windows-*` can't be executed locally
+  // today — agent-ci only runs jobs in a Linux container. Rather than
+  // silently landing them there and failing at the first OS-specific step,
+  // we skip them with a visible warning. See:
+  //   https://github.com/redwoodjs/agent-ci/issues/254  (this guardrail)
+  //   https://github.com/redwoodjs/agent-ci/issues/258  (real macOS support)
+  const skippedResult = (ej: ExpandedJob): JobResult => ({
+    name: `agent-ci-skipped-${ej.taskName}`,
+    workflow: path.basename(ej.workflowPath),
+    taskId: ej.taskName,
+    succeeded: true,
+    durationMs: 0,
+    debugLogPath: "",
+    steps: [],
+  });
+  const warnedUnsupportedOS = new Set<string>();
+  const maybeSkipUnsupportedOS = (ej: ExpandedJob): JobResult | null => {
+    const actualTaskName = ej.sourceTaskName ?? ej.taskName;
+    const labels = parseJobRunsOn(ej.workflowPath, actualTaskName);
+    const kind = classifyRunsOn(labels);
+    if (!isUnsupportedOS(kind)) {
+      return null;
+    }
+    if (!warnedUnsupportedOS.has(ej.taskName)) {
+      warnedUnsupportedOS.add(ej.taskName);
+      process.stderr.write(formatUnsupportedOSWarning(ej.taskName, labels, kind) + "\n\n");
+    }
+    return skippedResult(ej);
+  };
+
   // For single-job workflows, run directly without extra orchestration
   if (expandedJobs.length === 1) {
     const ej = expandedJobs[0];
+    const osSkip = maybeSkipUnsupportedOS(ej);
+    if (osSkip) {
+      return [osSkip];
+    }
     const actualTaskName = ej.sourceTaskName ?? ej.taskName;
     const requiredRefs = extractSecretRefs(ej.workflowPath, actualTaskName);
     const secrets = loadMachineSecrets(repoRoot, requiredRefs);
@@ -1291,19 +1332,13 @@ async function handleWorkflow(options: {
     return !evaluateJobIf(ifExpr, upstreamResults, needsCtx);
   };
 
-  /** Create a synthetic skipped result for a job that was skipped by if: */
-  const skippedResult = (ej: ExpandedJob): JobResult => ({
-    name: `agent-ci-skipped-${ej.taskName}`,
-    workflow: path.basename(ej.workflowPath),
-    taskId: ej.taskName,
-    succeeded: true,
-    durationMs: 0,
-    debugLogPath: "",
-    steps: [],
-  });
-
-  /** Run a job or skip it based on if: condition */
+  /** Run a job or skip it based on if: condition or unsupported OS */
   const runOrSkipJob = async (ej: ExpandedJob): Promise<JobResult> => {
+    const osSkip = maybeSkipUnsupportedOS(ej);
+    if (osSkip) {
+      jobResultStatus.set(ej.taskName, "skipped");
+      return osSkip;
+    }
     if (shouldSkipJob(ej.taskName, ej)) {
       debugCli(`Skipping ${ej.taskName} (if: condition is false)`);
       const result = skippedResult(ej);

@@ -169,6 +169,13 @@ export function buildContainerCmd(opts: ContainerCmdOpts): string[] {
     // The Playwright bind mount creates /home/runner/.cache as root — make it
     // world-writable so tools like Cypress can mkdir inside it (#234).
     `MAYBE_SUDO chmod 1777 /home/runner/.cache 2>/dev/null || true`,
+    // On Colima / Docker Desktop the bind-mounted _diag and _work dirs
+    // surface as root:root inside the container (host perms don't translate
+    // through the VM mount layer), so the runner user (uid 1001) can't
+    // write diag logs or workspace scratch files (#263). OrbStack maps
+    // UIDs automatically, so this is effectively a no-op there.
+    `MAYBE_SUDO chmod 1777 /home/runner/_diag 2>/dev/null || true`,
+    `MAYBE_SUDO chmod 1777 /home/runner/_work 2>/dev/null || true`,
     `cd /home/runner`,
     `${credentialSnippet}true`,
     T("credentials"),

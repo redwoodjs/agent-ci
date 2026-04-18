@@ -221,6 +221,24 @@ describe("buildContainerCmd", () => {
 
     expect(cmd[2]).toContain("MAYBE_SUDO chmod 666 /var/run/docker.sock");
   });
+
+  // Regression for #263: on macOS with Colima / Docker Desktop the
+  // bind-mounted /home/runner/_diag and /home/runner/_work appear as
+  // root:root 0755 inside the container (host perms don't translate
+  // through the VM mount layer), so the runner user (uid 1001) hits
+  // UnauthorizedAccessException when writing its diag logs and workspace.
+  it("chmods /home/runner/_diag and /home/runner/_work via MAYBE_SUDO (#263)", async () => {
+    const { buildContainerCmd } = await import("./container-config.js");
+    const cmd = buildContainerCmd({
+      svcPortForwardSnippet: "",
+      dtuPort: "3000",
+      dtuHost: "localhost",
+      useDirectContainer: false,
+      containerName: "test-runner",
+    });
+    expect(cmd[2]).toContain("MAYBE_SUDO chmod 1777 /home/runner/_diag");
+    expect(cmd[2]).toContain("MAYBE_SUDO chmod 1777 /home/runner/_work");
+  });
 });
 
 // ── resolveDockerApiUrl ───────────────────────────────────────────────────────

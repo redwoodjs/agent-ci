@@ -1968,3 +1968,88 @@ jobs:
     expect((steps[0] as any).Env).toBeUndefined();
   });
 });
+
+import { parseJobRunsOn } from "./workflow-parser.js";
+
+describe("parseJobRunsOn", () => {
+  let tmpDir: string;
+
+  afterEach(() => {
+    if (tmpDir) {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  function writeWorkflow(content: string): string {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "oa-runson-test-"));
+    const filePath = path.join(tmpDir, "workflow.yml");
+    fs.writeFileSync(filePath, content);
+    return filePath;
+  }
+
+  it("returns a single-element array for a string runs-on", () => {
+    const filePath = writeWorkflow(`
+name: X
+on: [push]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo ok
+`);
+    expect(parseJobRunsOn(filePath, "build")).toEqual(["ubuntu-latest"]);
+  });
+
+  it("returns all labels for an array runs-on", () => {
+    const filePath = writeWorkflow(`
+name: X
+on: [push]
+jobs:
+  build:
+    runs-on: [self-hosted, macos, arm64]
+    steps:
+      - run: echo ok
+`);
+    expect(parseJobRunsOn(filePath, "build")).toEqual(["self-hosted", "macos", "arm64"]);
+  });
+
+  it("returns labels from the object form (group + labels)", () => {
+    const filePath = writeWorkflow(`
+name: X
+on: [push]
+jobs:
+  build:
+    runs-on:
+      group: my-group
+      labels: [macos-14, arm64]
+    steps:
+      - run: echo ok
+`);
+    expect(parseJobRunsOn(filePath, "build")).toEqual(["macos-14", "arm64"]);
+  });
+
+  it("returns an empty array when runs-on is missing", () => {
+    const filePath = writeWorkflow(`
+name: X
+on: [push]
+jobs:
+  build:
+    steps:
+      - run: echo ok
+`);
+    expect(parseJobRunsOn(filePath, "build")).toEqual([]);
+  });
+
+  it("returns an empty array when the job does not exist", () => {
+    const filePath = writeWorkflow(`
+name: X
+on: [push]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo ok
+`);
+    expect(parseJobRunsOn(filePath, "other")).toEqual([]);
+  });
+});

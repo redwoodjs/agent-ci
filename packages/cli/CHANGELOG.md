@@ -1,5 +1,15 @@
 # @redwoodjs/agent-ci
 
+## 0.12.2
+
+### Patch Changes
+
+- e320288: fix(runner): nested agent-ci sibling containers collide on `agent-ci-1` when multiple outer runs execute in parallel. Each nested run has its own filesystem so it always allocated `agent-ci-1`, and the pre-spawn `docker rm -f` then killed a sibling belonging to a concurrent nested run. Include the outer container's hostname in the prefix when `/.dockerenv` is present so sibling names stay unique across nested runs. Fixes `smoke-bun-setup.yml` + `smoke-docker-buildx.yml` failing when run together via `agent-ci-dev run --all`.
+- 3f1c836: fix(workflow): expand `${{ runner.os }}` / `${{ runner.arch }}` from the job's `runs-on:` label instead of hardcoding Linux/X64. macOS jobs (e.g. `runs-on: macos-14`) now expand to `macOS`/`ARM64`, matching GitHub-hosted runner behavior and making conditionals like `if: runner.os == 'macOS'` work under tart-backed VM execution (#279).
+- Updated dependencies [e320288]
+- Updated dependencies [3f1c836]
+  - dtu-github-actions@0.12.2
+
 ## 0.12.1
 
 ### Patch Changes

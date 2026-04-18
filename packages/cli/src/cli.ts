@@ -13,6 +13,8 @@ import { debugCli } from "./output/debug.js";
 
 import type Docker from "dockerode";
 import { executeLocalJob, getDocker } from "./runner/local-job.js";
+import { executeMacosVmJob } from "./runner/macos-vm/macos-vm-job.js";
+import { checkMacosVmHost } from "./runner/macos-vm/host-capability.js";
 import {
   discoverRunnerImage,
   ensureRunnerImage,
@@ -948,6 +950,7 @@ async function handleWorkflow(options: {
     steps: [],
   });
   const warnedUnsupportedOS = new Set<string>();
+  const macosVmHost = checkMacosVmHost();
   const maybeSkipUnsupportedOS = (ej: ExpandedJob): JobResult | null => {
     const actualTaskName = ej.sourceTaskName ?? ej.taskName;
     const labels = parseJobRunsOn(ej.workflowPath, actualTaskName);
@@ -955,11 +958,27 @@ async function handleWorkflow(options: {
     if (!isUnsupportedOS(kind)) {
       return null;
     }
+    // macOS jobs run in a real VM via tart when the host supports it.
+    if (kind === "macos" && macosVmHost.supported) {
+      return null;
+    }
     if (!warnedUnsupportedOS.has(ej.taskName)) {
       warnedUnsupportedOS.add(ej.taskName);
       process.stderr.write(formatUnsupportedOSWarning(ej.taskName, labels, kind) + "\n\n");
     }
     return skippedResult(ej);
+  };
+  // Returns the executor to use for a job: the macOS VM runner for macOS jobs
+  // (on capable hosts), the Linux docker runner otherwise. Callers have already
+  // filtered out OS-skipped jobs via maybeSkipUnsupportedOS.
+  const runJobExecutor = (ej: ExpandedJob, job: Job): Promise<JobResult> => {
+    const actualTaskName = ej.sourceTaskName ?? ej.taskName;
+    const labels = parseJobRunsOn(ej.workflowPath, actualTaskName);
+    const kind = classifyRunsOn(labels);
+    if (kind === "macos" && macosVmHost.supported) {
+      return executeMacosVmJob(job);
+    }
+    return executeLocalJob(job, { pauseOnFailure, store });
   };
 
   // For single-job workflows, run directly without extra orchestration
@@ -1039,9 +1058,7 @@ async function handleWorkflow(options: {
       taskId: ej.taskName,
     };
 
-    const result = await options.globalLimiter.run(() =>
-      executeLocalJob(job, { pauseOnFailure, store }),
-    );
+    const result = await options.globalLimiter.run(() => runJobExecutor(ej, job));
     return [result];
   }
 
@@ -1186,7 +1203,7 @@ async function handleWorkflow(options: {
     job.services = services;
     job.container = container ?? undefined;
 
-    const result = await executeLocalJob(job, { pauseOnFailure, store });
+    const result = await runJobExecutor(ej, job);
 
     // result.outputs now contains raw step outputs (extracted inside executeLocalJob
     // before workspace cleanup). Resolve them to job-level outputs using the

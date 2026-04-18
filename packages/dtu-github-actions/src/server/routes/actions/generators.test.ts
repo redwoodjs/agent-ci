@@ -115,4 +115,54 @@ describe("createJobResponse", () => {
     expect(body.ContextData.env).toBeUndefined();
     expect(body.EnvironmentVariables).toEqual([]);
   });
+
+  it("defaults to Linux runner layout when runnerOs is not set", () => {
+    const response = createJobResponse("1", basePayload, "http://localhost:3000", "plan-1");
+    const body = JSON.parse(response.Body);
+    const vars = body.Variables;
+
+    expect(vars.RUNNER_OS.Value).toBe("Linux");
+    expect(vars.RUNNER_ARCH.Value).toBe("X64");
+    expect(vars.RUNNER_TEMP.Value).toBe("/tmp/runner");
+    expect(vars.RUNNER_TOOL_CACHE.Value).toBe("/opt/hostedtoolcache");
+    expect(vars.GITHUB_WORKSPACE.Value).toBe("/home/runner/_work/repo/repo");
+    expect(body.Workspace.Path).toBe("/home/runner/_work/repo/repo");
+  });
+
+  it("uses macOS runner layout when runnerOs is macOS", () => {
+    const payload = { ...basePayload, runnerOs: "macOS" as const };
+    const response = createJobResponse("1", payload, "http://localhost:3000", "plan-1");
+    const body = JSON.parse(response.Body);
+    const vars = body.Variables;
+
+    expect(vars.RUNNER_OS.Value).toBe("macOS");
+    expect(vars.RUNNER_ARCH.Value).toBe("ARM64");
+    expect(vars.RUNNER_TEMP.Value).toBe("/Users/admin/agent-ci-runner/_work/_temp");
+    expect(vars.RUNNER_TOOL_CACHE.Value).toBe("/Users/admin/hostedtoolcache");
+    expect(vars.GITHUB_WORKSPACE.Value).toBe("/Users/admin/agent-ci-runner/_work/repo/repo");
+    expect(body.Workspace.Path).toBe("/Users/admin/agent-ci-runner/_work/repo/repo");
+  });
+
+  it("honors explicit runnerArch override on macOS", () => {
+    const payload = { ...basePayload, runnerOs: "macOS" as const, runnerArch: "X64" as const };
+    const response = createJobResponse("1", payload, "http://localhost:3000", "plan-1");
+    const body = JSON.parse(response.Body);
+
+    expect(body.Variables.RUNNER_ARCH.Value).toBe("X64");
+  });
+
+  it("honors explicit runnerWorkDir override", () => {
+    const payload = {
+      ...basePayload,
+      runnerOs: "macOS" as const,
+      runnerWorkDir: "/opt/custom/_work",
+    };
+    const response = createJobResponse("1", payload, "http://localhost:3000", "plan-1");
+    const body = JSON.parse(response.Body);
+    const vars = body.Variables;
+
+    expect(vars.RUNNER_TEMP.Value).toBe("/opt/custom/_work/_temp");
+    expect(vars.GITHUB_WORKSPACE.Value).toBe("/opt/custom/_work/repo/repo");
+    expect(body.Workspace.Path).toBe("/opt/custom/_work/repo/repo");
+  });
 });

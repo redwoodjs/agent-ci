@@ -180,7 +180,25 @@ export function createJobResponse(
   const repoFullName = payload.repository?.full_name || payload.githubRepo || "";
   const ownerName = payload.repository?.owner?.login || "redwoodjs";
   const repoName = payload.repository?.name || repoFullName.split("/")[1] || "";
-  const workspacePath = `/home/runner/_work/${repoName}/${repoName}`;
+
+  // Runner OS layout — defaults to Linux for the docker runner path. The macOS
+  // VM runner path (packages/cli/src/runner/macos-vm) seeds `runnerOs: "macOS"`
+  // so workspace + RUNNER_* env match what the macOS actions-runner expects.
+  const runnerOs: "Linux" | "macOS" | "Windows" = payload.runnerOs || "Linux";
+  const runnerArch: "X64" | "ARM64" =
+    payload.runnerArch || (runnerOs === "macOS" ? "ARM64" : "X64");
+  // The actions-runner creates `_work/` as a sibling of `run.sh`. The Linux
+  // docker image installs the runner at /home/runner/, so _work is at a fixed
+  // path. The macOS path rsyncs the runner into a caller-chosen directory and
+  // passes it in via payload.runnerWorkDir so GITHUB_WORKSPACE matches where
+  // the runner actually operates.
+  const workspaceRoot =
+    payload.runnerWorkDir ||
+    (runnerOs === "macOS" ? "/Users/admin/agent-ci-runner/_work" : "/home/runner/_work");
+  const runnerTemp = runnerOs === "macOS" ? `${workspaceRoot}/_temp` : "/tmp/runner";
+  const runnerToolCache =
+    runnerOs === "macOS" ? "/Users/admin/hostedtoolcache" : "/opt/hostedtoolcache";
+  const workspacePath = `${workspaceRoot}/${repoName}/${repoName}`;
 
   const realHeadSha = payload.realHeadSha;
 
@@ -191,11 +209,11 @@ export function createJobResponse(
     GITHUB_CI: { Value: "true", IsSecret: false },
     GITHUB_ACTIONS: { Value: "true", IsSecret: false },
     // Runner metadata
-    RUNNER_OS: { Value: "Linux", IsSecret: false },
-    RUNNER_ARCH: { Value: "X64", IsSecret: false },
+    RUNNER_OS: { Value: runnerOs, IsSecret: false },
+    RUNNER_ARCH: { Value: runnerArch, IsSecret: false },
     RUNNER_NAME: { Value: "oa-local-runner", IsSecret: false },
-    RUNNER_TEMP: { Value: "/tmp/runner", IsSecret: false },
-    RUNNER_TOOL_CACHE: { Value: "/opt/hostedtoolcache", IsSecret: false },
+    RUNNER_TEMP: { Value: runnerTemp, IsSecret: false },
+    RUNNER_TOOL_CACHE: { Value: runnerToolCache, IsSecret: false },
     // Workflow / run metadata
     GITHUB_RUN_ID: { Value: "1", IsSecret: false },
     GITHUB_RUN_NUMBER: { Value: "1", IsSecret: false },

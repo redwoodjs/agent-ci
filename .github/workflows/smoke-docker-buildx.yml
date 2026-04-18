@@ -90,16 +90,25 @@ jobs:
       - name: Dump agent-ci step logs
         if: always()
         run: |
+          # agent-ci stores logs under /tmp/agent-ci on GitHub runners, but
+          # under <project>/.agent-ci when running inside a container (nested
+          # agent-ci-dev), because /tmp isn't host-shared there.
+          roots=()
+          [ -d /tmp/agent-ci ] && roots+=(/tmp/agent-ci)
+          [ -d "$GITHUB_WORKSPACE/packages/cli/.agent-ci" ] && roots+=("$GITHUB_WORKSPACE/packages/cli/.agent-ci")
           echo "::group::agent-ci runs dir"
-          ls -la /tmp/agent-ci/ 2>/dev/null || echo "no /tmp/agent-ci"
-          find /tmp/agent-ci -maxdepth 6 -type d 2>/dev/null | head -50
+          if [ "${#roots[@]}" -eq 0 ]; then echo "no agent-ci log roots found"; fi
+          for r in "${roots[@]}"; do
+            ls -la "$r/" 2>/dev/null || true
+            find "$r" -maxdepth 6 -type d 2>/dev/null | head -50
+          done
           echo "::endgroup::"
-          for f in $(find /tmp/agent-ci -path '*/logs/steps/*.log' 2>/dev/null); do
+          for f in $(find "${roots[@]}" -path '*/logs/steps/*.log' 2>/dev/null); do
             echo "::group::$f"
             cat "$f"
             echo "::endgroup::"
           done
-          for f in $(find /tmp/agent-ci -name 'debug.log' 2>/dev/null); do
+          for f in $(find "${roots[@]}" -name 'debug.log' 2>/dev/null); do
             echo "::group::$f"
             tail -500 "$f"
             echo "::endgroup::"
@@ -110,7 +119,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: agent-ci-logs
-          path: /tmp/agent-ci/**/logs/**
+          path: |
+            /tmp/agent-ci/**/logs/**
+            ${{ github.workspace }}/packages/cli/.agent-ci/**/logs/**
           if-no-files-found: warn
 
       - name: Assert `docker buildx` is usable inside agent-ci
@@ -118,7 +129,14 @@ jobs:
           # agent-ci runs in quiet/AI-agent mode and doesn't stream per-step
           # stdout to its top-level output. The "Verify buildx" step's output
           # lives in the per-step log file. Check it there.
-          log=$(find /tmp/agent-ci -path '*/logs/steps/Verify-buildx.log' | head -1)
+          roots=()
+          [ -d /tmp/agent-ci ] && roots+=(/tmp/agent-ci)
+          [ -d "$GITHUB_WORKSPACE/packages/cli/.agent-ci" ] && roots+=("$GITHUB_WORKSPACE/packages/cli/.agent-ci")
+          if [ "${#roots[@]}" -eq 0 ]; then
+            echo "::error::no agent-ci log roots found — the nested run never produced logs."
+            exit 1
+          fi
+          log=$(find "${roots[@]}" -path '*/logs/steps/Verify-buildx.log' | head -1)
           if [ -z "$log" ]; then
             echo "::error::Verify-buildx.log missing — the step never ran."
             exit 1

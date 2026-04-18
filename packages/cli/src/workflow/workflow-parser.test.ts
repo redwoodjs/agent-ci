@@ -1969,6 +1969,130 @@ jobs:
   });
 });
 
+// ─── parseWorkflowSteps runner context from runs-on (issue #279) ──────────────
+describe("parseWorkflowSteps derives runner context from runs-on", () => {
+  let tmpDir: string;
+
+  afterEach(() => {
+    if (tmpDir) {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  function writeWorkflowTree(content: string): string {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "oa-runner-ctx-"));
+    const workflowDir = path.join(tmpDir, ".github", "workflows");
+    fs.mkdirSync(workflowDir, { recursive: true });
+    const filePath = path.join(workflowDir, "test.yml");
+    fs.writeFileSync(filePath, content);
+    return filePath;
+  }
+
+  it("expands runner.os to macOS and runner.arch to ARM64 for macos-14 runs-on", async () => {
+    const filePath = writeWorkflowTree(`
+name: macOS Build
+on: [push]
+jobs:
+  build:
+    runs-on: macos-14
+    steps:
+      - run: echo "os=\${{ runner.os }} arch=\${{ runner.arch }}"
+`);
+    const steps = await parseWorkflowSteps(filePath, "build");
+    expect((steps[0] as any).Inputs.script).toBe('echo "os=macOS arch=ARM64"');
+  });
+
+  it("expands runner.os to Windows for windows-latest runs-on", async () => {
+    const filePath = writeWorkflowTree(`
+name: Windows Build
+on: [push]
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - run: echo "\${{ runner.os }}"
+`);
+    const steps = await parseWorkflowSteps(filePath, "build");
+    expect((steps[0] as any).Inputs.script).toBe('echo "Windows"');
+  });
+
+  it("defaults to Linux/X64 for ubuntu runs-on (backward compat)", async () => {
+    const filePath = writeWorkflowTree(`
+name: Linux Build
+on: [push]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "os=\${{ runner.os }} arch=\${{ runner.arch }}"
+`);
+    const steps = await parseWorkflowSteps(filePath, "build");
+    expect((steps[0] as any).Inputs.script).toBe('echo "os=Linux arch=X64"');
+  });
+
+  it("expands runner.os in step env for macos-14 runs-on", async () => {
+    const filePath = writeWorkflowTree(`
+name: macOS Env
+on: [push]
+jobs:
+  build:
+    runs-on: macos-14
+    steps:
+      - env:
+          TARGET_OS: \${{ runner.os }}
+        run: echo ok
+`);
+    const steps = await parseWorkflowSteps(filePath, "build");
+    expect((steps[0] as any).Env).toEqual({ TARGET_OS: "macOS" });
+  });
+
+  it("expands runner.os in step name for self-hosted macos labels", async () => {
+    const filePath = writeWorkflowTree(`
+name: Self-hosted macOS
+on: [push]
+jobs:
+  build:
+    runs-on: [self-hosted, macos, arm64]
+    steps:
+      - name: On \${{ runner.os }}
+        run: echo hi
+`);
+    const steps = await parseWorkflowSteps(filePath, "build");
+    expect((steps[0] as any).Name).toBe("On macOS");
+  });
+});
+
+import { runnerContextFromRunsOn } from "./workflow-parser.js";
+
+describe("runnerContextFromRunsOn", () => {
+  it("classifies macos-14 to macOS/ARM64", () => {
+    expect(runnerContextFromRunsOn(["macos-14"])).toEqual({ os: "macOS", arch: "ARM64" });
+  });
+
+  it("classifies macos-latest to macOS/ARM64", () => {
+    expect(runnerContextFromRunsOn(["macos-latest"])).toEqual({ os: "macOS", arch: "ARM64" });
+  });
+
+  it("classifies windows-latest to Windows/X64", () => {
+    expect(runnerContextFromRunsOn(["windows-latest"])).toEqual({ os: "Windows", arch: "X64" });
+  });
+
+  it("classifies ubuntu-latest to Linux/X64", () => {
+    expect(runnerContextFromRunsOn(["ubuntu-latest"])).toEqual({ os: "Linux", arch: "X64" });
+  });
+
+  it("classifies empty labels to Linux/X64 (safe default)", () => {
+    expect(runnerContextFromRunsOn([])).toEqual({ os: "Linux", arch: "X64" });
+  });
+
+  it("classifies self-hosted+macos+arm64 to macOS/ARM64", () => {
+    expect(runnerContextFromRunsOn(["self-hosted", "macos", "arm64"])).toEqual({
+      os: "macOS",
+      arch: "ARM64",
+    });
+  });
+});
+
 import { parseJobRunsOn } from "./workflow-parser.js";
 
 describe("parseJobRunsOn", () => {

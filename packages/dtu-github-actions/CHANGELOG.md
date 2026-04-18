@@ -1,5 +1,35 @@
 # dtu-github-actions
 
+## 0.11.0
+
+### Minor Changes
+
+- 9474fb5: Skip jobs with `runs-on: macos-*` or `windows-*` instead of silently running them in a Linux container
+
+  Previously, jobs targeting macOS or Windows runners were silently routed to the Linux runner container and failed at the first OS-specific step (e.g. `Setup Xcode`), producing a confusing error. They now skip with a visible `[Agent CI]` warning that points at the tracking issues for real support. Linux and `self-hosted`-without-OS-hint jobs are unaffected.
+
+  Tracking:
+  - https://github.com/redwoodjs/agent-ci/issues/254 (this guardrail)
+  - https://github.com/redwoodjs/agent-ci/issues/258 (real macOS runner support)
+
+- 2bb4e57: Add support for `${{ vars.FOO }}` expressions in local workflow runs. Supply vars via the `--var KEY=VALUE` CLI flag (repeat for multiple). Runs fail with a clear error listing the missing vars if any required var is not provided.
+
+### Patch Changes
+
+- b6b9310: fix: docker/setup-buildx-action and other Docker socket users fail with "permission denied" on native Linux Docker (#257)
+
+  The runner container's entrypoint chmods the bind-mounted `/var/run/docker.sock` to `0666` so the `runner` user can talk to the Docker daemon. On native Linux Docker the socket is owned `root:docker`, so the chmod needs `sudo` — but it was using plain `chmod` and silently failing. Steps like `docker/setup-buildx-action@v4`, `docker login`, and `docker compose` then failed with `permission denied while trying to connect to the docker API at unix:///var/run/docker.sock`. Now escalated via `MAYBE_SUDO`, matching the other privileged entrypoint operations.
+
+- 372a47b: Support `env:` at workflow and job level (not just step level).
+
+  Previously the workflow parser only read `env:` declared directly on a step. Workflow-level and job-level `env:` blocks were silently ignored, so any workflow that relied on them — including workflows that referenced `${{ vars.X }}` in a job-level env — saw empty values at runtime.
+
+  The parser now merges `env:` from all three levels per the GitHub Actions spec: workflow → job → step, step-most-specific wins. Expressions (including `${{ vars.X }}`, `${{ secrets.X }}`, etc.) are expanded per-level.
+
+  This also makes the `smoke-vars-preflight.yml` Case 3 assertion actually verify the feature it documents — previously the assertion depended on env leaking in from the outer runner process.
+
+- 3b16523: Improve error hints when fetching remote reusable workflows from private repositories. GitHub returns HTTP 404 (not 401/403) when authentication is missing or insufficient for a private repo — to avoid leaking repo existence — so the 404 path now emits the same auth guidance as the 401/403 path, including instructions to run `gh auth login` and use `--github-token`. The hint also distinguishes between the no-token case (how to provide one) and the token-provided case (scope / fine-grained permission / SSO authorization may be missing).
+
 ## 0.10.7
 
 ### Patch Changes

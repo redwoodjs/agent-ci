@@ -4,6 +4,35 @@ import crypto from "crypto";
 import { execSync } from "child_process";
 import { minimatch } from "minimatch";
 import { parse as parseYaml } from "yaml";
+import { classifyRunsOn } from "../runner/runs-on-compat.js";
+
+/**
+ * Values used to resolve `${{ runner.os }}` / `${{ runner.arch }}` at
+ * expression-expansion time. GitHub Actions evaluates these per-job based on
+ * the job's `runs-on:` label. Prior to issue #279 we hardcoded Linux/X64,
+ * which broke scripts gated on `runner.os == 'macOS'` in tart-backed VM jobs.
+ */
+export type RunnerContext = {
+  os: string;
+  arch: string;
+};
+
+/**
+ * Derive a `RunnerContext` from a job's `runs-on:` labels. Defaults to
+ * Linux/X64 for unknown labels so existing self-hosted configurations keep
+ * working. macOS is mapped to ARM64 because agent-ci's macOS backend (tart)
+ * only runs Apple Silicon VMs.
+ */
+export function runnerContextFromRunsOn(labels: string[]): RunnerContext {
+  switch (classifyRunsOn(labels)) {
+    case "macos":
+      return { os: "macOS", arch: "ARM64" };
+    case "windows":
+      return { os: "Windows", arch: "X64" };
+    default:
+      return { os: "Linux", arch: "X64" };
+  }
+}
 
 // @actions/workflow-parser imports .json files without `with { type: "json" }`,
 // which Node 22+ rejects. Register a custom ESM loader hook that transparently
@@ -117,6 +146,7 @@ function resolveExprAtom(
   needsContext?: Record<string, Record<string, string>>,
   inputsContext?: Record<string, string>,
   vars?: Record<string, string>,
+  runnerContext?: RunnerContext,
 ): string {
   // hashFiles('glob1', 'glob2', ...)
   const hashFilesMatch = trimmed.match(/^hashFiles\(([\s\S]+)\)$/);
@@ -175,6 +205,7 @@ function resolveExprAtom(
         needsContext,
         inputsContext,
         vars,
+        runnerContext,
       );
     }
     try {
@@ -207,6 +238,7 @@ function resolveExprAtom(
         needsContext,
         inputsContext,
         vars,
+        runnerContext,
       );
     }
     return JSON.stringify(rawValue);
@@ -229,6 +261,7 @@ function resolveExprAtom(
           needsContext,
           inputsContext,
           vars,
+          runnerContext,
         );
       }
       return "";
@@ -248,6 +281,7 @@ function resolveExprAtom(
         needsContext,
         inputsContext,
         vars,
+        runnerContext,
       );
       const needle = evaluateExprValue(
         args[1],
@@ -257,6 +291,7 @@ function resolveExprAtom(
         needsContext,
         inputsContext,
         vars,
+        runnerContext,
       );
       // Try JSON array first
       try {
@@ -287,6 +322,7 @@ function resolveExprAtom(
         needsContext,
         inputsContext,
         vars,
+        runnerContext,
       );
       const prefix = evaluateExprValue(
         args[1],
@@ -296,6 +332,7 @@ function resolveExprAtom(
         needsContext,
         inputsContext,
         vars,
+        runnerContext,
       );
       return str.toLowerCase().startsWith(prefix.toLowerCase()) ? "true" : "false";
     }
@@ -315,6 +352,7 @@ function resolveExprAtom(
         needsContext,
         inputsContext,
         vars,
+        runnerContext,
       );
       const suffix = evaluateExprValue(
         args[1],
@@ -324,6 +362,7 @@ function resolveExprAtom(
         needsContext,
         inputsContext,
         vars,
+        runnerContext,
       );
       return str.toLowerCase().endsWith(suffix.toLowerCase()) ? "true" : "false";
     }
@@ -342,6 +381,7 @@ function resolveExprAtom(
       needsContext,
       inputsContext,
       vars,
+      runnerContext,
     );
     const sep =
       args.length >= 2
@@ -353,6 +393,7 @@ function resolveExprAtom(
             needsContext,
             inputsContext,
             vars,
+            runnerContext,
           )
         : ", ";
     try {
@@ -382,10 +423,10 @@ function resolveExprAtom(
 
   // Context variable substitutions
   if (trimmed === "runner.os") {
-    return "Linux";
+    return runnerContext?.os ?? "Linux";
   }
   if (trimmed === "runner.arch") {
-    return "X64";
+    return runnerContext?.arch ?? "X64";
   }
   if (trimmed === "github.run_id") {
     return "1";
@@ -479,6 +520,7 @@ function evaluateExprValue(
   needsContext?: Record<string, Record<string, string>>,
   inputsContext?: Record<string, string>,
   vars?: Record<string, string>,
+  runnerContext?: RunnerContext,
 ): string {
   const trimmed = expr.trim();
   if (!trimmed) {
@@ -516,6 +558,7 @@ function evaluateExprValue(
           needsContext,
           inputsContext,
           vars,
+          runnerContext,
         );
       }
       if (depth === 0) {
@@ -537,6 +580,7 @@ function evaluateExprValue(
         needsContext,
         inputsContext,
         vars,
+        runnerContext,
       );
       if (isExprTruthy(lastVal)) {
         return lastVal;
@@ -558,6 +602,7 @@ function evaluateExprValue(
         needsContext,
         inputsContext,
         vars,
+        runnerContext,
       );
       if (!isExprTruthy(lastVal)) {
         return lastVal;
@@ -579,6 +624,7 @@ function evaluateExprValue(
         needsContext,
         inputsContext,
         vars,
+        runnerContext,
       );
       const right = evaluateExprValue(
         cmpParts[1].trim(),
@@ -588,6 +634,7 @@ function evaluateExprValue(
         needsContext,
         inputsContext,
         vars,
+        runnerContext,
       );
       const result = compareValues(left, right, op);
       return result ? "true" : "false";
@@ -604,6 +651,7 @@ function evaluateExprValue(
       needsContext,
       inputsContext,
       vars,
+      runnerContext,
     );
     return isExprTruthy(inner) ? "false" : "true";
   }
@@ -641,6 +689,7 @@ function evaluateExprValue(
     needsContext,
     inputsContext,
     vars,
+    runnerContext,
   );
 }
 
@@ -658,6 +707,7 @@ export function expandExpressions(
   needsContext?: Record<string, Record<string, string>>,
   inputsContext?: Record<string, string>,
   vars?: Record<string, string>,
+  runnerContext?: RunnerContext,
 ): string {
   return value.replace(/\$\{\{([\s\S]*?)\}\}/g, (_match, expr: string) => {
     const result = evaluateExprValue(
@@ -668,6 +718,7 @@ export function expandExpressions(
       needsContext,
       inputsContext,
       vars,
+      runnerContext,
     );
     // Steps references are deferred to runtime — preserve the ${{ }} syntax
     if (result === STEPS_DEFERRED_SENTINEL) {
@@ -812,6 +863,7 @@ function buildStepEnv(
   needsContext: Record<string, Record<string, string>> | undefined,
   inputsContext: Record<string, string> | undefined,
   vars: Record<string, string> | undefined,
+  runnerContext: RunnerContext | undefined,
 ): Record<string, string> | undefined {
   const pick = (source: unknown): Record<string, unknown> => {
     if (!source || typeof source !== "object") {
@@ -839,6 +891,7 @@ function buildStepEnv(
         needsContext,
         inputsContext,
         vars,
+        runnerContext,
       ),
     ]),
   );
@@ -858,6 +911,9 @@ export async function parseWorkflowSteps(
 
   // Derive repoPath from filePath (.../repoPath/.github/workflows/foo.yml → repoPath)
   const repoPath = path.dirname(path.dirname(path.dirname(filePath)));
+  // Resolve ${{ runner.os }} / ${{ runner.arch }} from the job's runs-on so
+  // that macOS/Windows jobs don't expand to Linux/X64 (issue #279).
+  const runnerContext = runnerContextFromRunsOn(parseJobRunsOn(filePath, taskName));
   // Find the job by ID or Name
   if (!template.jobs) {
     throw new Error(`No jobs found in workflow "${filePath}"`);
@@ -891,6 +947,7 @@ export async function parseWorkflowSteps(
             needsContext,
             inputsContext,
             vars,
+            runnerContext,
           )
         : stepId;
 
@@ -925,6 +982,7 @@ export async function parseWorkflowSteps(
             needsContext,
             inputsContext,
             vars,
+            runnerContext,
           ),
         };
         if (rawStep["working-directory"]) {
@@ -950,6 +1008,7 @@ export async function parseWorkflowSteps(
             needsContext,
             inputsContext,
             vars,
+            runnerContext,
           ),
         };
       } else if ("uses" in step) {
@@ -996,6 +1055,7 @@ export async function parseWorkflowSteps(
                       needsContext,
                       inputsContext,
                       vars,
+                      runnerContext,
                     ),
                   ]),
                 )
@@ -1012,6 +1072,7 @@ export async function parseWorkflowSteps(
                   needsContext,
                   inputsContext,
                   vars,
+                  runnerContext,
                 ),
               ]),
             ),
@@ -1031,6 +1092,7 @@ export async function parseWorkflowSteps(
                         needsContext,
                         inputsContext,
                         vars,
+                        runnerContext,
                       );
                       // The zero hash is a placeholder for "no SHA available" —
                       // normalize it to empty string so actions/checkout uses the
@@ -1054,6 +1116,7 @@ export async function parseWorkflowSteps(
             needsContext,
             inputsContext,
             vars,
+            runnerContext,
           ),
         };
       }

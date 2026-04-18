@@ -1,6 +1,5 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
 import fs from "node:fs";
-import os from "node:os";
 import { execSync } from "node:child_process";
 
 vi.mock("node:child_process", () => ({
@@ -14,7 +13,6 @@ afterEach(() => {
   delete process.env.DOCKER_HOST;
 });
 
-// Helper to dynamically import (fresh module each test via vi.resetModules)
 async function importFresh() {
   vi.resetModules();
   return import("./docker-socket.js");
@@ -59,10 +57,23 @@ describe("resolveDockerSocket", () => {
     expect(result.bindMountPath).toBe("");
   });
 
+  it("throws with doc link when DOCKER_HOST points to non-existent socket", async () => {
+    process.env.DOCKER_HOST = "unix:///nonexistent/docker.sock";
+    vi.spyOn(fs, "realpathSync").mockImplementation(() => {
+      throw new Error("ENOENT");
+    });
+
+    const { resolveDockerSocket } = await importFresh();
+
+    expect(() => resolveDockerSocket()).toThrow("DOCKER_HOST=unix:///nonexistent/docker.sock");
+    expect(() => resolveDockerSocket()).toThrow("docs/docker-socket.md");
+  });
+
   // ── Default socket path ────────────────────────────────────────────────
 
   it("resolves /var/run/docker.sock symlink", async () => {
     delete process.env.DOCKER_HOST;
+    vi.spyOn(fs, "existsSync").mockReturnValue(true);
     vi.spyOn(fs, "realpathSync").mockImplementation((p) => {
       if (String(p) === "/var/run/docker.sock") {
         return "/Users/test/.orbstack/run/docker.sock";
@@ -84,6 +95,7 @@ describe("resolveDockerSocket", () => {
 
   it("uses /var/run/docker.sock as bindMountPath when it resolves to Docker Desktop path (regression #197)", async () => {
     delete process.env.DOCKER_HOST;
+    vi.spyOn(fs, "existsSync").mockReturnValue(true);
     vi.spyOn(fs, "realpathSync").mockImplementation((p) => {
       if (String(p) === "/var/run/docker.sock") {
         return "/Users/username/.docker/run/docker.sock";
@@ -95,9 +107,7 @@ describe("resolveDockerSocket", () => {
     const { resolveDockerSocket } = await importFresh();
     const result = resolveDockerSocket();
 
-    // Docker API client uses resolved path
     expect(result.socketPath).toBe("/Users/username/.docker/run/docker.sock");
-    // Bind mount uses the stable symlink — NOT the resolved path that caused the regression
     expect(result.bindMountPath).toBe("/var/run/docker.sock");
   });
 
@@ -140,90 +150,51 @@ describe("resolveDockerSocket", () => {
     expect(result.bindMountPath).toBe("/var/run/docker.sock");
   });
 
-  // ── Docker context fallback ─────────────────────────────────────────────
+  // ── Missing / dangling /var/run/docker.sock ─────────────────────────────
 
-  it("falls back to docker context inspect when default socket missing", async () => {
+  it("throws with doc link when /var/run/docker.sock is missing", async () => {
     delete process.env.DOCKER_HOST;
-    vi.spyOn(fs, "realpathSync").mockImplementation(() => {
-      throw new Error("ENOENT");
-    });
-    vi.spyOn(fs, "existsSync").mockImplementation((p) => {
-      return String(p) === "/Users/test/.docker/run/docker.sock";
-    });
-    mockedExecSync.mockReturnValue(
-      JSON.stringify([
-        {
-          Endpoints: {
-            docker: { Host: "unix:///Users/test/.docker/run/docker.sock" },
-          },
-        },
-      ]),
-    );
-
-    const { resolveDockerSocket } = await importFresh();
-    const result = resolveDockerSocket();
-
-    expect(result.socketPath).toBe("/Users/test/.docker/run/docker.sock");
-    expect(result.bindMountPath).toBe("/Users/test/.docker/run/docker.sock");
-  });
-
-  // ── macOS provider fallback ──────────────────────────────────────────────
-
-  it("checks well-known macOS provider sockets when context fails", async () => {
-    delete process.env.DOCKER_HOST;
-    vi.spyOn(fs, "realpathSync").mockImplementation(() => {
-      throw new Error("ENOENT");
-    });
-    mockedExecSync.mockImplementation(() => {
-      throw new Error("docker not found");
-    });
-    const home = os.homedir();
-    vi.spyOn(fs, "existsSync").mockImplementation((p) => {
-      return String(p) === `${home}/.docker/run/docker.sock`;
-    });
-    // Ensure we're on darwin for this path
-    vi.spyOn(process, "platform", "get").mockReturnValue("darwin");
-
-    const { resolveDockerSocket } = await importFresh();
-    const result = resolveDockerSocket();
-
-    expect(result.socketPath).toBe(`${home}/.docker/run/docker.sock`);
-    expect(result.bindMountPath).toBe(`${home}/.docker/run/docker.sock`);
-  });
-
-  // ── Reproduction: symlink missing → clear error ─────────────────────────
-
-  it("throws with actionable error when no socket is found", async () => {
-    delete process.env.DOCKER_HOST;
-    vi.spyOn(fs, "realpathSync").mockImplementation(() => {
-      throw new Error("ENOENT");
-    });
     vi.spyOn(fs, "existsSync").mockReturnValue(false);
-    mockedExecSync.mockImplementation(() => {
-      throw new Error("docker not found");
-    });
-    vi.spyOn(process, "platform", "get").mockReturnValue("darwin");
-
-    const { resolveDockerSocket } = await importFresh();
-
-    expect(() => resolveDockerSocket()).toThrow("Could not find a Docker socket");
-    expect(() => resolveDockerSocket()).toThrow("DOCKER_HOST");
-    expect(() => resolveDockerSocket()).toThrow("ln -s");
-  });
-
-  it("falls through when DOCKER_HOST points to non-existent socket", async () => {
-    process.env.DOCKER_HOST = "unix:///nonexistent/docker.sock";
     vi.spyOn(fs, "realpathSync").mockImplementation(() => {
       throw new Error("ENOENT");
     });
-    vi.spyOn(fs, "existsSync").mockReturnValue(false);
-    mockedExecSync.mockImplementation(() => {
-      throw new Error("docker not found");
-    });
-    vi.spyOn(process, "platform", "get").mockReturnValue("darwin");
 
     const { resolveDockerSocket } = await importFresh();
 
-    expect(() => resolveDockerSocket()).toThrow("Could not find a Docker socket");
+    expect(() => resolveDockerSocket()).toThrow("/var/run/docker.sock");
+    expect(() => resolveDockerSocket()).toThrow("missing or a dangling symlink");
+    expect(() => resolveDockerSocket()).toThrow("docs/docker-socket.md");
+  });
+
+  it("throws with doc link when /var/run/docker.sock is a dangling symlink (stale OrbStack / Colima switch)", async () => {
+    // Regression for #263 debugging session: /var/run/docker.sock → ~/.orbstack/...
+    // but OrbStack is stopped, so the link dangles. fs.existsSync returns false for
+    // dangling symlinks, which is the signal we want.
+    delete process.env.DOCKER_HOST;
+    vi.spyOn(fs, "existsSync").mockReturnValue(false);
+    vi.spyOn(fs, "realpathSync").mockImplementation(() => {
+      throw new Error("ENOENT");
+    });
+
+    const { resolveDockerSocket } = await importFresh();
+
+    expect(() => resolveDockerSocket()).toThrow("dangling symlink");
+  });
+
+  it("throws with doc link when /var/run/docker.sock exists but EACCES and no readable context", async () => {
+    delete process.env.DOCKER_HOST;
+    vi.spyOn(fs, "existsSync").mockReturnValue(true);
+    vi.spyOn(fs, "realpathSync").mockReturnValue("/var/run/docker.sock");
+    vi.spyOn(fs, "accessSync").mockImplementation(() => {
+      throw Object.assign(new Error("EACCES"), { code: "EACCES" });
+    });
+    mockedExecSync.mockImplementation(() => {
+      throw new Error("docker not found");
+    });
+
+    const { resolveDockerSocket } = await importFresh();
+
+    expect(() => resolveDockerSocket()).toThrow("not readable");
+    expect(() => resolveDockerSocket()).toThrow("docs/docker-socket.md");
   });
 });

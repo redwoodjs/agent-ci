@@ -1,1 +1,7 @@
-[]
+[
+  {
+    "issue": 253,
+    "pr": 283,
+    "changeset": "fix-253-docker-desktop-default-socket-doc.md"
+  }
+]

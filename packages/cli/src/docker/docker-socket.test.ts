@@ -166,6 +166,30 @@ describe("resolveDockerSocket", () => {
     expect(() => resolveDockerSocket()).toThrow("docs/docker-socket.md");
   });
 
+  it("appends Docker Desktop toggle hint when ~/.docker/run/docker.sock exists but /var/run/docker.sock is missing", async () => {
+    delete process.env.DOCKER_HOST;
+    vi.spyOn(fs, "existsSync").mockImplementation((p) => {
+      const s = String(p);
+      if (s === "/var/run/docker.sock") {
+        return false;
+      }
+      if (s.endsWith("/.docker/run/docker.sock")) {
+        return true;
+      }
+      return false;
+    });
+    vi.spyOn(fs, "realpathSync").mockImplementation(() => {
+      throw new Error("ENOENT");
+    });
+
+    const { resolveDockerSocket } = await importFresh();
+
+    expect(() => resolveDockerSocket()).toThrow(
+      "Docker Desktop is running but the default socket is disabled",
+    );
+    expect(() => resolveDockerSocket()).toThrow("Settings → Advanced");
+  });
+
   it("throws with doc link when /var/run/docker.sock is a dangling symlink (stale OrbStack / Colima switch)", async () => {
     // Regression for #263 debugging session: /var/run/docker.sock → ~/.orbstack/...
     // but OrbStack is stopped, so the link dangles. fs.existsSync returns false for

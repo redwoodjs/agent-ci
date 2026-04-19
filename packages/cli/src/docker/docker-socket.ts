@@ -1,10 +1,23 @@
 import fs from "fs";
+import os from "os";
+import path from "path";
 import { execSync } from "child_process";
 import { debugRunner } from "../output/debug.js";
 
 const DEFAULT_SOCKET = "/var/run/docker.sock";
 const DOCS_URL =
   "https://github.com/redwoodjs/agent-ci/blob/main/packages/cli/docs/docker-socket.md";
+
+// Docker Desktop's user-side socket path (same on macOS/Linux/Windows-WSL).
+// Its presence means Docker Desktop is running but the "Allow the default
+// Docker socket to be used" toggle in Settings → Advanced is off.
+function dockerDesktopRunningWithoutDefaultSocket(): boolean {
+  const home = os.homedir();
+  if (!home) {
+    return false;
+  }
+  return fs.existsSync(path.join(home, ".docker", "run", "docker.sock"));
+}
 
 function socketFromDockerContext(): string | undefined {
   try {
@@ -121,15 +134,22 @@ export function resolveDockerSocket(): DockerSocket {
 }
 
 function unusableSocketError(detail: string): Error {
-  return new Error(
-    [
-      `agent-ci couldn't use a Docker socket at /var/run/docker.sock.`,
-      detail,
+  const lines = [
+    `agent-ci couldn't use a Docker socket at /var/run/docker.sock.`,
+    detail,
+    ``,
+    `A working Docker socket is required there (or set DOCKER_HOST explicitly).`,
+  ];
+  if (dockerDesktopRunningWithoutDefaultSocket()) {
+    lines.push(
       ``,
-      `A working Docker socket is required there (or set DOCKER_HOST explicitly).`,
-      `See: ${DOCS_URL}`,
-    ].join("\n"),
-  );
+      `Docker Desktop is running but the default socket is disabled.`,
+      `Enable it: Docker Desktop → Settings → Advanced →`,
+      `  "Allow the default Docker socket to be used (requires password)" → Apply & Restart.`,
+    );
+  }
+  lines.push(``, `See: ${DOCS_URL}`);
+  return new Error(lines.join("\n"));
 }
 
 /**

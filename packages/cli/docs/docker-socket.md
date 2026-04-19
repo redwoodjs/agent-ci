@@ -18,7 +18,15 @@ Relying on `/var/run/docker.sock` as the single source of truth avoids all of th
 
 ### Docker Desktop (macOS / Windows / Linux)
 
-Docker Desktop creates `/var/run/docker.sock` automatically on startup. If it's missing, just start Docker Desktop (or restart it if it was running during an upgrade).
+Docker Desktop 4.x ships with the default Docker socket disabled. Even with Docker Desktop running, `/var/run/docker.sock` will not exist until you opt in:
+
+1. Open Docker Desktop → ⚙ Settings → **Advanced**.
+2. Tick **"Allow the default Docker socket to be used (requires password)"**.
+3. Click **Apply & Restart** — Docker Desktop will prompt for your admin password to install the privileged helper that creates the symlink.
+
+After the restart, `/var/run/docker.sock` is a symlink to `~/.docker/run/docker.sock` and agent-ci can use it.
+
+If you previously had this toggle on but `/var/run/docker.sock` is missing again after a Docker Desktop upgrade, toggle it off and back on to re-install the helper.
 
 ### OrbStack (macOS)
 

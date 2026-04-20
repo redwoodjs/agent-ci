@@ -3,7 +3,7 @@
   "private": true,
   "scripts": {
     "test": "pnpm --include-workspace-root=false -r test",
-    "check": "npm-run-all --parallel typecheck lint format:check",
+    "check": "npm-run-all --parallel typecheck lint format:check parse:diff:self-test parse:diff",
     "check:fix": "npm-run-all --parallel typecheck lint:fix format:fix",
     "typecheck": "pnpm -r run typecheck",
     "lint": "oxlint --deny-warnings",

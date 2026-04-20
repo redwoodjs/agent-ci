@@ -3,16 +3,40 @@
 // The JSON is the source of truth; run `pnpm compat:gen` after editing it.
 // `--check` exits non-zero if the on-disk .md differs from what the JSON produces.
 
-import { readFile, writeFile } from "node:fs/promises";
+import { access, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const cliDir = resolve(__dirname, "../packages/cli");
+const repoRoot = resolve(__dirname, "..");
+const cliDir = resolve(repoRoot, "packages/cli");
 const jsonPath = resolve(cliDir, "compatibility.json");
 const mdPath = resolve(cliDir, "compatibility.md");
 
 const data = JSON.parse(await readFile(jsonPath, "utf8"));
+
+const missingProof = [];
+for (const section of data.sections) {
+  for (const row of section.rows) {
+    if (!row.proof) {
+      continue;
+    }
+    for (const path of row.proof) {
+      try {
+        await access(resolve(repoRoot, path));
+      } catch {
+        missingProof.push(`${section.id}/${row.key}: ${path}`);
+      }
+    }
+  }
+}
+if (missingProof.length > 0) {
+  console.error(`compatibility.json references proof paths that do not exist:`);
+  for (const entry of missingProof) {
+    console.error(`  ${entry}`);
+  }
+  process.exit(1);
+}
 
 const segmenter = new Intl.Segmenter("en", { granularity: "grapheme" });
 const isWideGrapheme = (g) => {

@@ -28,18 +28,25 @@
       "description": "Cannot be supported due to architectural constraints"
     }
   },
+  "proofNote": "`proof` lists workflow files that exercise the feature end-to-end under `pnpm agent-ci-dev run --all`. Internal field — not rendered on the website or in the markdown table. An empty array on a `supported`/`partial` row is a coverage gap.",
   "sections": [
     {
       "id": "workflow",
       "title": "Workflow-Level Keys",
       "description": "Top-level keys that control when and how a workflow runs — triggers, environment defaults, and concurrency.",
       "rows": [
-        { "key": "`name`", "status": "supported", "notes": "" },
+        {
+          "key": "`name`",
+          "status": "supported",
+          "notes": "",
+          "proof": [".github/workflows/smoke-matrix.yml"]
+        },
         { "key": "`run-name`", "status": "ignored", "notes": "Parsed but not displayed anywhere" },
         {
           "key": "`on` (push, pull_request)",
           "status": "supported",
-          "notes": "Branch and path filters are evaluated when using `--all`"
+          "notes": "Branch and path filters are evaluated when using `--all`",
+          "proof": [".github/workflows/release.yml", ".github/workflows/tests.yml"]
         },
         {
           "key": "`on` (schedule, workflow_dispatch)",
@@ -49,7 +56,12 @@
         {
           "key": "`on` (workflow_call)",
           "status": "supported",
-          "notes": "Local reusable workflows (`uses: ./.github/workflows/...`) are inlined into the caller's dependency graph. Remote refs are fetched from GitHub (requires `--github-token` or `AGENT_CI_GITHUB_TOKEN`). `inputs:`/`outputs:` passing and nested reusable workflows are supported"
+          "notes": "Local reusable workflows (`uses: ./.github/workflows/...`) are inlined into the caller's dependency graph. Remote refs are fetched from GitHub (requires `--github-token` or `AGENT_CI_GITHUB_TOKEN`). `inputs:`/`outputs:` passing and nested reusable workflows are supported",
+          "proof": [
+            ".github/workflows/smoke-reusable-workflows.yml",
+            ".github/workflows/smoke-nested-level-1.yml",
+            ".github/workflows/smoke-remote-private-workflow.yml"
+          ]
         },
         {
           "key": "`on` (other events)",
@@ -59,17 +71,20 @@
         {
           "key": "`env`",
           "status": "supported",
-          "notes": "Workflow-level env is propagated to all steps"
+          "notes": "Workflow-level env is propagated to all steps",
+          "proof": []
         },
         {
           "key": "`defaults.run.shell`",
           "status": "supported",
-          "notes": "Passed through to the runner"
+          "notes": "Passed through to the runner",
+          "proof": []
         },
         {
           "key": "`defaults.run.working-directory`",
           "status": "supported",
-          "notes": "Passed through to the runner"
+          "notes": "Passed through to the runner",
+          "proof": [".github/workflows/smoke-defaults-workdir.yml"]
         },
         {
           "key": "`permissions`",
@@ -91,39 +106,53 @@
         {
           "key": "`jobs.<id>`",
           "status": "supported",
-          "notes": "Multiple jobs in a single workflow"
+          "notes": "Multiple jobs in a single workflow",
+          "proof": [".github/workflows/smoke-outputs.yml", ".github/workflows/smoke-conditions.yml"]
         },
-        { "key": "`jobs.<id>.name`", "status": "supported", "notes": "" },
+        {
+          "key": "`jobs.<id>.name`",
+          "status": "supported",
+          "notes": "",
+          "proof": [".github/workflows/smoke-matrix.yml"]
+        },
         {
           "key": "`jobs.<id>.needs`",
           "status": "supported",
-          "notes": "Jobs are sorted topologically into dependency waves"
+          "notes": "Jobs are sorted topologically into dependency waves",
+          "proof": [".github/workflows/smoke-outputs.yml", ".github/workflows/smoke-conditions.yml"]
         },
         {
           "key": "`jobs.<id>.if`",
           "status": "supported",
-          "notes": "`success()`, `failure()`, `always()`, `cancelled()`, `==`/`!=`, `&&`/`||`, `!`, `needs.*.outputs.*`, `needs.*.result`"
+          "notes": "`success()`, `failure()`, `always()`, `cancelled()`, `==`/`!=`, `&&`/`||`, `!`, `needs.*.outputs.*`, `needs.*.result`",
+          "proof": [".github/workflows/smoke-conditions.yml"]
         },
         {
           "key": "`jobs.<id>.runs-on`",
           "status": "partial",
-          "notes": "`ubuntu-*` / `linux` (and unspecified `self-hosted` / custom labels) run in a Linux container — the default image is minimal, see [runner-image.md](./runner-image.md) to add system tools. `macos-*` runs in a real macOS VM on Apple Silicon hosts with [tart](https://github.com/cirruslabs/tart) + `sshpass` installed; other hosts skip the job with a reason. `windows-*` is not yet supported and skips on every host."
+          "notes": "`ubuntu-*` / `linux` (and unspecified `self-hosted` / custom labels) run in a Linux container — the default image is minimal, see [runner-image.md](./runner-image.md) to add system tools. `macos-*` runs in a real macOS VM on Apple Silicon hosts with [tart](https://github.com/cirruslabs/tart) + `sshpass` installed; other hosts skip the job with a reason. `windows-*` is not yet supported and skips on every host.",
+          "proof": [".github/workflows/smoke-matrix.yml", ".github/workflows/smoke-macos.yml"]
         },
         {
           "key": "`jobs.<id>.environment`",
           "status": "ignored",
           "notes": "Accepted but not enforced — environment protection rules are GitHub-side only"
         },
-        { "key": "`jobs.<id>.env`", "status": "supported", "notes": "" },
+        { "key": "`jobs.<id>.env`", "status": "supported", "notes": "", "proof": [] },
         {
           "key": "`jobs.<id>.defaults.run`",
           "status": "supported",
-          "notes": "`shell` and `working-directory`"
+          "notes": "`shell` and `working-directory`",
+          "proof": [".github/workflows/smoke-defaults-workdir.yml"]
         },
         {
           "key": "`jobs.<id>.outputs`",
           "status": "supported",
-          "notes": "Resolved after each job completes and accumulated across dependency waves"
+          "notes": "Resolved after each job completes and accumulated across dependency waves",
+          "proof": [
+            ".github/workflows/smoke-outputs.yml",
+            ".github/workflows/smoke-reusable-inputs-outputs.yml"
+          ]
         },
         {
           "key": "`jobs.<id>.timeout-minutes`",
@@ -143,17 +172,24 @@
         {
           "key": "`jobs.<id>.container`",
           "status": "supported",
-          "notes": "Short and long form; image, env, ports, volumes, and options are all supported"
+          "notes": "Short and long form; image, env, ports, volumes, and options are all supported",
+          "proof": [".github/workflows/smoke-artifacts.yml"]
         },
         {
           "key": "`jobs.<id>.services`",
           "status": "supported",
-          "notes": "Sidecar containers with image, env, ports, and options"
+          "notes": "Sidecar containers with image, env, ports, and options",
+          "proof": [".github/workflows/smoke-artifacts.yml"]
         },
         {
           "key": "`jobs.<id>.uses` (reusable workflows)",
           "status": "supported",
-          "notes": "Local refs (`./`) are expanded inline. Remote refs are fetched from GitHub (requires `--github-token` or `AGENT_CI_GITHUB_TOKEN`; public repos may work without auth). `with:` (inputs) and `secrets:` pass-through are supported"
+          "notes": "Local refs (`./`) are expanded inline. Remote refs are fetched from GitHub (requires `--github-token` or `AGENT_CI_GITHUB_TOKEN`; public repos may work without auth). `with:` (inputs) and `secrets:` pass-through are supported",
+          "proof": [
+            ".github/workflows/smoke-reusable-workflows.yml",
+            ".github/workflows/smoke-reusable-inputs-outputs.yml",
+            ".github/workflows/smoke-remote-private-workflow.yml"
+          ]
         },
         {
           "key": "`jobs.<id>.secrets`",
@@ -170,7 +206,8 @@
         {
           "key": "`strategy.matrix`",
           "status": "supported",
-          "notes": "Cartesian product of all array values is fully expanded"
+          "notes": "Cartesian product of all array values is fully expanded",
+          "proof": [".github/workflows/smoke-matrix.yml"]
         },
         {
           "key": "`strategy.matrix.include`",
@@ -185,7 +222,8 @@
         {
           "key": "`strategy.fail-fast`",
           "status": "supported",
-          "notes": "Setting `fail-fast: false` allows remaining matrix jobs to continue after a failure"
+          "notes": "Setting `fail-fast: false` allows remaining matrix jobs to continue after a failure",
+          "proof": [".github/workflows/smoke-matrix.yml"]
         },
         {
           "key": "`strategy.max-parallel`",
@@ -199,47 +237,71 @@
       "title": "Step-Level Keys",
       "description": "Individual step configuration — shell commands, action references, conditional execution, and environment variables.",
       "rows": [
-        { "key": "`steps[*].id`", "status": "supported", "notes": "" },
+        {
+          "key": "`steps[*].id`",
+          "status": "supported",
+          "notes": "",
+          "proof": [".github/workflows/smoke-artifacts.yml"]
+        },
         {
           "key": "`steps[*].name`",
           "status": "supported",
-          "notes": "Expression expansion in names"
+          "notes": "Expression expansion in names",
+          "proof": [".github/workflows/smoke-matrix.yml"]
         },
         {
           "key": "`steps[*].if`",
           "status": "partial",
-          "notes": "The condition is passed to the official runner binary, which evaluates it at runtime. Limitation: `steps.*.outputs.cache-hit` and similar outputs resolve to an empty string at parse time because prior steps have not yet run when the workflow is parsed"
+          "notes": "The condition is passed to the official runner binary, which evaluates it at runtime. Limitation: `steps.*.outputs.cache-hit` and similar outputs resolve to an empty string at parse time because prior steps have not yet run when the workflow is parsed",
+          "proof": [".github/workflows/smoke-artifacts.yml"]
         },
         {
           "key": "`steps[*].run`",
           "status": "supported",
-          "notes": "Multiline shell scripts with `${{ }}` expression expansion"
+          "notes": "Multiline shell scripts with `${{ }}` expression expansion",
+          "proof": [".github/workflows/smoke-matrix.yml"]
         },
         {
           "key": "`steps[*].uses`",
           "status": "supported",
-          "notes": "Public actions are downloaded via the GitHub API"
+          "notes": "Public actions are downloaded via the GitHub API",
+          "proof": [".github/workflows/smoke-binary.yml"]
         },
         {
           "key": "`steps[*].uses` (local `./`)",
           "status": "supported",
-          "notes": "Local actions (e.g. `uses: ./.github/actions/my-action`) are resolved from the workspace"
+          "notes": "Local actions (e.g. `uses: ./.github/actions/my-action`) are resolved from the workspace",
+          "proof": []
         },
         {
           "key": "`steps[*].with`",
           "status": "supported",
-          "notes": "Expression expansion in values"
+          "notes": "Expression expansion in values",
+          "proof": [".github/workflows/smoke-binary.yml"]
         },
         {
           "key": "`steps[*].env`",
           "status": "supported",
-          "notes": "Expression expansion in values"
+          "notes": "Expression expansion in values",
+          "proof": [
+            ".github/workflows/smoke-secrets-env-file.yml",
+            ".github/workflows/smoke-artifacts.yml"
+          ]
         },
-        { "key": "`steps[*].working-directory`", "status": "supported", "notes": "" },
+        {
+          "key": "`steps[*].working-directory`",
+          "status": "supported",
+          "notes": "",
+          "proof": [
+            ".github/workflows/smoke-vars-preflight.yml",
+            ".github/workflows/smoke-defaults-workdir.yml"
+          ]
+        },
         {
           "key": "`steps[*].shell`",
           "status": "supported",
-          "notes": "Passed through to the runner"
+          "notes": "Passed through to the runner",
+          "proof": []
         },
         {
           "key": "`steps[*].continue-on-error`",
@@ -261,79 +323,107 @@
         {
           "key": "`hashFiles(...)`",
           "status": "supported",
-          "notes": "SHA-256 of matching files; supports multiple glob patterns"
+          "notes": "SHA-256 of matching files; supports multiple glob patterns",
+          "proof": []
         },
         {
           "key": "`format(...)`",
           "status": "supported",
-          "notes": "Template substitution with recursive expression expansion"
+          "notes": "Template substitution with recursive expression expansion",
+          "proof": []
         },
-        { "key": "`matrix.*`", "status": "supported", "notes": "" },
+        {
+          "key": "`matrix.*`",
+          "status": "supported",
+          "notes": "",
+          "proof": [".github/workflows/smoke-matrix.yml"]
+        },
         {
           "key": "`secrets.*`",
           "status": "supported",
-          "notes": "Resolved from `.env.agent-ci` at the project root, with shell environment variables as fallback. `--github-token` auto-populates `secrets.GITHUB_TOKEN`"
+          "notes": "Resolved from `.env.agent-ci` at the project root, with shell environment variables as fallback. `--github-token` auto-populates `secrets.GITHUB_TOKEN`",
+          "proof": [".github/workflows/smoke-secrets-env-file.yml"]
         },
         {
           "key": "`runner.os`",
           "status": "supported",
-          "notes": "`Linux` for container-based jobs, `macOS` for jobs routed to the macOS VM"
+          "notes": "`Linux` for container-based jobs, `macOS` for jobs routed to the macOS VM",
+          "proof": [".github/workflows/smoke-artifacts.yml"]
         },
         {
           "key": "`runner.arch`",
           "status": "supported",
-          "notes": "`X64` for container-based jobs, `ARM64` for macOS VM jobs (Apple Silicon)"
+          "notes": "`X64` for container-based jobs, `ARM64` for macOS VM jobs (Apple Silicon)",
+          "proof": []
         },
         {
           "key": "`github.sha`, `github.ref_name`, etc.",
           "status": "partial",
-          "notes": "`sha` is the real commit SHA from `HEAD`. When the working tree is dirty, a temporary tree SHA is computed to reflect uncommitted changes. Other values use defaults: `ref_name` and `head_ref` are `main`, `repository` is derived from the git remote, `actor` is the repo owner, `run_id` and `run_number` are `1`"
+          "notes": "`sha` is the real commit SHA from `HEAD`. When the working tree is dirty, a temporary tree SHA is computed to reflect uncommitted changes. Other values use defaults: `ref_name` and `head_ref` are `main`, `repository` is derived from the git remote, `actor` is the repo owner, `run_id` and `run_number` are `1`",
+          "proof": [".github/workflows/smoke-binary.yml"]
         },
         {
           "key": "`github.event.*`",
           "status": "partial",
-          "notes": "All event payload fields return empty strings — no real webhook event is triggered locally"
+          "notes": "All event payload fields return empty strings — no real webhook event is triggered locally",
+          "proof": [".github/workflows/smoke-binary.yml"]
         },
         {
           "key": "`strategy.job-total`, `strategy.job-index`",
           "status": "supported",
-          "notes": ""
+          "notes": "",
+          "proof": [".github/workflows/smoke-matrix.yml"]
         },
         {
           "key": "`steps.*.outputs.*`",
           "status": "partial",
-          "notes": "Resolves to an empty string at parse time. The official runner evaluates these correctly at runtime — the limitation only affects Agent CI's own expression pre-processing"
+          "notes": "Resolves to an empty string at parse time. The official runner evaluates these correctly at runtime — the limitation only affects Agent CI's own expression pre-processing",
+          "proof": [".github/workflows/smoke-artifacts.yml"]
         },
         {
           "key": "`needs.*.outputs.*`",
           "status": "supported",
-          "notes": "Resolved after dependency jobs complete. The needs context is built from actual job outputs and passed into subsequent job evaluation"
+          "notes": "Resolved after dependency jobs complete. The needs context is built from actual job outputs and passed into subsequent job evaluation",
+          "proof": [
+            ".github/workflows/smoke-outputs.yml",
+            ".github/workflows/smoke-reusable-inputs-outputs.yml"
+          ]
         },
         {
           "key": "Boolean/comparison operators",
           "status": "supported",
-          "notes": "`==`, `!=`, `<`, `>`, `<=`, `>=`, `&&`, `||`, `!`, parentheses. Case-insensitive string comparison; numeric comparison when both sides are numbers"
+          "notes": "`==`, `!=`, `<`, `>`, `<=`, `>=`, `&&`, `||`, `!`, parentheses. Case-insensitive string comparison; numeric comparison when both sides are numbers",
+          "proof": [".github/workflows/smoke-conditions.yml"]
         },
-        { "key": "`toJSON`, `fromJSON`", "status": "supported", "notes": "" },
+        {
+          "key": "`toJSON`, `fromJSON`",
+          "status": "supported",
+          "notes": "",
+          "proof": [".github/workflows/smoke-binary.yml"]
+        },
         {
           "key": "`contains`, `startsWith`, `endsWith`",
           "status": "supported",
-          "notes": "Case-insensitive. `contains` works with both strings and JSON arrays"
+          "notes": "Case-insensitive. `contains` works with both strings and JSON arrays",
+          "proof": [".github/workflows/smoke-binary.yml"]
         },
         {
           "key": "`join`",
           "status": "supported",
-          "notes": "Joins JSON arrays with a separator (default `, `)"
+          "notes": "Joins JSON arrays with a separator (default `, `)",
+          "proof": []
         },
         {
           "key": "`success()`, `failure()`, `always()`, `cancelled()`",
           "status": "supported",
-          "notes": "Evaluated by Agent CI for job-level `if` conditions and in expression expansion"
+          "notes": "Evaluated by Agent CI for job-level `if` conditions and in expression expansion",
+          "proof": [".github/workflows/smoke-conditions.yml"]
         },
         {
           "key": "Type literals (`true`, `false`, `null`, numbers)",
           "status": "supported",
-          "notes": "Boolean, null, and numeric literals supported in expressions"
+          "notes": "Boolean, null, and numeric literals supported in expressions",
+          "proof": []
         }
       ]
     },
@@ -345,37 +435,44 @@
         {
           "key": "Action downloads",
           "status": "supported",
-          "notes": "Action tarballs are resolved and downloaded from github.com"
+          "notes": "Action tarballs are resolved and downloaded from github.com",
+          "proof": [".github/workflows/smoke-binary.yml"]
         },
         {
           "key": "`actions/cache`",
           "status": "supported",
-          "notes": "Cache is stored on the local filesystem via bind-mount, giving ~0 ms round-trip on cache hits"
+          "notes": "Cache is stored on the local filesystem via bind-mount, giving ~0 ms round-trip on cache hits",
+          "proof": [".github/workflows/smoke-artifacts.yml"]
         },
         {
           "key": "`actions/checkout`",
           "status": "supported",
-          "notes": "The workspace is rsynced into the container with `clean: false` to preserve local changes"
+          "notes": "The workspace is rsynced into the container with `clean: false` to preserve local changes",
+          "proof": [".github/workflows/smoke-binary.yml"]
         },
         {
           "key": "`actions/setup-node`, `actions/setup-python`, etc.",
           "status": "supported",
-          "notes": "Tool setup actions run natively inside the runner container"
+          "notes": "Tool setup actions run natively inside the runner container",
+          "proof": [".github/workflows/smoke-binary.yml", ".github/workflows/smoke-node-setup.yml"]
         },
         {
           "key": "`actions/upload-artifact` / `download-artifact`",
           "status": "supported",
-          "notes": "Artifacts are stored on the local filesystem"
+          "notes": "Artifacts are stored on the local filesystem",
+          "proof": [".github/workflows/smoke-artifacts.yml"]
         },
         {
           "key": "`GITHUB_TOKEN`",
           "status": "partial",
-          "notes": "Not injected automatically. Pass `--github-token` or set `AGENT_CI_GITHUB_TOKEN` to make it available as `secrets.GITHUB_TOKEN`. GitHub API calls from the runner are answered locally by Agent CI's API emulation layer"
+          "notes": "Not injected automatically. Pass `--github-token` or set `AGENT_CI_GITHUB_TOKEN` to make it available as `secrets.GITHUB_TOKEN`. GitHub API calls from the runner are answered locally by Agent CI's API emulation layer",
+          "proof": [".github/workflows/smoke-remote-private-workflow.yml"]
         },
         {
           "key": "Workflow commands (`::set-output::`, `::error::`, etc.)",
           "status": "supported",
-          "notes": "Handled by the official runner binary"
+          "notes": "Handled by the official runner binary",
+          "proof": [".github/workflows/smoke-outputs.yml", ".github/workflows/smoke-node-setup.yml"]
         }
       ]
     }

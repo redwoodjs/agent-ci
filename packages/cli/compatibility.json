@@ -176,9 +176,12 @@
         },
         {
           "key": "`jobs.<id>.container`",
-          "status": "supported",
-          "notes": "Short and long form; image, env, ports, volumes, and options are all supported",
-          "proof": [".github/workflows/smoke-artifacts.yml"]
+          "status": "partial",
+          "notes": "Short and long form; `image`, `env`, `ports`, `volumes` honored. Within `options:`, only `--env`/`-e` and `--label`/`-l` are forwarded to the runner container; other Docker flags (`--privileged`, `--user`, `--network`, `--cap-add`, `--workdir`, etc.) are silently ignored because they tend to clash with agent-ci's own container orchestration.",
+          "proof": [
+            ".github/workflows/smoke-artifacts.yml",
+            ".github/workflows/smoke-container-options.yml"
+          ]
         },
         {
           "key": "`jobs.<id>.services`",
@@ -448,8 +451,8 @@
         },
         {
           "key": "`actions/cache`",
-          "status": "supported",
-          "notes": "Cache is stored on the local filesystem via bind-mount, giving ~0 ms round-trip on cache hits",
+          "status": "partial",
+          "notes": "Cache is stored on the local filesystem via bind-mount, giving ~0 ms round-trip on cache hits. Scoping is by cache key only — GitHub's ref-based isolation (a branch cannot read another branch's cache, default branch is a fallback) is not implemented. If two workflows on different refs share a key they share the cache.",
           "proof": [".github/workflows/smoke-artifacts.yml"]
         },
         {
@@ -473,7 +476,7 @@
         {
           "key": "`GITHUB_TOKEN`",
           "status": "partial",
-          "notes": "Not injected automatically. Pass `--github-token` or set `AGENT_CI_GITHUB_TOKEN` to make it available as `secrets.GITHUB_TOKEN`. GitHub API calls from the runner are answered locally by Agent CI's API emulation layer",
+          "notes": "Not injected automatically. Pass `--github-token` or set `AGENT_CI_GITHUB_TOKEN` to make it available as `secrets.GITHUB_TOKEN`. GitHub API calls from the runner are answered locally by Agent CI's API emulation layer. OIDC ID-token issuance (`permissions.id-token: write` → federated cloud auth) is not implemented — actions that exchange the OIDC token with AWS/GCP/Vault will fail.",
           "proof": [".github/workflows/smoke-remote-private-workflow.yml"]
         },
         {

@@ -845,22 +845,22 @@ export async function parseMatrixDef(
 }
 
 /**
- * Resolve a step's effective `working-directory` per GitHub Actions precedence:
- * step override beats job `defaults.run.working-directory`, which beats
- * workflow-level `defaults.run.working-directory`. Returns undefined when none
- * is declared at any level.
+ * Resolve a `defaults.run.<key>` value with GitHub Actions precedence:
+ * step override beats job `defaults.run.<key>`, which beats workflow-level
+ * `defaults.run.<key>`. Returns undefined when none is declared at any level.
  */
-function resolveStepWorkingDirectory(
+function resolveStepRunDefault(
   rawYaml: unknown,
   rawJob: unknown,
   rawStep: unknown,
+  key: string,
 ): string | undefined {
   const pick = (source: unknown): string | undefined => {
     if (!source || typeof source !== "object") {
       return undefined;
     }
-    const wd = (source as { "working-directory"?: unknown })["working-directory"];
-    return typeof wd === "string" && wd.length > 0 ? wd : undefined;
+    const v = (source as Record<string, unknown>)[key];
+    return typeof v === "string" && v.length > 0 ? v : undefined;
   };
   const pickDefault = (source: unknown): string | undefined => {
     if (!source || typeof source !== "object") {
@@ -1013,7 +1013,12 @@ export async function parseWorkflowSteps(
             runnerContext,
           ),
         };
-        const workingDirectory = resolveStepWorkingDirectory(rawYaml, rawJob, rawStep);
+        const workingDirectory = resolveStepRunDefault(
+          rawYaml,
+          rawJob,
+          rawStep,
+          "working-directory",
+        );
         if (workingDirectory) {
           inputs.workingDirectory = workingDirectory;
         }

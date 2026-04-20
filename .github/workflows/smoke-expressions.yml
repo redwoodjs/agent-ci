@@ -1,0 +1,84 @@
+name: "Smoke: expressions (hashFiles, format, join, runner.arch, type literals)"
+
+# Covers expression-language gaps listed in the compatibility audit:
+#   - hashFiles(...)
+#   - format(...)
+#   - join(...)
+#   - runner.arch
+#   - Type literals (true / false / null / numbers)
+#   - startsWith / endsWith (strengthens `contains`-only coverage)
+#
+# Each assertion is a `run:` step that consumes the expression via env and
+# compares the resolved string to an expected value.
+
+on:
+  pull_request_target:
+    types: [opened, labeled, synchronize]
+
+jobs:
+  expressions:
+    if: '!github.event.pull_request.draft && (contains(fromJSON(''["MEMBER", "OWNER", "COLLABORATOR"]''), github.event.pull_request.author_association) || contains(github.event.pull_request.labels.*.name, ''safe-to-run''))'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: hashFiles returns a non-empty hex digest
+        env:
+          HASH: ${{ hashFiles('.github/workflows/smoke-expressions.yml') }}
+        run: |
+          # Agent CI currently emits SHA-1 (40 chars); GitHub Actions emits SHA-256
+          # (64 chars). See the tracking issue — for now assert just "hex-digest".
+          case "$HASH" in
+            [0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]*) ;;
+            *) echo "❌ hashFiles produced '$HASH'"; exit 1 ;;
+          esac
+          echo "✅ hashFiles=$HASH (len=${#HASH})"
+
+      - name: format substitutes positional arguments
+        env:
+          GOT: ${{ format('{0}-{1}', 'foo', 'bar') }}
+        run: |
+          [ "$GOT" = "foo-bar" ] || { echo "❌ format=$GOT"; exit 1; }
+          echo "✅ format resolved"
+
+      - name: join concatenates a JSON array
+        env:
+          GOT: ${{ join(fromJSON('["a","b","c"]'), ',') }}
+        run: |
+          [ "$GOT" = "a,b,c" ] || { echo "❌ join=$GOT"; exit 1; }
+          echo "✅ join resolved"
+
+      - name: runner.arch resolves on Linux
+        env:
+          ARCH: ${{ runner.arch }}
+        run: |
+          [ -n "$ARCH" ] || { echo "❌ runner.arch empty"; exit 1; }
+          case "$ARCH" in
+            X64|X86|ARM64|ARM) ;;
+            *) echo "❌ runner.arch='$ARCH' not in expected set"; exit 1 ;;
+          esac
+          echo "✅ runner.arch=$ARCH"
+
+      - name: Type literals render as strings
+        env:
+          B_TRUE: ${{ true }}
+          B_FALSE: ${{ false }}
+          NUM: ${{ 42 }}
+        run: |
+          [ "$B_TRUE" = "true" ] || { echo "❌ true=$B_TRUE"; exit 1; }
+          [ "$B_FALSE" = "false" ] || { echo "❌ false=$B_FALSE"; exit 1; }
+          [ "$NUM" = "42" ] || { echo "❌ 42=$NUM"; exit 1; }
+          echo "✅ type literals rendered"
+
+      - name: startsWith / endsWith on strings
+        env:
+          STARTS: ${{ startsWith('hello-world', 'hello') }}
+          ENDS: ${{ endsWith('hello-world', 'world') }}
+          STARTS_NEG: ${{ startsWith('hello-world', 'world') }}
+        run: |
+          [ "$STARTS" = "true" ] || { echo "❌ startsWith hit=$STARTS"; exit 1; }
+          [ "$ENDS" = "true" ] || { echo "❌ endsWith hit=$ENDS"; exit 1; }
+          [ "$STARTS_NEG" = "false" ] || { echo "❌ startsWith miss=$STARTS_NEG"; exit 1; }
+          echo "✅ startsWith/endsWith resolved"

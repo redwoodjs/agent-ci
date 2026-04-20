@@ -72,7 +72,7 @@
           "key": "`env`",
           "status": "supported",
           "notes": "Workflow-level env is propagated to all steps",
-          "proof": []
+          "proof": [".github/workflows/smoke-env-scoping.yml"]
         },
         {
           "key": "`defaults.run.shell`",
@@ -138,7 +138,12 @@
           "status": "ignored",
           "notes": "Accepted but not enforced — environment protection rules are GitHub-side only"
         },
-        { "key": "`jobs.<id>.env`", "status": "supported", "notes": "", "proof": [] },
+        {
+          "key": "`jobs.<id>.env`",
+          "status": "supported",
+          "notes": "",
+          "proof": [".github/workflows/smoke-env-scoping.yml"]
+        },
         {
           "key": "`jobs.<id>.defaults.run`",
           "status": "supported",
@@ -271,7 +276,7 @@
           "key": "`steps[*].uses` (local `./`)",
           "status": "supported",
           "notes": "Local actions (e.g. `uses: ./.github/actions/my-action`) are resolved from the workspace",
-          "proof": []
+          "proof": [".github/workflows/smoke-local-action.yml"]
         },
         {
           "key": "`steps[*].with`",
@@ -322,15 +327,15 @@
       "rows": [
         {
           "key": "`hashFiles(...)`",
-          "status": "supported",
-          "notes": "SHA-256 of matching files; supports multiple glob patterns",
-          "proof": []
+          "status": "partial",
+          "notes": "Currently emits a SHA-1 (40-char) digest. GitHub Actions emits SHA-256 (64-char). See tracking issue #294.",
+          "proof": [".github/workflows/smoke-expressions.yml"]
         },
         {
           "key": "`format(...)`",
           "status": "supported",
           "notes": "Template substitution with recursive expression expansion",
-          "proof": []
+          "proof": [".github/workflows/smoke-expressions.yml"]
         },
         {
           "key": "`matrix.*`",
@@ -354,7 +359,7 @@
           "key": "`runner.arch`",
           "status": "supported",
           "notes": "`X64` for container-based jobs, `ARM64` for macOS VM jobs (Apple Silicon)",
-          "proof": []
+          "proof": [".github/workflows/smoke-expressions.yml"]
         },
         {
           "key": "`github.sha`, `github.ref_name`, etc.",
@@ -405,13 +410,13 @@
           "key": "`contains`, `startsWith`, `endsWith`",
           "status": "supported",
           "notes": "Case-insensitive. `contains` works with both strings and JSON arrays",
-          "proof": [".github/workflows/smoke-binary.yml"]
+          "proof": [".github/workflows/smoke-binary.yml", ".github/workflows/smoke-expressions.yml"]
         },
         {
           "key": "`join`",
           "status": "supported",
           "notes": "Joins JSON arrays with a separator (default `, `)",
-          "proof": []
+          "proof": [".github/workflows/smoke-expressions.yml"]
         },
         {
           "key": "`success()`, `failure()`, `always()`, `cancelled()`",
@@ -423,7 +428,7 @@
           "key": "Type literals (`true`, `false`, `null`, numbers)",
           "status": "supported",
           "notes": "Boolean, null, and numeric literals supported in expressions",
-          "proof": []
+          "proof": [".github/workflows/smoke-expressions.yml"]
         }
       ]
     },

@@ -1,0 +1,39 @@
+name: "Smoke: env scoping (workflow / job / step)"
+
+# Exercises workflow-level `env:`, job-level `env:`, and the precedence rules
+# that say step > job > workflow when the same key is declared at multiple
+# levels. Also verifies a workflow-level-only key survives into the step.
+
+on:
+  pull_request_target:
+    types: [opened, labeled, synchronize]
+
+env:
+  WORKFLOW_ONLY: from-workflow
+  SHARED: from-workflow
+
+jobs:
+  env-scoping:
+    if: '!github.event.pull_request.draft && (contains(fromJSON(''["MEMBER", "OWNER", "COLLABORATOR"]''), github.event.pull_request.author_association) || contains(github.event.pull_request.labels.*.name, ''safe-to-run''))'
+    runs-on: ubuntu-latest
+    env:
+      JOB_ONLY: from-job
+      SHARED: from-job
+    steps:
+      - name: Workflow-only env is inherited
+        run: |
+          [ "$WORKFLOW_ONLY" = "from-workflow" ] || { echo "❌ WORKFLOW_ONLY=$WORKFLOW_ONLY"; exit 1; }
+          echo "✅ workflow-level env propagated"
+
+      - name: Job-level env overrides workflow-level
+        run: |
+          [ "$JOB_ONLY" = "from-job" ] || { echo "❌ JOB_ONLY=$JOB_ONLY"; exit 1; }
+          [ "$SHARED" = "from-job" ] || { echo "❌ SHARED=$SHARED (expected from-job)"; exit 1; }
+          echo "✅ job-level env overrides workflow-level"
+
+      - name: Step-level env overrides job and workflow
+        env:
+          SHARED: from-step
+        run: |
+          [ "$SHARED" = "from-step" ] || { echo "❌ SHARED=$SHARED (expected from-step)"; exit 1; }
+          echo "✅ step-level env overrides job + workflow"

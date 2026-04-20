@@ -1,0 +1,15 @@
+name: "Smoke local action"
+description: "Composite action referenced via `uses: ./.github/actions/smoke-local-action` by smoke-local-action.yml — proves step-level local action resolution."
+
+inputs:
+  tag:
+    description: "Opaque string written to /tmp/agent-ci-smoke-local-action so the caller can verify the action ran."
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: |
+        echo "tag=${{ inputs.tag }}" > /tmp/agent-ci-smoke-local-action
+        echo "local-action ran with tag=${{ inputs.tag }}"

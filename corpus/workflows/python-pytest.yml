@@ -1,0 +1,38 @@
+# Representative pattern: Python project with pip cache + matrix over
+# Python versions and OS. Not intended to run. Vendored as a realistic
+# shape for the differential parse detector to scan.
+
+name: Python tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        python-version: ["3.10", "3.11", "3.12"]
+        exclude:
+          - os: macos-latest
+            python-version: "3.10"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: |
+            requirements*.txt
+            pyproject.toml
+      - run: pip install -r requirements-dev.txt
+      - run: pytest -q
+        timeout-minutes: 10

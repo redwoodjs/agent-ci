@@ -458,12 +458,26 @@ async function main() {
   }
 
   const repoRoot = path.resolve(path.dirname(new URL(import.meta.url).pathname), "..");
-  const workflowsDir = path.join(repoRoot, ".github/workflows");
-  const entries = await fs.readdir(workflowsDir);
-  const files = entries
-    .filter((f) => f.endsWith(".yml") || f.endsWith(".yaml"))
-    .map((f) => path.join(workflowsDir, f))
-    .sort();
+  // Both our real workflows and a vendored corpus of public-repo shapes —
+  // the corpus broadens coverage to patterns our own smokes don't exercise.
+  const scanRoots = [
+    path.join(repoRoot, ".github/workflows"),
+    path.join(repoRoot, "corpus/workflows"),
+  ];
+  const files: string[] = [];
+  for (const dir of scanRoots) {
+    try {
+      const entries = await fs.readdir(dir);
+      for (const f of entries) {
+        if (f.endsWith(".yml") || f.endsWith(".yaml")) {
+          files.push(path.join(dir, f));
+        }
+      }
+    } catch {
+      // Directory may not exist — that's fine.
+    }
+  }
+  files.sort();
 
   const allDrifts: Drift[] = [];
   for (const file of files) {

@@ -1,0 +1,63 @@
+# Representative pattern: Node monorepo with pnpm cache + matrix node-version.
+# Not intended to run. Vendored as a realistic shape for the differential
+# parse detector to scan.
+
+name: Node monorepo CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "packages/**"
+      - "package.json"
+      - "pnpm-lock.yaml"
+  pull_request:
+    branches: [main]
+    paths-ignore:
+      - "**/*.md"
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: [18, 20, 22]
+        include:
+          - node-version: 20
+            coverage: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test
+        env:
+          CI: "true"
+      - if: matrix.coverage
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: coverage/

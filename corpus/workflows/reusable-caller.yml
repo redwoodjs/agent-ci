@@ -1,0 +1,41 @@
+# Representative pattern: reusable workflow caller with `secrets: inherit`
+# and `with:` inputs. Not intended to run. Vendored as a realistic shape
+# for the differential parse detector to scan.
+
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      artifact-id: ${{ steps.pack.outputs.id }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Pack
+        id: pack
+        run: |
+          id="build-${GITHUB_SHA::7}"
+          echo "id=$id" >> "$GITHUB_OUTPUT"
+
+  deploy-staging:
+    needs: build
+    uses: ./.github/workflows/_deploy.yml
+    with:
+      env: staging
+      artifact: ${{ needs.build.outputs.artifact-id }}
+    secrets: inherit
+
+  deploy-prod:
+    needs: deploy-staging
+    if: github.ref == 'refs/heads/main'
+    uses: ./.github/workflows/_deploy.yml
+    with:
+      env: production
+      artifact: ${{ needs.build.outputs.artifact-id }}
+    secrets:
+      DEPLOY_TOKEN: ${{ secrets.PROD_DEPLOY_TOKEN }}

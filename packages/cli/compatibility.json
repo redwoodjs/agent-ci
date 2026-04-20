@@ -397,14 +397,17 @@
         {
           "key": "Boolean/comparison operators",
           "status": "supported",
-          "notes": "`==`, `!=`, `<`, `>`, `<=`, `>=`, `&&`, `||`, `!`, parentheses. Case-insensitive string comparison; numeric comparison when both sides are numbers",
-          "proof": [".github/workflows/smoke-conditions.yml"]
+          "notes": "`==`, `!=`, `<`, `>`, `<=`, `>=`, `&&`, `||`, `!`, parentheses. Case-insensitive string comparison. Numeric coercion follows GitHub Actions semantics: empty string and `null` become `0`, numeric-looking strings are parsed, anything else becomes `NaN` and compares false.",
+          "proof": [
+            ".github/workflows/smoke-conditions.yml",
+            ".github/workflows/smoke-expressions.yml"
+          ]
         },
         {
           "key": "`toJSON`, `fromJSON`",
           "status": "supported",
-          "notes": "",
-          "proof": [".github/workflows/smoke-binary.yml"]
+          "notes": "`toJSON` emits 2-space-indented JSON matching GitHub Actions' pretty-printed output, so `hashFiles`/diff uses of `toJSON(x)` are reproducible.",
+          "proof": [".github/workflows/smoke-binary.yml", ".github/workflows/smoke-expressions.yml"]
         },
         {
           "key": "`contains`, `startsWith`, `endsWith`",

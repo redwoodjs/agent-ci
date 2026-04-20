@@ -81,3 +81,59 @@ jobs:
           [ "$ENDS" = "true" ] || { echo "❌ endsWith hit=$ENDS"; exit 1; }
           [ "$STARTS_NEG" = "false" ] || { echo "❌ startsWith miss=$STARTS_NEG"; exit 1; }
           echo "✅ startsWith/endsWith resolved"
+
+      - name: contains on a JSON array of strings
+        env:
+          HIT: ${{ contains(fromJSON('["a","b","c"]'), 'b') }}
+          MISS: ${{ contains(fromJSON('["a","b","c"]'), 'z') }}
+        run: |
+          [ "$HIT" = "true" ] || { echo "❌ contains hit=$HIT"; exit 1; }
+          [ "$MISS" = "false" ] || { echo "❌ contains miss=$MISS"; exit 1; }
+          echo "✅ contains on JSON array of strings"
+
+      - name: toJSON pretty-prints with 2-space indent
+        env:
+          J: ${{ toJSON(fromJSON('{"a":1,"b":"x"}')) }}
+        run: |
+          # Real GitHub Actions emits:
+          #   {
+          #     "a": 1,
+          #     "b": "x"
+          #   }
+          lines=$(printf '%s' "$J" | wc -l)
+          # At least one newline (multi-line) means pretty-printed.
+          [ "$lines" -ge 2 ] || { echo "❌ toJSON not pretty-printed: $J"; exit 1; }
+          echo "✅ toJSON pretty-printed (${lines} newlines)"
+
+      - name: Boolean/comparison operator coercion
+        env:
+          # Spec: '' == 0 → true, null == 0 → true, '0' == 0 → true,
+          # 'x' == 0 → false (non-numeric string becomes NaN).
+          EMPTY_EQ_ZERO: ${{ '' == 0 }}
+          NULL_EQ_ZERO: ${{ null == 0 }}
+          ZERO_STR_EQ_ZERO: ${{ '0' == 0 }}
+          ALPHA_EQ_ZERO: ${{ 'x' == 0 }}
+        run: |
+          [ "$EMPTY_EQ_ZERO" = "true" ] || { echo "❌ '' == 0 → $EMPTY_EQ_ZERO (expected true)"; exit 1; }
+          [ "$NULL_EQ_ZERO" = "true" ] || { echo "❌ null == 0 → $NULL_EQ_ZERO (expected true)"; exit 1; }
+          [ "$ZERO_STR_EQ_ZERO" = "true" ] || { echo "❌ '0' == 0 → $ZERO_STR_EQ_ZERO (expected true)"; exit 1; }
+          [ "$ALPHA_EQ_ZERO" = "false" ] || { echo "❌ 'x' == 0 → $ALPHA_EQ_ZERO (expected false — NaN)"; exit 1; }
+          echo "✅ comparison coercion matches spec"
+
+      - name: hashFiles multi-pattern combines distinct files
+        env:
+          HASH_ONE: ${{ hashFiles('.github/workflows/smoke-expressions.yml') }}
+          HASH_TWO: ${{ hashFiles('.github/workflows/smoke-expressions.yml', '.github/workflows/smoke-matrix.yml') }}
+        run: |
+          [ ${#HASH_ONE} -eq 64 ] && [ ${#HASH_TWO} -eq 64 ] || { echo "❌ length mismatch one=${#HASH_ONE} two=${#HASH_TWO}"; exit 1; }
+          [ "$HASH_ONE" != "$HASH_TWO" ] || { echo "❌ multi-pattern produced same hash as single-pattern"; exit 1; }
+          echo "✅ hashFiles multi-pattern distinct from single-pattern"
+
+      - name: hashFiles negation pattern excludes files
+        env:
+          HASH_ALL: ${{ hashFiles('.github/workflows/*.yml') }}
+          HASH_EXCL: ${{ hashFiles('.github/workflows/*.yml', '!.github/workflows/smoke-matrix.yml') }}
+        run: |
+          [ ${#HASH_ALL} -eq 64 ] && [ ${#HASH_EXCL} -eq 64 ] || { echo "❌ length mismatch all=${#HASH_ALL} excl=${#HASH_EXCL}"; exit 1; }
+          [ "$HASH_ALL" != "$HASH_EXCL" ] || { echo "❌ negation pattern produced identical hash"; exit 1; }
+          echo "✅ hashFiles negation pattern excluded file"

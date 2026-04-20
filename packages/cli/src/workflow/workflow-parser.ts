@@ -111,10 +111,13 @@ function unquote(s: string): string {
 
 /** Compare two string values using the given operator. */
 function compareValues(left: string, right: string, op: string): boolean {
-  // Try numeric comparison if both sides look like numbers
+  // GitHub Actions coerces both sides to numbers when possible: empty string,
+  // null (surfaced here as ""), and numeric strings all become valid numeric
+  // operands. A genuinely non-numeric string coerces to NaN and comparisons
+  // involving NaN are all false, so bothNumeric stays false for those.
   const ln = Number(left);
   const rn = Number(right);
-  const bothNumeric = left !== "" && right !== "" && !isNaN(ln) && !isNaN(rn);
+  const bothNumeric = !isNaN(ln) && !isNaN(rn);
 
   switch (op) {
     case "==":
@@ -219,7 +222,10 @@ function resolveExprAtom(
     }
   }
 
-  // toJSON(expr) — serialize a value to JSON
+  // toJSON(expr) — serialize a value to JSON with 2-space indentation,
+  // matching GitHub Actions' pretty-printing behavior. Parse rawValue first
+  // so that toJSON(fromJSON(...)) round-trips with pretty-printing instead
+  // of re-quoting a compact-JSON string.
   const toJsonMatch = trimmed.match(/^toJSON\(([\s\S]+)\)$/);
   if (toJsonMatch) {
     const inner = toJsonMatch[1].trim();
@@ -241,7 +247,11 @@ function resolveExprAtom(
         runnerContext,
       );
     }
-    return JSON.stringify(rawValue);
+    try {
+      return JSON.stringify(JSON.parse(rawValue), null, 2);
+    } catch {
+      return JSON.stringify(rawValue, null, 2);
+    }
   }
 
   // format('template {0} {1}', arg0, arg1)

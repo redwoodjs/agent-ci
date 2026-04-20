@@ -1,241 +1,52 @@
-const LEGEND = [
-  {
-    icon: "✅",
-    label: "Supported",
-    description: "Fully implemented and behaves like GitHub Actions",
-  },
-  { icon: "⚠️", label: "Partial", description: "Works with limitations — see notes for details" },
-  {
-    icon: "❌",
-    label: "Not supported",
-    description: "Not implemented — the feature is skipped or errors",
-  },
-  {
-    icon: "🟡",
-    label: "Ignored (no-op)",
-    description: "Parsed without error but has no effect on the run",
-  },
-  {
-    icon: "🚫",
-    label: "Not planned",
-    description: "Cannot be supported due to architectural constraints",
-  },
-];
+import type { ReactNode } from "react";
+import compatibility from "../../../../../packages/cli/compatibility.json";
 
-type Row = { key: string; status: string; notes?: string };
+type StatusId = keyof typeof compatibility.legend;
 
-const SECTIONS: { label: string; description: string; rows: Row[] }[] = [
-  {
-    label: "Workflow",
-    description:
-      "Top-level keys that control when and how a workflow runs — triggers, environment defaults, and concurrency.",
-    rows: [
-      { key: "name", status: "✅" },
-      { key: "run-name", status: "🟡", notes: "Parsed but not displayed" },
-      {
-        key: "on (push, pull_request)",
-        status: "✅",
-        notes: "Branch/path filters evaluated by --all",
-      },
-      {
-        key: "on (schedule, workflow_dispatch)",
-        status: "🟡",
-        notes: "Accepted but triggers are not simulated",
-      },
-      {
-        key: "on (workflow_call)",
-        status: "⚠️",
-        notes:
-          "Local refs (./) inlined into caller graph; remote refs, inputs/outputs, and nesting not supported",
-      },
-      { key: "on (other events)", status: "🟡", notes: "Parsed, not simulated" },
-      { key: "env", status: "✅", notes: "Workflow-level env propagated to steps" },
-      { key: "defaults.run.shell", status: "✅", notes: "Passed through to the runner" },
-      {
-        key: "defaults.run.working-directory",
-        status: "✅",
-        notes: "Passed through to the runner",
-      },
-      { key: "permissions", status: "🟡", notes: "Accepted, not enforced (mock GITHUB_TOKEN)" },
-      {
-        key: "concurrency",
-        status: "🚫",
-        notes:
-          "Concurrency groups are a server-side queue/cancel mechanism; there is no persistent local server to coordinate across runs",
-      },
-    ],
-  },
-  {
-    label: "Jobs",
-    description:
-      "Per-job configuration — runner selection, dependencies, conditional execution, containers, and service sidecars.",
-    rows: [
-      { key: "jobs.<id>", status: "✅", notes: "Multiple jobs in a single workflow" },
-      { key: "jobs.<id>.name", status: "✅" },
-      { key: "jobs.<id>.needs", status: "✅", notes: "Topological sort into dependency waves" },
-      {
-        key: "jobs.<id>.if",
-        status: "⚠️",
-        notes: "Simplified evaluator: always(), success(), failure(), ==/!=, &&/||",
-      },
-      {
-        key: "jobs.<id>.runs-on",
-        status: "🟡",
-        notes: "Accepted; always runs in a Linux container",
-      },
-      { key: "jobs.<id>.environment", status: "🟡", notes: "Accepted, not enforced" },
-      { key: "jobs.<id>.env", status: "✅" },
-      { key: "jobs.<id>.defaults.run", status: "✅", notes: "shell, working-directory" },
-      {
-        key: "jobs.<id>.outputs",
-        status: "✅",
-        notes: "Resolved via resolveJobOutputs, accumulated across waves",
-      },
-      { key: "jobs.<id>.timeout-minutes", status: "❌" },
-      { key: "jobs.<id>.continue-on-error", status: "❌" },
-      { key: "jobs.<id>.concurrency", status: "🚫", notes: "See workflow-level concurrency" },
-      {
-        key: "jobs.<id>.container",
-        status: "✅",
-        notes: "Short & long form; image, env, ports, volumes, options",
-      },
-      {
-        key: "jobs.<id>.services",
-        status: "✅",
-        notes: "Sidecar containers with image, env, ports, options",
-      },
-      {
-        key: "jobs.<id>.uses (reusable workflows)",
-        status: "⚠️",
-        notes: "Local refs (./) expanded inline; remote refs skipped with warning",
-      },
-      {
-        key: "jobs.<id>.secrets",
-        status: "🚫",
-        notes: "Agent CI cannot access GitHub's secret storage — use .env.agent-ci file instead",
-      },
-    ],
-  },
-  {
-    label: "Strategy",
-    description:
-      "Matrix builds and failure behavior — how jobs are multiplied across configurations and when to stop on errors.",
-    rows: [
-      { key: "strategy.matrix", status: "✅", notes: "Cartesian product expansion" },
-      { key: "strategy.matrix.include", status: "❌" },
-      { key: "strategy.matrix.exclude", status: "❌" },
-      { key: "strategy.fail-fast", status: "✅", notes: "Respects false to continue on failure" },
-      {
-        key: "strategy.max-parallel",
-        status: "❌",
-        notes: "Controlled by host concurrency, not per-job",
-      },
-    ],
-  },
-  {
-    label: "Steps",
-    description:
-      "Individual step configuration — shell commands, action references, conditional execution, and environment variables.",
-    rows: [
-      { key: "steps[*].id", status: "✅" },
-      { key: "steps[*].name", status: "✅", notes: "Expression expansion in names" },
-      {
-        key: "steps[*].if",
-        status: "⚠️",
-        notes: "Evaluated by runner; steps.*.outputs.cache-hit resolves to empty string",
-      },
-      { key: "steps[*].run", status: "✅", notes: "Multiline scripts, ${{ }} expansion" },
-      { key: "steps[*].uses", status: "✅", notes: "Public actions downloaded via GitHub API" },
-      {
-        key: "steps[*].uses (local, e.g. ./)",
-        status: "❌",
-        notes:
-          "Local actions defined within the repo are not supported; agent-ci fails fast with a clear error",
-      },
-      { key: "steps[*].with", status: "✅", notes: "Expression expansion in values" },
-      { key: "steps[*].env", status: "✅", notes: "Expression expansion in values" },
-      { key: "steps[*].working-directory", status: "✅" },
-      { key: "steps[*].shell", status: "✅", notes: "Passed through to the runner" },
-      { key: "steps[*].continue-on-error", status: "❌" },
-      { key: "steps[*].timeout-minutes", status: "❌" },
-    ],
-  },
-  {
-    label: "Expressions",
-    description:
-      "The ${{ }} expression language — built-in functions, context variables, and operators available in workflow YAML.",
-    rows: [
-      { key: "hashFiles(...)", status: "✅", notes: "SHA-256 of matching files, multi-glob" },
-      { key: "format(...)", status: "✅", notes: "Template substitution with recursive expansion" },
-      { key: "matrix.*", status: "✅" },
-      { key: "secrets.*", status: "✅", notes: "Via .env.agent-ci file" },
-      { key: "runner.os", status: "✅", notes: "Always returns Linux" },
-      { key: "runner.arch", status: "✅", notes: "Always returns X64" },
-      {
-        key: "github.sha, github.ref_name, etc.",
-        status: "⚠️",
-        notes: "Returns static/dummy values",
-      },
-      { key: "github.event.*", status: "⚠️", notes: "Returns empty strings" },
-      { key: "strategy.job-total, strategy.job-index", status: "✅" },
-      { key: "steps.*.outputs.*", status: "⚠️", notes: "Resolves to empty string at parse time" },
-      { key: "needs.*.outputs.*", status: "⚠️", notes: "Resolved from needsContext when provided" },
-      {
-        key: "Boolean/comparison operators",
-        status: "⚠️",
-        notes: "==, !=, &&, || in job-level if",
-      },
-      { key: "toJSON, fromJSON", status: "✅" },
-      { key: "contains, startsWith, endsWith", status: "❌" },
-      {
-        key: "success(), failure(), always(), cancelled()",
-        status: "✅",
-        notes: "Evaluated by Agent CI for job-level if",
-      },
-    ],
-  },
-  {
-    label: "GitHub API",
-    description:
-      "Interactions with GitHub's API — action downloads, common actions (cache, checkout, setup-*), artifacts, and tokens.",
-    rows: [
-      { key: "Action downloads", status: "✅", notes: "Resolves tarballs from github.com" },
-      {
-        key: "actions/cache",
-        status: "✅",
-        notes: "Local filesystem cache with bind-mount fast path",
-      },
-      {
-        key: "actions/checkout",
-        status: "✅",
-        notes: "Workspace is rsynced; configured with clean: false",
-      },
-      {
-        key: "actions/setup-node, actions/setup-python, etc.",
-        status: "✅",
-        notes: "Run natively within the runner",
-      },
-      {
-        key: "actions/upload-artifact / download-artifact",
-        status: "✅",
-        notes: "Local filesystem storage",
-      },
-      { key: "GITHUB_TOKEN", status: "✅", notes: "Mock token, all API calls answered locally" },
-      {
-        key: "Workflow commands (::set-output::, ::error::, etc.)",
-        status: "✅",
-        notes: "Handled by the runner",
-      },
-    ],
-  },
-];
+const INLINE_MD_PATTERN = /`([^`]+)`|\[([^\]]+)\]\(([^)]+)\)/g;
+
+function renderInline(text: string): ReactNode[] {
+  const nodes: ReactNode[] = [];
+  let lastIndex = 0;
+  let key = 0;
+  for (const m of text.matchAll(INLINE_MD_PATTERN)) {
+    if (m.index > lastIndex) {
+      nodes.push(text.slice(lastIndex, m.index));
+    }
+    if (m[1] !== undefined) {
+      nodes.push(
+        <code key={key++} className="text-[#c2ddd0] bg-[#12211c] px-1 rounded-sm">
+          {m[1]}
+        </code>,
+      );
+    } else {
+      nodes.push(
+        <a
+          key={key++}
+          href={m[3]}
+          target={m[3].startsWith("http") ? "_blank" : undefined}
+          rel={m[3].startsWith("http") ? "noopener noreferrer" : undefined}
+          className="text-[#9bc5b3] underline decoration-[#34594c] underline-offset-2 hover:text-[#e0eee5]"
+        >
+          {m[2]}
+        </a>,
+      );
+    }
+    lastIndex = m.index + m[0].length;
+  }
+  if (lastIndex < text.length) {
+    nodes.push(text.slice(lastIndex));
+  }
+  return nodes;
+}
 
 export function CompatibilityMatrix() {
+  const legendEntries = Object.values(compatibility.legend);
+
   return (
     <div className="space-y-10">
-      {/* Legend */}
       <div className="flex flex-wrap gap-6 text-xs font-mono text-[#71a792]">
-        {LEGEND.map(({ icon, label, description }) => (
+        {legendEntries.map(({ icon, label, description }) => (
           <span key={label} className="flex items-center gap-1.5">
             <span>{icon}</span>
             <span className="text-[#e0eee5]">{label}</span>
@@ -244,13 +55,13 @@ export function CompatibilityMatrix() {
         ))}
       </div>
 
-      {SECTIONS.map((section) => (
-        <div key={section.label}>
+      {compatibility.sections.map((section) => (
+        <div key={section.id}>
           <h2 className="font-mono text-xs uppercase tracking-wider text-[#e0eee5] mb-0 px-4 py-2 bg-[#12211c] border border-b-0 border-[#2b483e] inline-block">
-            {section.label}
+            {section.title}
           </h2>
           <p className="text-xs text-[#71a792] px-4 py-2 bg-[#0d110f] border border-b-0 border-[#2b483e] m-0">
-            {section.description}
+            {renderInline(section.description)}
           </p>
           <div className="overflow-x-auto border border-[#2b483e] bg-[#0d110f]">
             <table className="w-full text-left border-collapse">
@@ -273,9 +84,15 @@ export function CompatibilityMatrix() {
                     key={i}
                     className="border-b border-[#1a2822] hover:bg-[#12211c] transition-colors"
                   >
-                    <td className="py-3 px-4 font-mono text-[#c2ddd0] text-xs">{row.key}</td>
-                    <td className="py-3 px-4 text-center text-base">{row.status}</td>
-                    <td className="py-3 px-4 text-[#71a792] text-xs">{row.notes || ""}</td>
+                    <td className="py-3 px-4 font-mono text-[#c2ddd0] text-xs">
+                      {renderInline(row.key)}
+                    </td>
+                    <td className="py-3 px-4 text-center text-base">
+                      {compatibility.legend[row.status as StatusId].icon}
+                    </td>
+                    <td className="py-3 px-4 text-[#71a792] text-xs">
+                      {row.notes ? renderInline(row.notes) : ""}
+                    </td>
                   </tr>
                 ))}
               </tbody>

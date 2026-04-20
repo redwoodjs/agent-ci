@@ -12,6 +12,7 @@
 // working-directory gap (#290) belonged to before it had a smoke.
 
 import fs from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import YAML from "yaml";
 import { parseWorkflowSteps } from "../packages/cli/src/workflow/workflow-parser.ts";
@@ -110,7 +111,10 @@ function summarize(value: unknown): string {
   return JSON.stringify(value).slice(0, 40);
 }
 
-async function diffWorkflow(filePath: string): Promise<Drift[]> {
+async function diffWorkflow(
+  filePath: string,
+  parsedStepsOverride?: Map<string, ParsedStep[]>,
+): Promise<Drift[]> {
   const text = await fs.readFile(filePath, "utf8");
   const raw = YAML.parse(text);
   if (!raw?.jobs) {
@@ -127,16 +131,20 @@ async function diffWorkflow(filePath: string): Promise<Drift[]> {
     }
 
     let parsedSteps: ParsedStep[];
-    try {
-      parsedSteps = (await parseWorkflowSteps(filePath, jobId)) as ParsedStep[];
-    } catch (err) {
-      // Reusable workflow callers have `uses:` at job level and no steps for us to parse.
-      // Skip those without noise.
-      if (job.uses) {
+    if (parsedStepsOverride?.has(jobId)) {
+      parsedSteps = parsedStepsOverride.get(jobId)!;
+    } else {
+      try {
+        parsedSteps = (await parseWorkflowSteps(filePath, jobId)) as ParsedStep[];
+      } catch (err) {
+        // Reusable workflow callers have `uses:` at job level and no steps for us to parse.
+        // Skip those without noise.
+        if (job.uses) {
+          continue;
+        }
+        console.error(`  skip ${jobId}: ${(err as Error).message}`);
         continue;
       }
-      console.error(`  skip ${jobId}: ${(err as Error).message}`);
-      continue;
     }
 
     for (let i = 0; i < rawSteps.length; i++) {
@@ -172,7 +180,76 @@ async function diffWorkflow(filePath: string): Promise<Drift[]> {
   return drifts;
 }
 
+// Confirm the detector itself is working: feed a fixture through the real
+// parser (expect 0 drifts) and through a synthesized parser-output that
+// omits `working-directory` (expect exactly 1 drift for that key). Without
+// this, "0 drifts" from a real run could mean either "clean" or "probe is
+// silently broken".
+async function runSelfTest(): Promise<void> {
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "diff-parse-selftest-"));
+  try {
+    const workflowsDir = path.join(tmpDir, ".github", "workflows");
+    await fs.mkdir(workflowsDir, { recursive: true });
+    const fixture = path.join(workflowsDir, "fixture.yml");
+    await fs.writeFile(
+      fixture,
+      `name: selftest
+on: push
+jobs:
+  j:
+    runs-on: ubuntu-latest
+    steps:
+      - name: step with working-directory
+        working-directory: /tmp/selftest
+        run: echo hi
+`,
+    );
+
+    const goodDrifts = await diffWorkflow(fixture);
+    if (goodDrifts.length !== 0) {
+      throw new Error(
+        `self-test case 1 (real parser): expected 0 drifts, got ${goodDrifts.length}`,
+      );
+    }
+
+    // Case 2: hand the detector a parsed-step that's missing workingDirectory.
+    // This simulates a regression where the parser silently stops preserving
+    // step-level `working-directory`. The detector must flag it.
+    const regression = new Map<string, ParsedStep[]>([
+      [
+        "j",
+        [
+          {
+            Name: "step with working-directory",
+            Inputs: { script: "echo hi" },
+          },
+        ],
+      ],
+    ]);
+    const regressionDrifts = await diffWorkflow(fixture, regression);
+    if (regressionDrifts.length !== 1) {
+      throw new Error(
+        `self-test case 2 (injected regression): expected 1 drift, got ${regressionDrifts.length}`,
+      );
+    }
+    if (regressionDrifts[0].key !== "working-directory") {
+      throw new Error(
+        `self-test case 2: expected drift on 'working-directory', got '${regressionDrifts[0].key}'`,
+      );
+    }
+
+    console.log("self-test passed: known-good → 0 drifts, injected regression → 1 drift");
+  } finally {
+    await fs.rm(tmpDir, { recursive: true, force: true });
+  }
+}
+
 async function main() {
+  if (process.argv.includes("--self-test")) {
+    await runSelfTest();
+    return;
+  }
+
   const repoRoot = path.resolve(path.dirname(new URL(import.meta.url).pathname), "..");
   const workflowsDir = path.join(repoRoot, ".github/workflows");
   const entries = await fs.readdir(workflowsDir);

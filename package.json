@@ -14,6 +14,7 @@
     "agent-ci": "cd packages/dtu-github-actions && pnpm run build && cd ../cli && tsx src/cli.ts",
     "agent-ci-dev": "./scripts/agent-ci-dev.sh",
     "parse:diff": "tsx scripts/diff-parse.ts",
+    "parse:diff:self-test": "tsx scripts/diff-parse.ts --self-test",
     "ts-runner": "tsx packages/ts-runner/src/cli.ts",
     "start": "./scripts/run.sh",
     "prepare": "husky || true",

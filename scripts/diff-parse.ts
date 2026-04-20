@@ -15,7 +15,10 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import YAML from "yaml";
-import { parseWorkflowSteps } from "../packages/cli/src/workflow/workflow-parser.ts";
+import {
+  getWorkflowTemplate,
+  parseWorkflowSteps,
+} from "../packages/cli/src/workflow/workflow-parser.ts";
 
 // Step-level keys GitHub Actions recognizes. Source: the "steps context" and
 // workflow syntax docs. If a key shows up in raw YAML and is not in this list,
@@ -81,12 +84,75 @@ type ParsedStep = {
   Env?: Record<string, string>;
 };
 
+// Job-level keys GitHub Actions recognizes. See "jobs.<job_id>" in
+// workflow-syntax-for-github-actions.
+const JOB_KEYS = [
+  "name",
+  "runs-on",
+  "needs",
+  "if",
+  "env",
+  "defaults",
+  "outputs",
+  "container",
+  "services",
+  "strategy",
+  "environment",
+  "permissions",
+  "concurrency",
+  "uses",
+  "secrets",
+  "timeout-minutes",
+  "continue-on-error",
+] as const;
+
+type JobKey = (typeof JOB_KEYS)[number];
+
+const JOB_EXPECTED_DROP: Record<string, string> = {
+  "timeout-minutes": "unsupported — see compatibility.json",
+  "continue-on-error": "unsupported — see compatibility.json",
+  concurrency: "not-planned — see compatibility.json",
+  environment: "ignored — see compatibility.json",
+  permissions: "ignored — see compatibility.json",
+};
+
+// Predicate: did our pipeline recognize this key? The canonical signal is
+// "does the official workflow template (which our parser wraps) expose the
+// key for this job?". Values come back as TemplateToken objects, so we
+// check presence only — structural preservation, not value equality.
+// Behavioral regressions are covered by smokes.
+const JOB_PRESERVED: Record<JobKey, (templateJob: Record<string, unknown>) => boolean> = {
+  name: (t) => t.name != null,
+  "runs-on": (t) => t["runs-on"] != null,
+  needs: (t) => t.needs != null,
+  if: (t) => t.if != null,
+  env: (t) => t.env != null,
+  outputs: (t) => t.outputs != null,
+  container: (t) => t.container != null,
+  services: (t) => t.services != null,
+  strategy: (t) => t.strategy != null,
+  // The template does not expose a `defaults` field — its children propagate
+  // into steps. Correctness of that propagation is covered by
+  // smoke-defaults-workdir and smoke-shell-defaults, not by this diff.
+  defaults: () => true,
+  // Reusable-workflow caller jobs. The template may not surface these the
+  // same way as inline jobs, but our reusable-workflow path handles them.
+  uses: () => true,
+  secrets: () => true,
+  environment: () => false, // expected drop
+  permissions: () => false, // expected drop
+  concurrency: () => false, // expected drop
+  "timeout-minutes": () => false,
+  "continue-on-error": () => false,
+};
+
 type Drift = {
   file: string;
+  scope: "step" | "job";
   job: string;
-  stepIndex: number;
-  stepLabel: string;
-  key: StepKey;
+  stepIndex: number | null;
+  stepLabel: string | null;
+  key: string;
   rawValue: string;
 };
 
@@ -113,7 +179,10 @@ function summarize(value: unknown): string {
 
 async function diffWorkflow(
   filePath: string,
-  parsedStepsOverride?: Map<string, ParsedStep[]>,
+  overrides?: {
+    parsedSteps?: Map<string, ParsedStep[]>;
+    templateJobs?: Map<string, Record<string, unknown>>;
+  },
 ): Promise<Drift[]> {
   const text = await fs.readFile(filePath, "utf8");
   const raw = YAML.parse(text);
@@ -121,18 +190,67 @@ async function diffWorkflow(
     return [];
   }
 
+  // Load the template once for job-level preservation checks.
+  const templateJobsById = new Map<string, Record<string, unknown>>();
+  if (overrides?.templateJobs) {
+    for (const [id, j] of overrides.templateJobs) {
+      templateJobsById.set(id, j);
+    }
+  } else {
+    try {
+      const template = (await getWorkflowTemplate(filePath)) as {
+        jobs?: Array<Record<string, unknown>>;
+      };
+      for (const j of template.jobs ?? []) {
+        // j.id is a TemplateToken, not a plain string — coerce via String().
+        const id = j.id != null ? String(j.id) : undefined;
+        if (id) {
+          templateJobsById.set(id, j);
+        }
+      }
+    } catch (err) {
+      console.error(`  template fetch failed: ${(err as Error).message}`);
+    }
+  }
+
   const drifts: Drift[] = [];
 
   for (const [jobId, rawJob] of Object.entries(raw.jobs)) {
     const job = rawJob as Record<string, unknown>;
+
+    // ── Job-level scan ─────────────────────────────────────────────────────
+    const templateJob = templateJobsById.get(jobId);
+    for (const key of JOB_KEYS) {
+      const value = job[key];
+      if (value === undefined || value === null || value === "") {
+        continue;
+      }
+      if (key in JOB_EXPECTED_DROP) {
+        continue;
+      }
+      if (templateJob && JOB_PRESERVED[key](templateJob)) {
+        continue;
+      }
+      drifts.push({
+        file: filePath,
+        scope: "job",
+        job: jobId,
+        stepIndex: null,
+        stepLabel: null,
+        key,
+        rawValue: summarize(value),
+      });
+    }
+
+    // ── Step-level scan ────────────────────────────────────────────────────
     const rawSteps = job.steps as Record<string, unknown>[] | undefined;
     if (!Array.isArray(rawSteps)) {
       continue;
     }
 
     let parsedSteps: ParsedStep[];
-    if (parsedStepsOverride?.has(jobId)) {
-      parsedSteps = parsedStepsOverride.get(jobId)!;
+    if (overrides?.parsedSteps?.has(jobId)) {
+      parsedSteps = overrides.parsedSteps.get(jobId)!;
     } else {
       try {
         parsedSteps = (await parseWorkflowSteps(filePath, jobId)) as ParsedStep[];
@@ -167,6 +285,7 @@ async function diffWorkflow(
         }
         drifts.push({
           file: filePath,
+          scope: "step",
           job: jobId,
           stepIndex: i,
           stepLabel: shortLabel(rawStep),
@@ -226,19 +345,41 @@ jobs:
         ],
       ],
     ]);
-    const regressionDrifts = await diffWorkflow(fixture, regression);
-    if (regressionDrifts.length !== 1) {
+    const regressionDrifts = await diffWorkflow(fixture, { parsedSteps: regression });
+    const stepRegressionDrifts = regressionDrifts.filter((d) => d.scope === "step");
+    if (stepRegressionDrifts.length !== 1 || stepRegressionDrifts[0].key !== "working-directory") {
       throw new Error(
-        `self-test case 2 (injected regression): expected 1 drift, got ${regressionDrifts.length}`,
-      );
-    }
-    if (regressionDrifts[0].key !== "working-directory") {
-      throw new Error(
-        `self-test case 2: expected drift on 'working-directory', got '${regressionDrifts[0].key}'`,
+        `self-test case 2 (injected step regression): expected 1 step drift on 'working-directory', got ${JSON.stringify(stepRegressionDrifts)}`,
       );
     }
 
-    console.log("self-test passed: known-good → 0 drifts, injected regression → 1 drift");
+    // Case 3: synthesize a template-job that's missing `runs-on`. The
+    // detector must flag it as a job-scope drift. This is the job-level
+    // analogue of case 2.
+    const jobRegression = new Map<string, Record<string, unknown>>([
+      [
+        "j",
+        {
+          id: "j",
+          // Note: missing `runs-on`.
+          steps: [],
+        },
+      ],
+    ]);
+    const jobRegressionDrifts = await diffWorkflow(fixture, {
+      parsedSteps: regression,
+      templateJobs: jobRegression,
+    });
+    const jobDrifts = jobRegressionDrifts.filter((d) => d.scope === "job");
+    if (jobDrifts.length !== 1 || jobDrifts[0].key !== "runs-on") {
+      throw new Error(
+        `self-test case 3 (injected job regression): expected 1 job drift on 'runs-on', got ${JSON.stringify(jobDrifts)}`,
+      );
+    }
+
+    console.log(
+      "self-test passed: known-good → 0 drifts; step regression → 1 drift on working-directory; job regression → 1 drift on runs-on",
+    );
   } finally {
     await fs.rm(tmpDir, { recursive: true, force: true });
   }
@@ -275,12 +416,17 @@ async function main() {
     "",
     `Scanned ${files.length} workflows. ${allDrifts.length} drift(s) found.`,
     "",
-    "A drift is a step-level YAML key present in the workflow file that our",
-    "`parseWorkflowSteps` silently dropped, with no documented expected-drop",
+    "A drift is a YAML key (step- or job-level) present in the workflow file",
+    "that our pipeline silently dropped without a documented expected-drop",
     "policy. Expected drops (tracked separately) are:",
     "",
+    "**Step scope:**",
   ];
   for (const [key, reason] of Object.entries(EXPECTED_DROP)) {
+    reportLines.push(`- \`${key}\` — ${reason}`);
+  }
+  reportLines.push("", "**Job scope:**");
+  for (const [key, reason] of Object.entries(JOB_EXPECTED_DROP)) {
     reportLines.push(`- \`${key}\` — ${reason}`);
   }
   reportLines.push("", "## Drifts", "");
@@ -299,9 +445,15 @@ async function main() {
       reportLines.push(`### ${rel}`);
       reportLines.push("");
       for (const d of list) {
-        reportLines.push(
-          `- job \`${d.job}\`, step ${d.stepIndex} (${d.stepLabel}): key \`${d.key}\` = \`${d.rawValue}\` not carried into parser output`,
-        );
+        if (d.scope === "step") {
+          reportLines.push(
+            `- [step] job \`${d.job}\`, step ${d.stepIndex} (${d.stepLabel}): key \`${d.key}\` = \`${d.rawValue}\` not carried into parser output`,
+          );
+        } else {
+          reportLines.push(
+            `- [job ] job \`${d.job}\`: key \`${d.key}\` = \`${d.rawValue}\` not exposed by workflow template`,
+          );
+        }
       }
       reportLines.push("");
     }

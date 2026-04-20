@@ -744,7 +744,10 @@ function findFiles(rootDir: string, pattern: string): string[] {
       return;
     }
     for (const entry of entries) {
-      if (entry.name.startsWith(".") || entry.name === "node_modules") {
+      // Skip node_modules only. Dotted directories (`.github`, `.cargo`, …)
+      // are common hashFiles targets and GitHub Actions' hashFiles descends
+      // into them when the pattern asks for them.
+      if (entry.name === "node_modules") {
         continue;
       }
       const relChild = relative ? `${relative}/${entry.name}` : entry.name;

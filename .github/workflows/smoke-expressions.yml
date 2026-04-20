@@ -24,17 +24,16 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
-      - name: hashFiles returns a non-empty hex digest
+      - name: hashFiles returns a 64-char SHA-256 hex digest
         env:
           HASH: ${{ hashFiles('.github/workflows/smoke-expressions.yml') }}
         run: |
-          # Agent CI currently emits SHA-1 (40 chars); GitHub Actions emits SHA-256
-          # (64 chars). See the tracking issue — for now assert just "hex-digest".
           case "$HASH" in
             [0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]*) ;;
             *) echo "❌ hashFiles produced '$HASH'"; exit 1 ;;
           esac
-          echo "✅ hashFiles=$HASH (len=${#HASH})"
+          [ ${#HASH} -eq 64 ] || { echo "❌ hashFiles length=${#HASH}, expected 64"; exit 1; }
+          echo "✅ hashFiles=$HASH"
 
       - name: format substitutes positional arguments
         env:

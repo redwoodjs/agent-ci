@@ -327,8 +327,8 @@
       "rows": [
         {
           "key": "`hashFiles(...)`",
-          "status": "partial",
-          "notes": "Currently emits a SHA-1 (40-char) digest. GitHub Actions emits SHA-256 (64-char). See tracking issue #294.",
+          "status": "supported",
+          "notes": "SHA-256 of matching files; supports multiple glob patterns. Descends into dotted directories (e.g. `.github/`) when the pattern asks for them.",
           "proof": [".github/workflows/smoke-expressions.yml"]
         },
         {

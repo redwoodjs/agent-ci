@@ -845,6 +845,30 @@ export async function parseMatrixDef(
 }
 
 /**
+ * Shells we wrap scripts for, by invoking them as a child process via heredoc.
+ * The runner always executes Script steps with bash; when the user asks for a
+ * non-bash shell we need to hand the script off to the requested interpreter
+ * ourselves. Flags mirror what the GitHub-hosted runner uses by default.
+ */
+const SHELL_INVOCATIONS: Record<string, string> = {
+  sh: "sh -e",
+  python: "python3",
+  pwsh: "pwsh -NoLogo -NoProfile -NonInteractive -Command -",
+};
+
+function wrapScriptForShell(script: string, shell: string): string {
+  const invocation = SHELL_INVOCATIONS[shell];
+  if (!invocation) {
+    // bash, or something we don't know how to wrap — leave the script alone.
+    // The runner's default shell is bash, which is what most workflows expect.
+    return script;
+  }
+  // Use a delimiter that is extremely unlikely to appear in real scripts.
+  const delimiter = "__AGENT_CI_SHELL_WRAP_EOF__";
+  return `${invocation} <<'${delimiter}'\n${script}\n${delimiter}`;
+}
+
+/**
  * Resolve a `defaults.run.<key>` value with GitHub Actions precedence:
  * step override beats job `defaults.run.<key>`, which beats workflow-level
  * `defaults.run.<key>`. Returns undefined when none is declared at any level.
@@ -1001,17 +1025,19 @@ export async function parseWorkflowSteps(
         // (e.g. dropping the text after an embedded ${{ }} boundary). The raw YAML
         // string is always the complete literal block scalar.
         const rawScript = rawStep.run != null ? String(rawStep.run) : step.run.toString();
+        const expandedScript = expandExpressions(
+          rawScript,
+          repoPath,
+          secrets,
+          matrixContext,
+          needsContext,
+          inputsContext,
+          vars,
+          runnerContext,
+        );
+        const shell = resolveStepRunDefault(rawYaml, rawJob, rawStep, "shell");
         const inputs: Record<string, string> = {
-          script: expandExpressions(
-            rawScript,
-            repoPath,
-            secrets,
-            matrixContext,
-            needsContext,
-            inputsContext,
-            vars,
-            runnerContext,
-          ),
+          script: shell ? wrapScriptForShell(expandedScript, shell) : expandedScript,
         };
         const workingDirectory = resolveStepRunDefault(
           rawYaml,

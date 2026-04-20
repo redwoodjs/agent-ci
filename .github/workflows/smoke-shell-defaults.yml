@@ -1,0 +1,49 @@
+name: "Smoke: shell defaults (workflow / job / step)"
+
+# Covers `defaults.run.shell` at workflow and job level plus step-level
+# `shell:` override. Detection trick: bash sets $BASH_VERSION, sh (dash on
+# the runner image) does not. If the shell override is honored the
+# assertion passes; if agent-ci silently runs bash regardless, it fails.
+
+on:
+  pull_request_target:
+    types: [opened, labeled, synchronize]
+
+defaults:
+  run:
+    shell: sh
+
+jobs:
+  workflow-level-shell:
+    name: Workflow-level defaults.run.shell
+    if: '!github.event.pull_request.draft && (contains(fromJSON(''["MEMBER", "OWNER", "COLLABORATOR"]''), github.event.pull_request.author_association) || contains(github.event.pull_request.labels.*.name, ''safe-to-run''))'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Step inherits sh from workflow defaults
+        run: |
+          [ -z "$BASH_VERSION" ] || { echo "❌ expected sh, got bash ($BASH_VERSION)"; exit 1; }
+          echo "✅ shell=sh honored at workflow level"
+
+  job-level-shell:
+    name: Job-level defaults.run.shell overrides workflow
+    if: '!github.event.pull_request.draft && (contains(fromJSON(''["MEMBER", "OWNER", "COLLABORATOR"]''), github.event.pull_request.author_association) || contains(github.event.pull_request.labels.*.name, ''safe-to-run''))'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Step inherits bash from job defaults
+        run: |
+          [ -n "$BASH_VERSION" ] || { echo "❌ expected bash, got sh"; exit 1; }
+          echo "✅ shell=bash honored at job level (bash=$BASH_VERSION)"
+
+  step-level-shell:
+    name: Step-level shell overrides defaults
+    if: '!github.event.pull_request.draft && (contains(fromJSON(''["MEMBER", "OWNER", "COLLABORATOR"]''), github.event.pull_request.author_association) || contains(github.event.pull_request.labels.*.name, ''safe-to-run''))'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Step opts into sh despite bash default
+        shell: sh
+        run: |
+          [ -z "$BASH_VERSION" ] || { echo "❌ expected sh, got bash ($BASH_VERSION)"; exit 1; }
+          echo "✅ step-level shell=sh honored"

@@ -77,8 +77,8 @@
         {
           "key": "`defaults.run.shell`",
           "status": "supported",
-          "notes": "Passed through to the runner",
-          "proof": []
+          "notes": "Non-bash shells (`sh`, `python`, `pwsh`) are invoked via a parse-time heredoc wrap because the runner ignores `inputs.shell` for script steps. `bash` is the default.",
+          "proof": [".github/workflows/smoke-shell-defaults.yml"]
         },
         {
           "key": "`defaults.run.working-directory`",
@@ -305,8 +305,8 @@
         {
           "key": "`steps[*].shell`",
           "status": "supported",
-          "notes": "Passed through to the runner",
-          "proof": []
+          "notes": "See `defaults.run.shell` above — the same heredoc-wrap mechanism applies.",
+          "proof": [".github/workflows/smoke-shell-defaults.yml"]
         },
         {
           "key": "`steps[*].continue-on-error`",

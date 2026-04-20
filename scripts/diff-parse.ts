@@ -146,10 +146,33 @@ const JOB_PRESERVED: Record<JobKey, (templateJob: Record<string, unknown>) => bo
   "continue-on-error": () => false,
 };
 
+// Workflow-top-level keys GitHub Actions recognizes. This catalog is the
+// "did we think about this?" list — behavioural correctness for each is
+// covered elsewhere (step/job scans, smokes). A raw top-level key that
+// appears in a workflow but is absent from this catalog AND the
+// expected-drop list is flagged — that's the signal for "GitHub grew a
+// new top-level key we have not considered yet."
+const WORKFLOW_KEYS = new Set([
+  "name",
+  "run-name",
+  "on",
+  "permissions",
+  "env",
+  "defaults",
+  "concurrency",
+  "jobs",
+]);
+
+const WORKFLOW_EXPECTED_DROP: Record<string, string> = {
+  "run-name": "ignored — see compatibility.json",
+  permissions: "ignored — see compatibility.json",
+  concurrency: "not-planned — see compatibility.json",
+};
+
 type Drift = {
   file: string;
-  scope: "step" | "job";
-  job: string;
+  scope: "workflow" | "job" | "step";
+  job: string | null;
   stepIndex: number | null;
   stepLabel: string | null;
   key: string;
@@ -214,6 +237,25 @@ async function diffWorkflow(
   }
 
   const drifts: Drift[] = [];
+
+  // ── Workflow-top-level scan ─────────────────────────────────────────────
+  for (const key of Object.keys(raw)) {
+    if (key in WORKFLOW_EXPECTED_DROP) {
+      continue;
+    }
+    if (WORKFLOW_KEYS.has(key)) {
+      continue;
+    }
+    drifts.push({
+      file: filePath,
+      scope: "workflow",
+      job: null,
+      stepIndex: null,
+      stepLabel: null,
+      key,
+      rawValue: summarize(raw[key]),
+    });
+  }
 
   for (const [jobId, rawJob] of Object.entries(raw.jobs)) {
     const job = rawJob as Record<string, unknown>;
@@ -377,8 +419,32 @@ jobs:
       );
     }
 
+    // Case 4: workflow scope — write a second fixture with an unrecognized
+    // top-level key and confirm the detector flags it. Uses a real file
+    // (not an override) so the workflow-scope path is exercised end-to-end.
+    const wfFixture = path.join(workflowsDir, "workflow-unknown.yml");
+    await fs.writeFile(
+      wfFixture,
+      `name: selftest-wf
+on: push
+hypothetical-new-key: someValue
+jobs:
+  j:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo hi
+`,
+    );
+    const wfDrifts = await diffWorkflow(wfFixture);
+    const wfScopeDrifts = wfDrifts.filter((d) => d.scope === "workflow");
+    if (wfScopeDrifts.length !== 1 || wfScopeDrifts[0].key !== "hypothetical-new-key") {
+      throw new Error(
+        `self-test case 4 (unknown top-level key): expected 1 workflow drift on 'hypothetical-new-key', got ${JSON.stringify(wfScopeDrifts)}`,
+      );
+    }
+
     console.log(
-      "self-test passed: known-good → 0 drifts; step regression → 1 drift on working-directory; job regression → 1 drift on runs-on",
+      "self-test passed: known-good → 0 drifts; step regression → 1 on working-directory; job regression → 1 on runs-on; workflow unknown key → 1 on hypothetical-new-key",
     );
   } finally {
     await fs.rm(tmpDir, { recursive: true, force: true });
@@ -429,6 +495,10 @@ async function main() {
   for (const [key, reason] of Object.entries(JOB_EXPECTED_DROP)) {
     reportLines.push(`- \`${key}\` — ${reason}`);
   }
+  reportLines.push("", "**Workflow scope:**");
+  for (const [key, reason] of Object.entries(WORKFLOW_EXPECTED_DROP)) {
+    reportLines.push(`- \`${key}\` — ${reason}`);
+  }
   reportLines.push("", "## Drifts", "");
 
   if (allDrifts.length === 0) {
@@ -449,9 +519,13 @@ async function main() {
           reportLines.push(
             `- [step] job \`${d.job}\`, step ${d.stepIndex} (${d.stepLabel}): key \`${d.key}\` = \`${d.rawValue}\` not carried into parser output`,
           );
-        } else {
+        } else if (d.scope === "job") {
           reportLines.push(
             `- [job ] job \`${d.job}\`: key \`${d.key}\` = \`${d.rawValue}\` not exposed by workflow template`,
+          );
+        } else {
+          reportLines.push(
+            `- [wf  ] top-level key \`${d.key}\` = \`${d.rawValue}\` not in recognized workflow-level key catalog`,
           );
         }
       }

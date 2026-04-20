@@ -174,6 +174,16 @@ export function createJobResponse(
       condition: step.condition || "success()",
     };
 
+    // Attach step-level env as the step's own `environment` so it applies
+    // only to this step. Without this, step envs aggregate into the global
+    // `EnvironmentVariables` map (last-wins), leaking a later step's env
+    // backwards into earlier steps. step.Env is the already-merged view
+    // (workflow → job → step); applying it per-step makes each step see
+    // the correct effective env regardless of siblings.
+    if (step.Env && typeof step.Env === "object" && Object.keys(step.Env).length > 0) {
+      s.environment = toTemplateTokenMapping(step.Env);
+    }
+
     return s;
   });
 

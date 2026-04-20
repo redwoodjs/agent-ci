@@ -105,7 +105,7 @@
         {
           "key": "`on` (other events)",
           "status": "ignored",
-          "notes": "Parsed without error, but the event is not simulated"
+          "notes": "Covers every GitHub-Actions webhook event Agent CI does not simulate (`issues`, `issue_comment`, `label`, `pull_request_review`, `release`, `registry_package`, `status`, `deployment`, `deployment_status`, `fork`, `watch`, `star`, `discussion`, `milestone`, `project`, `repository_dispatch`, `check_run`, `check_suite`, `workflow_run`, etc.). The parser accepts the event name but the run is not triggered — the workflow only ever runs when invoked manually via `pnpm agent-ci run`."
         },
         {
           "key": "`env`",
@@ -436,9 +436,26 @@
           "proof": [".github/workflows/smoke-expressions.yml"]
         },
         {
-          "key": "`github.sha`, `github.ref_name`, etc.",
+          "key": "`runner.name`, `runner.temp`, `runner.tool_cache`, `runner.debug`, `runner.environment`",
+          "status": "unsupported",
+          "notes": "Only `runner.os` and `runner.arch` are populated; the rest of the `runner.*` context resolves to an empty string. Workflows that read `runner.tool_cache` (common in tool-setup actions) will see an empty value — the actions themselves typically fall back to the `RUNNER_TOOL_CACHE` env var which the runner does set."
+        },
+        {
+          "key": "`github.sha`",
+          "status": "supported",
+          "notes": "Real commit SHA from `HEAD`. When the working tree is dirty, a synthetic tree SHA is computed so that expressions that hash-seed from `github.sha` still differ between working-tree states.",
+          "proof": [".github/workflows/smoke-binary.yml"]
+        },
+        {
+          "key": "`github.repository`, `github.repository_owner`",
+          "status": "supported",
+          "notes": "Derived from the git remote origin URL (`owner/repo` and `owner`).",
+          "proof": [".github/workflows/smoke-binary.yml"]
+        },
+        {
+          "key": "`github.ref`, `github.ref_name`, `github.head_ref`, `github.base_ref`, `github.actor`, `github.run_id`, `github.run_number`, and other `github.*` fields",
           "status": "partial",
-          "notes": "`sha` is the real commit SHA from `HEAD`. When the working tree is dirty, a temporary tree SHA is computed to reflect uncommitted changes. Other values use defaults: `ref_name` and `head_ref` are `main`, `repository` is derived from the git remote, `actor` is the repo owner, `run_id` and `run_number` are `1`",
+          "notes": "Returned as static defaults: `ref_name` / `head_ref` default to `main`, `base_ref` is empty, `actor` is the repo owner, `run_id` / `run_number` are `1`, `api_url` / `server_url` point at Agent CI's local API emulation. Anything not in this row or one of the ones above resolves to an empty string — that covers `action_path`, `workflow_ref`, `workflow_sha`, `triggering_actor`, `retention_days`, `secret_source`, `token`, `graphql_url`, `job`, `run_attempt`, `ref_protected`, `ref_type`, `env`, `path`, and the rest of the context documented by GitHub.",
           "proof": [".github/workflows/smoke-binary.yml"]
         },
         {
@@ -499,10 +516,22 @@
           "proof": [".github/workflows/smoke-binary.yml", ".github/workflows/smoke-expressions.yml"]
         },
         {
-          "key": "`contains`, `startsWith`, `endsWith`",
+          "key": "`contains(search, item)`",
           "status": "supported",
-          "notes": "Case-insensitive. `contains` works with both strings and JSON arrays",
+          "notes": "Case-insensitive substring for strings; element membership for JSON arrays (e.g. `contains(fromJSON('[\"a\",\"b\"]'), 'b')`). The `*` object-filter form (`contains(labels.*.name, 'bug')`) is not supported — see the `*` object-filter row.",
           "proof": [".github/workflows/smoke-binary.yml", ".github/workflows/smoke-expressions.yml"]
+        },
+        {
+          "key": "`startsWith(searchString, searchValue)`",
+          "status": "supported",
+          "notes": "Case-insensitive.",
+          "proof": [".github/workflows/smoke-expressions.yml"]
+        },
+        {
+          "key": "`endsWith(searchString, searchValue)`",
+          "status": "supported",
+          "notes": "Case-insensitive.",
+          "proof": [".github/workflows/smoke-expressions.yml"]
         },
         {
           "key": "`join`",
@@ -512,8 +541,8 @@
         },
         {
           "key": "`success()`, `failure()`, `always()`, `cancelled()`",
-          "status": "supported",
-          "notes": "Evaluated by Agent CI for job-level `if` conditions and in expression expansion",
+          "status": "partial",
+          "notes": "`success()` / `failure()` / `always()` are evaluated against the accumulated job status in dependency waves. `cancelled()` always returns `false` locally — there is no cancellation signal for Agent CI to observe, so steps gated by `if: cancelled()` never run.",
           "proof": [".github/workflows/smoke-conditions.yml"]
         },
         {

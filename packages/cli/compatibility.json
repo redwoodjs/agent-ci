@@ -327,8 +327,8 @@
       "rows": [
         {
           "key": "`hashFiles(...)`",
-          "status": "partial",
-          "notes": "Currently emits a SHA-1 (40-char) digest. GitHub Actions emits SHA-256 (64-char). See tracking issue #294.",
+          "status": "supported",
+          "notes": "SHA-256 of matching files; supports multiple glob patterns. Descends into dotted directories (e.g. `.github/`) when the pattern asks for them.",
           "proof": [".github/workflows/smoke-expressions.yml"]
         },
         {
@@ -382,7 +382,7 @@
         {
           "key": "`steps.*.outputs.*`",
           "status": "partial",
-          "notes": "Resolves to an empty string at parse time. The official runner evaluates these correctly at runtime — the limitation only affects Agent CI's own expression pre-processing",
+          "notes": "Always resolves to an empty string at parse time — the producing step has not run yet and the runner does not re-evaluate `${{ }}` inside `run:` script bodies. Use `needs.*.outputs.*` for cross-job values instead.",
           "proof": [".github/workflows/smoke-artifacts.yml"]
         },
         {

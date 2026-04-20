@@ -477,13 +477,13 @@ function resolveExprAtom(
     const name = trimmed.slice("inputs.".length);
     return inputsContext?.[name] ?? "";
   }
-  if (trimmed.startsWith("steps.") && trimmed.endsWith(".outputs.cache-hit")) {
-    return "";
-  }
   if (trimmed.startsWith("steps.")) {
-    // Steps references are resolved at execution time by the runner.
-    // Return a sentinel so expandExpressions can preserve the ${{ }} syntax.
-    return STEPS_DEFERRED_SENTINEL;
+    // Step-output references can't be resolved at parse time — the producing
+    // step hasn't run yet — and the runner does not re-evaluate `${{ }}`
+    // inside run-script bodies at runtime. Returning the sentinel used to
+    // leak the literal `${{ }}` to bash and trigger "bad substitution".
+    // Per the compatibility contract, resolve to an empty string at parse time.
+    return "";
   }
   if (trimmed.startsWith("needs.") && needsContext) {
     const parts = trimmed.split(".");
@@ -504,8 +504,6 @@ function resolveExprAtom(
   // Unknown atoms — return empty string
   return "";
 }
-
-const STEPS_DEFERRED_SENTINEL = "\0__STEPS_DEFERRED__\0";
 
 /**
  * Evaluate an expression that may contain ||, &&, !, parentheses,
@@ -720,10 +718,6 @@ export function expandExpressions(
       vars,
       runnerContext,
     );
-    // Steps references are deferred to runtime — preserve the ${{ }} syntax
-    if (result === STEPS_DEFERRED_SENTINEL) {
-      return _match;
-    }
     return result;
   });
 }
@@ -744,7 +738,10 @@ function findFiles(rootDir: string, pattern: string): string[] {
       return;
     }
     for (const entry of entries) {
-      if (entry.name.startsWith(".") || entry.name === "node_modules") {
+      // Skip node_modules only. Dotted directories (`.github`, `.cargo`, …)
+      // are common hashFiles targets and GitHub Actions' hashFiles descends
+      // into them when the pattern asks for them.
+      if (entry.name === "node_modules") {
         continue;
       }
       const relChild = relative ? `${relative}/${entry.name}` : entry.name;

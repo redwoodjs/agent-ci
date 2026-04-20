@@ -1,5 +1,62 @@
 # dtu-github-actions
 
+## 0.12.4
+
+### Patch Changes
+
+- e2fe576: Make `packages/cli/compatibility.json` the single source of truth for the YAML compatibility matrix. The `compatibility.md` document and the website's compatibility table are both derived from it — run `pnpm compat:gen` after editing the JSON. `pnpm check` fails if the `.md` drifts out of sync.
+- e2fe576: Add a `proof` field to `compatibility.json` rows pointing at the workflow files that exercise each feature end-to-end. Internal field — not rendered in the markdown table or on the website. The `compat:gen` script fails if any listed proof path does not resolve on disk, so a file rename can't silently break a compatibility claim.
+
+  Refs #292.
+
+- 044de23: Forward `jobs.<id>.container.options` through to the runner container. Previously the options string was parsed but never handed to `docker.createContainer`, so `options: --env FOO=bar` silently produced a container without `FOO`. Now `--env`/`-e` and `--label`/`-l` flags inside `options:` are extracted and merged into the container's `Env` and `Labels`. Other Docker flags in `options:` (`--privileged`, `--user`, `--network`, `--cap-add`, `--workdir`, …) remain intentionally ignored — they clash with agent-ci's own container orchestration and can break the runner's invariants.
+
+  `actions/cache` and `GITHUB_TOKEN` compatibility notes updated to document existing limitations (no ref-based cache scoping; no OIDC id-token issuance) so the behaviour matches the documentation.
+
+  Refs #296.
+
+- e2fe576: Propagate `defaults.run.working-directory` to steps. Workflow-level and job-level `defaults.run.working-directory` were parsed but never applied — every step ran at the workspace root regardless of the declared default. Now merged with standard GitHub Actions precedence: step override beats job default beats workflow default.
+
+  Refs #290.
+
+- f44620b: Let `hashFiles()` descend into dotted directories. The recursive walker was skipping any directory whose name starts with `.`, which meant patterns like `hashFiles('.github/workflows/*.yml')` never matched a file and returned the zero-placeholder (`"000…"`, 40 chars). Now only `node_modules` is skipped; dotted directories are walked when a pattern asks for them. The resulting digest is real SHA-256 (64 chars), matching GitHub Actions.
+
+  Refs #294.
+
+- 5a23a5a: Flesh out `compatibility.json` with 15 rows that were absent before — features real GitHub Actions documents but our table said nothing about. Status is chosen per code inspection, so each row reflects current behaviour rather than aspirational coverage:
+  - **Workflow triggers**: sub-event filters `branches`/`branches-ignore` (supported), `paths`/`paths-ignore` (supported), `tags`/`tags-ignore` (unsupported), `types` (ignored), `workflow_dispatch.inputs` (ignored — dispatch itself isn't simulated), `workflow_call.inputs.*` (supported), `workflow_call.outputs.*.value` (supported).
+  - **Job-level**: `jobs.<id>.permissions` (ignored), `jobs.<id>.container.credentials` (unsupported), `jobs.<id>.services.*.credentials` (unsupported).
+  - **Step-level**: `steps[*].uses: docker://…` (unsupported — Docker-image action refs are not resolved).
+  - **Expressions**: `vars.*` (supported), `inputs.*` (supported), `steps.*.conclusion` / `steps.*.outcome` (unsupported), `job.*` runtime context (unsupported), `*` object-filter operator (unsupported).
+
+  No behaviour changes — just honest documentation. Closes the "missing rows" bucket on #296.
+
+- fdec27e: Split the remaining overloaded rows in `compatibility.json` so each documented feature has a row that reflects its real status. Pure documentation — no behaviour changes.
+  - **`github.*`** — split into three rows: `github.sha` (real from git), `github.repository` / `github.repository_owner` (derived from the remote), and a catch-all row documenting that everything else resolves to a static default or an empty string. The catch-all enumerates the rest of the context so a reader can tell `workflow_sha`, `triggering_actor`, etc. are not populated.
+  - **`runner.*`** — added a row for the unsupported siblings (`runner.name`, `runner.temp`, `runner.tool_cache`, `runner.debug`, `runner.environment`) so it's visible that only `runner.os` / `runner.arch` resolve.
+  - **`contains` / `startsWith` / `endsWith`** — three separate rows with per-function notes.
+  - **`success()` / `failure()` / `always()` / `cancelled()`** — downgraded to `partial` with a note clarifying that `cancelled()` always returns `false` locally (no cancellation signal).
+  - **`on` (other events)** — kept as one row but the note now enumerates the ~20 event names it covers so users can see exactly which triggers are no-ops.
+
+  Closes the "overloaded row" bucket on #296.
+
+- 78e3e01: Honor `defaults.run.shell` and step-level `shell:` for non-bash shells. The runner executes every `run:` step with bash regardless of `inputs.shell`, so the parser now wraps scripts that request `sh`, `python`, or `pwsh` with an explicit invocation of the requested interpreter (`sh -e <<'EOF' … EOF`). Workflow, job, and step scopes all use standard step-wins-over-job-wins-over-workflow precedence.
+
+  Refs #293.
+
+- e2fe576: Stop step-level `env:` from leaking into sibling steps. Each step's env now attaches as its own `environment` on the mapped step rather than being merged into the job-wide `EnvironmentVariables` map, where a later step's values could override an earlier step's reads of the same key.
+- f44620b: Stop leaking literal `${{ steps.<id>.outputs.<name> }}` text into `run:` scripts. The parser used to leave these expressions untouched on the premise that the runner would evaluate them at runtime, but the runner does not re-evaluate expressions inside run-script bodies — the literal `${{ }}` reached bash and produced "bad substitution" errors. The expression now resolves to an empty string at parse time, matching the long-standing documented behavior.
+
+  Use `needs.*.outputs.*` for cross-job values — those are resolved against real job outputs.
+
+  Refs #295.
+
+- ab410c7: Two small expression-engine fixes surfaced while running through #296's "questionable claim" rows:
+  1. **`toJSON` now pretty-prints with 2-space indent** to match GitHub Actions. Previously emitted compact JSON, which meant that any `hashFiles` key that consumed `toJSON(x)` would hash to a different digest locally vs. on GitHub. Parses `rawValue` before re-serialising so `toJSON(fromJSON(x))` round-trips.
+  2. **`''`, `null`, and numeric strings now coerce in comparisons** per the spec: `'' == 0`, `null == 0`, `'0' == 0` are all `true`; `'x' == 0` stays `false` because non-numeric strings become `NaN`. Previously, empty/null on either side fell out of the numeric path and was string-compared, so `'' == 0` resolved to `false`.
+
+  Refs #296.
+
 ## 0.12.3
 
 ### Patch Changes

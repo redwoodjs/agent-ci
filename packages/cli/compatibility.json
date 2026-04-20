@@ -382,7 +382,7 @@
         {
           "key": "`steps.*.outputs.*`",
           "status": "partial",
-          "notes": "Resolves to an empty string at parse time. The official runner evaluates these correctly at runtime — the limitation only affects Agent CI's own expression pre-processing",
+          "notes": "Always resolves to an empty string at parse time — the producing step has not run yet and the runner does not re-evaluate `${{ }}` inside `run:` script bodies. Use `needs.*.outputs.*` for cross-job values instead.",
           "proof": [".github/workflows/smoke-artifacts.yml"]
         },
         {

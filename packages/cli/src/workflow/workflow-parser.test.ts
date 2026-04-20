@@ -258,13 +258,13 @@ describe("expandExpressions", () => {
     expect(expandExpressions("shard-${{ matrix.shard }}")).toBe("shard-");
   });
 
-  it("preserves steps.* expressions for runtime resolution", () => {
-    // steps.*.outputs.cache-hit is still expanded (special-cased for cache actions)
+  it("resolves steps.* expressions to empty string at parse time", () => {
+    // The producing step has not run yet, and the runner does not re-evaluate
+    // `${{ }}` inside run-script bodies. Leaving the expression literal leaked
+    // raw `${{ }}` text to bash ("bad substitution"); resolving to empty here
+    // lets cross-step reads degrade to "" instead of crashing the shell.
     expect(expandExpressions("hit-${{ steps.cache.outputs.cache-hit }}")).toBe("hit-");
-    // General steps.* expressions are preserved for the runner to evaluate at runtime
-    expect(expandExpressions("${{ steps.some-step.outputs.result }}")).toBe(
-      "${{ steps.some-step.outputs.result }}",
-    );
+    expect(expandExpressions("${{ steps.some-step.outputs.result }}")).toBe("");
   });
 
   it("expands needs.* to empty string", () => {

@@ -1,7 +1,22 @@
 [
   {
-    "issue": 253,
-    "pr": 283,
-    "changeset": "fix-253-docker-desktop-default-socket-doc.md"
+    "issue": 290,
+    "pr": 305,
+    "changeset": "defaults-run-working-directory.md"
+  },
+  {
+    "issue": 294,
+    "pr": 305,
+    "changeset": "hashfiles-dotted-dirs.md"
+  },
+  {
+    "issue": 293,
+    "pr": 305,
+    "changeset": "shell-defaults.md"
+  },
+  {
+    "issue": 295,
+    "pr": 305,
+    "changeset": "steps-outputs-empty.md"
   }
 ]

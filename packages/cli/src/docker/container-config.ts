@@ -1,3 +1,40 @@
+/**
+ * Parse the `options` string from `jobs.<id>.container.options` into a subset
+ * of Docker CLI flags our runner can map to dockerode createContainer fields.
+ * Only `--env`/`-e` and `--label`/`-l` are recognized today; anything else
+ * is silently ignored to avoid accidentally clashing with agent-ci's own
+ * container orchestration (volumes, networks, pids, etc). Extend the match
+ * list below as additional flags are proven safe via smoke coverage.
+ */
+export function parseContainerOptions(options: string | undefined): {
+  env: string[];
+  labels: Record<string, string>;
+} {
+  const env: string[] = [];
+  const labels: Record<string, string> = {};
+  if (!options) {
+    return { env, labels };
+  }
+  const tokens = options.match(/\S+/g) ?? [];
+  for (let i = 0; i < tokens.length; i++) {
+    const tok = tokens[i];
+    if ((tok === "--env" || tok === "-e") && i + 1 < tokens.length) {
+      env.push(tokens[++i]);
+      continue;
+    }
+    if ((tok === "--label" || tok === "-l") && i + 1 < tokens.length) {
+      const kv = tokens[++i];
+      const idx = kv.indexOf("=");
+      if (idx > 0) {
+        labels[kv.slice(0, idx)] = kv.slice(idx + 1);
+      } else {
+        labels[kv] = "";
+      }
+    }
+  }
+  return { env, labels };
+}
+
 export interface ContainerEnvOpts {
   containerName: string;
   registrationToken: string;

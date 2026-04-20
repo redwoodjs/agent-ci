@@ -29,6 +29,7 @@ import {
   buildContainerEnv,
   buildContainerBinds,
   buildContainerCmd,
+  parseContainerOptions,
   resolveDtuHost,
   resolveDockerApiUrl,
   resolveDockerExtraHosts,
@@ -578,14 +579,17 @@ export async function executeLocalJob(
 
     const extraHosts = resolveDockerExtraHosts(dtuHost);
 
+    const extraContainerOpts = parseContainerOptions(job.container?.options);
+
     t0 = Date.now();
     container = await getDocker().createContainer({
       Image: containerImage,
       name: containerName,
       Labels: {
         "agent-ci.pid": String(process.pid),
+        ...extraContainerOpts.labels,
       },
-      Env: containerEnv,
+      Env: [...containerEnv, ...extraContainerOpts.env],
       ...(useDirectContainer ? { Entrypoint: ["bash"] } : {}),
       Cmd: containerCmd,
       HostConfig: {

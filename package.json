@@ -3,8 +3,10 @@
   "private": true,
   "scripts": {
     "test": "pnpm --include-workspace-root=false -r test",
-    "check": "npm-run-all --parallel typecheck lint format:check",
+    "check": "npm-run-all --parallel typecheck lint format:check compat:check",
     "check:fix": "npm-run-all --parallel typecheck lint:fix format:fix",
+    "compat:gen": "node scripts/gen-compatibility-md.mjs",
+    "compat:check": "node scripts/gen-compatibility-md.mjs --check",
     "typecheck": "pnpm -r run typecheck",
     "lint": "oxlint --deny-warnings",
     "lint:fix": "oxlint --fix",

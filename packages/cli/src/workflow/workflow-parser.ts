@@ -845,6 +845,34 @@ export async function parseMatrixDef(
 }
 
 /**
+ * Resolve a `defaults.run.<key>` value with GitHub Actions precedence:
+ * step override beats job `defaults.run.<key>`, which beats workflow-level
+ * `defaults.run.<key>`. Returns undefined when none is declared at any level.
+ */
+function resolveStepRunDefault(
+  rawYaml: unknown,
+  rawJob: unknown,
+  rawStep: unknown,
+  key: string,
+): string | undefined {
+  const pick = (source: unknown): string | undefined => {
+    if (!source || typeof source !== "object") {
+      return undefined;
+    }
+    const v = (source as Record<string, unknown>)[key];
+    return typeof v === "string" && v.length > 0 ? v : undefined;
+  };
+  const pickDefault = (source: unknown): string | undefined => {
+    if (!source || typeof source !== "object") {
+      return undefined;
+    }
+    const run = (source as { defaults?: { run?: unknown } }).defaults?.run;
+    return pick(run);
+  };
+  return pick(rawStep) ?? pickDefault(rawJob) ?? pickDefault(rawYaml);
+}
+
+/**
  * Build a step's effective env by merging workflow-level, job-level, and
  * step-level `env:` blocks in that order — step overrides job overrides
  * workflow, per GitHub Actions semantics — then expanding each value's
@@ -985,8 +1013,14 @@ export async function parseWorkflowSteps(
             runnerContext,
           ),
         };
-        if (rawStep["working-directory"]) {
-          inputs.workingDirectory = rawStep["working-directory"];
+        const workingDirectory = resolveStepRunDefault(
+          rawYaml,
+          rawJob,
+          rawStep,
+          "working-directory",
+        );
+        if (workingDirectory) {
+          inputs.workingDirectory = workingDirectory;
         }
         return {
           Type: "Action",

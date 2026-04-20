@@ -24,6 +24,7 @@ const skillsOut = resolve(publicDir, ".well-known/agent-skills");
 const docs = [
   { src: "README.md", dest: "README.md" },
   { src: "compatibility.md", dest: "compatibility.md" },
+  { src: "compatibility.json", dest: "compatibility.json" },
   { src: "runner-image.md", dest: "runner-image.md" },
   { src: "SKILL.md", dest: "SKILL.md" },
 ];

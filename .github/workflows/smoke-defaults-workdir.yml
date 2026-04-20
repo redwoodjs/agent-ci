@@ -1,0 +1,58 @@
+name: "Smoke: defaults.run.working-directory scoping"
+
+# Exercises the three scopes at which `working-directory` can be set:
+#   - workflow-level `defaults.run.working-directory` (applies to every step)
+#   - job-level `defaults.run.working-directory` (overrides workflow-level)
+#   - step-level `working-directory` (overrides both)
+
+on:
+  pull_request_target:
+    types: [opened, labeled, synchronize]
+
+defaults:
+  run:
+    working-directory: .github
+
+jobs:
+  workflow-default:
+    name: Workflow-level default
+    if: '!github.event.pull_request.draft && (contains(fromJSON(''["MEMBER", "OWNER", "COLLABORATOR"]''), github.event.pull_request.author_association) || contains(github.event.pull_request.labels.*.name, ''safe-to-run''))'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Step inherits workflow-level working-directory
+        run: |
+          case "$(pwd)" in
+            */\.github) echo "✅ cwd=$(pwd)" ;;
+            *) echo "❌ expected cwd ending in /.github, got $(pwd)"; exit 1 ;;
+          esac
+
+      - name: Step-level working-directory overrides workflow-level
+        working-directory: .github/workflows
+        run: |
+          case "$(pwd)" in
+            */\.github/workflows) echo "✅ cwd=$(pwd)" ;;
+            *) echo "❌ expected cwd ending in /.github/workflows, got $(pwd)"; exit 1 ;;
+          esac
+
+  job-default:
+    name: Job-level default overrides workflow-level
+    if: '!github.event.pull_request.draft && (contains(fromJSON(''["MEMBER", "OWNER", "COLLABORATOR"]''), github.event.pull_request.author_association) || contains(github.event.pull_request.labels.*.name, ''safe-to-run''))'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: .github/workflows
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Step inherits job-level working-directory
+        run: |
+          case "$(pwd)" in
+            */\.github/workflows) echo "✅ cwd=$(pwd)" ;;
+            *) echo "❌ expected cwd ending in /.github/workflows, got $(pwd)"; exit 1 ;;
+          esac

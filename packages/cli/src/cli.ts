@@ -68,6 +68,7 @@ import { isAgentMode, setQuietMode } from "./output/agent-mode.js";
 import { createDiffRenderer } from "./output/diff-renderer.js";
 import { createFailedJobResult, wrapJobError, isJobError } from "./runner/job-result.js";
 import { postCommitStatus } from "./commit-status.js";
+import { writeRunResult } from "./run-result-writer.js";
 
 function findSignalsDir(runnerName: string): string | null {
   const workDir = getWorkingDirectory();
@@ -226,6 +227,7 @@ async function run() {
         process.exit(0);
       }
 
+      const startedAt = new Date();
       const results = await runWorkflows({
         workflowPaths: relevant,
         sha,
@@ -241,6 +243,7 @@ async function run() {
       if (commitStatus) {
         postCommitStatus(results, sha, githubToken);
       }
+      persistRunResult({ results, repoRoot, startedAt, sha, branch });
       const anyFailed = results.length === 0 || results.some((r) => !r.succeeded);
       process.exit(anyFailed ? 1 : 0);
     }
@@ -254,11 +257,11 @@ async function run() {
 
     // Resolve workflow path before calling runWorkflows
     let workflowPath: string;
+    const repoRootFallback = resolveRepoRoot();
     if (path.isAbsolute(workflow)) {
       workflowPath = workflow;
     } else {
       const cwd = process.cwd();
-      const repoRootFallback = resolveRepoRoot();
       const workflowsDir = path.resolve(repoRootFallback, ".github", "workflows");
       const pathsToTry = [
         path.resolve(cwd, workflow),
@@ -268,6 +271,7 @@ async function run() {
       workflowPath = pathsToTry.find((p) => fs.existsSync(p)) || pathsToTry[1];
     }
 
+    const startedAt = new Date();
     const results = await runWorkflows({
       workflowPaths: [workflowPath],
       sha,
@@ -283,6 +287,7 @@ async function run() {
     if (commitStatus) {
       postCommitStatus(results, sha, githubToken);
     }
+    persistRunResult({ results, repoRoot: repoRootFallback, startedAt, sha });
     if (results.length === 0 || results.some((r) => !r.succeeded)) {
       process.exit(1);
     }
@@ -1537,6 +1542,35 @@ function resolveHeadSha(repoRoot: string, sha: string) {
     };
   } catch {
     throw new Error(`Failed to resolve ref: ${sha}`);
+  }
+}
+
+function persistRunResult(opts: {
+  results: JobResult[];
+  repoRoot: string;
+  startedAt: Date;
+  sha?: string;
+  branch?: string;
+}): void {
+  try {
+    const repo = config.GITHUB_REPO ?? resolveRepoSlug(opts.repoRoot);
+    const branch =
+      opts.branch ??
+      execSync("git rev-parse --abbrev-ref HEAD", { cwd: opts.repoRoot }).toString().trim();
+    const headSha = (
+      opts.sha ?? execSync("git rev-parse HEAD", { cwd: opts.repoRoot }).toString()
+    ).trim();
+    writeRunResult({
+      repo,
+      branch,
+      worktreePath: opts.repoRoot,
+      headSha,
+      startedAt: opts.startedAt,
+      finishedAt: new Date(),
+      results: opts.results,
+    });
+  } catch {
+    // Best-effort: never let result persistence fail the run.
   }
 }
 

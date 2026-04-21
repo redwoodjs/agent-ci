@@ -24,7 +24,7 @@ vi.mock("node:child_process", () => ({
 
 afterEach(() => {
   vi.restoreAllMocks();
-  delete process.env.DOCKER_HOST;
+  delete process.env.AGENT_CI_DOCKER_HOST;
 });
 
 async function importFreshSocket() {
@@ -34,7 +34,7 @@ async function importFreshSocket() {
 
 describe("issue-197 reproduction: Docker Desktop bind mount path", () => {
   it("resolves to the real path for API client but keeps the symlink path for bind mounts", async () => {
-    delete process.env.DOCKER_HOST;
+    delete process.env.AGENT_CI_DOCKER_HOST;
     // Simulate Docker Desktop: /var/run/docker.sock → ~/.docker/run/docker.sock
     vi.spyOn(fs, "existsSync").mockReturnValue(true);
     vi.spyOn(fs, "realpathSync").mockImplementation((p) => {
@@ -57,7 +57,7 @@ describe("issue-197 reproduction: Docker Desktop bind mount path", () => {
   });
 
   it("container bind string uses /var/run/docker.sock, not the resolved path (the failing case)", async () => {
-    delete process.env.DOCKER_HOST;
+    delete process.env.AGENT_CI_DOCKER_HOST;
     vi.spyOn(fs, "existsSync").mockReturnValue(true);
     vi.spyOn(fs, "realpathSync").mockImplementation((p) => {
       if (String(p) === "/var/run/docker.sock") {
@@ -94,8 +94,8 @@ describe("issue-197 reproduction: Docker Desktop bind mount path", () => {
     expect(binds).not.toContain("/Users/test/.docker/run/docker.sock:/var/run/docker.sock");
   });
 
-  it("DOCKER_HOST unix socket keeps the original path for bind mounts even if it resolves elsewhere", async () => {
-    process.env.DOCKER_HOST = "unix:///var/run/docker.sock";
+  it("AGENT_CI_DOCKER_HOST unix socket keeps the original path for bind mounts even if it resolves elsewhere", async () => {
+    process.env.AGENT_CI_DOCKER_HOST = "unix:///var/run/docker.sock";
     vi.spyOn(fs, "realpathSync").mockReturnValue("/Users/test/.docker/run/docker.sock");
     vi.spyOn(fs, "accessSync").mockReturnValue(undefined);
 

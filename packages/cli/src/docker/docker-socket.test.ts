@@ -10,7 +10,7 @@ const mockedExecSync = vi.mocked(execSync);
 
 afterEach(() => {
   vi.restoreAllMocks();
-  delete process.env.DOCKER_HOST;
+  delete process.env.AGENT_CI_DOCKER_HOST;
 });
 
 async function importFresh() {
@@ -19,10 +19,10 @@ async function importFresh() {
 }
 
 describe("resolveDockerSocket", () => {
-  // ── DOCKER_HOST set ──────────────────────────────────────────────────────
+  // ── AGENT_CI_DOCKER_HOST set ──────────────────────────────────────────────────────
 
-  it("uses DOCKER_HOST when set to a unix socket that exists", async () => {
-    process.env.DOCKER_HOST = "unix:///tmp/test-docker.sock";
+  it("uses AGENT_CI_DOCKER_HOST when set to a unix socket that exists", async () => {
+    process.env.AGENT_CI_DOCKER_HOST = "unix:///tmp/test-docker.sock";
     vi.spyOn(fs, "realpathSync").mockReturnValue("/tmp/test-docker.sock");
     vi.spyOn(fs, "accessSync").mockReturnValue(undefined);
 
@@ -34,8 +34,8 @@ describe("resolveDockerSocket", () => {
     expect(result.bindMountPath).toBe("/tmp/test-docker.sock");
   });
 
-  it("uses original DOCKER_HOST path as bindMountPath even when it resolves elsewhere", async () => {
-    process.env.DOCKER_HOST = "unix:///var/run/docker.sock";
+  it("uses original AGENT_CI_DOCKER_HOST path as bindMountPath even when it resolves elsewhere", async () => {
+    process.env.AGENT_CI_DOCKER_HOST = "unix:///var/run/docker.sock";
     vi.spyOn(fs, "realpathSync").mockReturnValue("/Users/test/.docker/run/docker.sock");
     vi.spyOn(fs, "accessSync").mockReturnValue(undefined);
 
@@ -46,8 +46,8 @@ describe("resolveDockerSocket", () => {
     expect(result.bindMountPath).toBe("/var/run/docker.sock");
   });
 
-  it("returns non-unix DOCKER_HOST as-is (e.g. ssh://)", async () => {
-    process.env.DOCKER_HOST = "ssh://user@remote";
+  it("returns non-unix AGENT_CI_DOCKER_HOST as-is (e.g. ssh://)", async () => {
+    process.env.AGENT_CI_DOCKER_HOST = "ssh://user@remote";
 
     const { resolveDockerSocket } = await importFresh();
     const result = resolveDockerSocket();
@@ -57,22 +57,24 @@ describe("resolveDockerSocket", () => {
     expect(result.bindMountPath).toBe("");
   });
 
-  it("throws with doc link when DOCKER_HOST points to non-existent socket", async () => {
-    process.env.DOCKER_HOST = "unix:///nonexistent/docker.sock";
+  it("throws with doc link when AGENT_CI_DOCKER_HOST points to non-existent socket", async () => {
+    process.env.AGENT_CI_DOCKER_HOST = "unix:///nonexistent/docker.sock";
     vi.spyOn(fs, "realpathSync").mockImplementation(() => {
       throw new Error("ENOENT");
     });
 
     const { resolveDockerSocket } = await importFresh();
 
-    expect(() => resolveDockerSocket()).toThrow("DOCKER_HOST=unix:///nonexistent/docker.sock");
+    expect(() => resolveDockerSocket()).toThrow(
+      "AGENT_CI_DOCKER_HOST=unix:///nonexistent/docker.sock",
+    );
     expect(() => resolveDockerSocket()).toThrow("docs/docker-socket.md");
   });
 
   // ── Default socket path ────────────────────────────────────────────────
 
   it("resolves /var/run/docker.sock symlink", async () => {
-    delete process.env.DOCKER_HOST;
+    delete process.env.AGENT_CI_DOCKER_HOST;
     vi.spyOn(fs, "existsSync").mockReturnValue(true);
     vi.spyOn(fs, "realpathSync").mockImplementation((p) => {
       if (String(p) === "/var/run/docker.sock") {
@@ -94,7 +96,7 @@ describe("resolveDockerSocket", () => {
   });
 
   it("uses /var/run/docker.sock as bindMountPath when it resolves to Docker Desktop path (regression #197)", async () => {
-    delete process.env.DOCKER_HOST;
+    delete process.env.AGENT_CI_DOCKER_HOST;
     vi.spyOn(fs, "existsSync").mockReturnValue(true);
     vi.spyOn(fs, "realpathSync").mockImplementation((p) => {
       if (String(p) === "/var/run/docker.sock") {
@@ -114,7 +116,7 @@ describe("resolveDockerSocket", () => {
   // ── EACCES fallthrough ─────────────────────────────────────────────────
 
   it("falls through to docker context when default socket is not accessible, and uses /var/run/docker.sock for bind mount (regression #209)", async () => {
-    delete process.env.DOCKER_HOST;
+    delete process.env.AGENT_CI_DOCKER_HOST;
     // Exact #209 cell: Linux + Docker Desktop, user not in docker group.
     // - /var/run/docker.sock exists (owned by root:docker 660) — exists but EACCES for us
     // - Active docker context points at the Desktop socket — what our API client must use
@@ -153,7 +155,7 @@ describe("resolveDockerSocket", () => {
   // ── Missing / dangling /var/run/docker.sock ─────────────────────────────
 
   it("throws with doc link when /var/run/docker.sock is missing", async () => {
-    delete process.env.DOCKER_HOST;
+    delete process.env.AGENT_CI_DOCKER_HOST;
     vi.spyOn(fs, "existsSync").mockReturnValue(false);
     vi.spyOn(fs, "realpathSync").mockImplementation(() => {
       throw new Error("ENOENT");
@@ -167,7 +169,7 @@ describe("resolveDockerSocket", () => {
   });
 
   it("appends Docker Desktop toggle hint when ~/.docker/run/docker.sock exists but /var/run/docker.sock is missing", async () => {
-    delete process.env.DOCKER_HOST;
+    delete process.env.AGENT_CI_DOCKER_HOST;
     vi.spyOn(fs, "existsSync").mockImplementation((p) => {
       const s = String(p);
       if (s === "/var/run/docker.sock") {
@@ -194,7 +196,7 @@ describe("resolveDockerSocket", () => {
     // Regression for #263 debugging session: /var/run/docker.sock → ~/.orbstack/...
     // but OrbStack is stopped, so the link dangles. fs.existsSync returns false for
     // dangling symlinks, which is the signal we want.
-    delete process.env.DOCKER_HOST;
+    delete process.env.AGENT_CI_DOCKER_HOST;
     vi.spyOn(fs, "existsSync").mockReturnValue(false);
     vi.spyOn(fs, "realpathSync").mockImplementation(() => {
       throw new Error("ENOENT");
@@ -206,7 +208,7 @@ describe("resolveDockerSocket", () => {
   });
 
   it("throws with doc link when /var/run/docker.sock exists but EACCES and no readable context", async () => {
-    delete process.env.DOCKER_HOST;
+    delete process.env.AGENT_CI_DOCKER_HOST;
     vi.spyOn(fs, "existsSync").mockReturnValue(true);
     vi.spyOn(fs, "realpathSync").mockReturnValue("/var/run/docker.sock");
     vi.spyOn(fs, "accessSync").mockImplementation(() => {

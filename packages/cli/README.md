@@ -157,6 +157,8 @@ If a workflow references a var (`${{ vars.FOO }}`) and no matching `--var FOO=..
 
 All configuration is available via environment variables. For persistent machine-local overrides, create a `.env.agent-ci` file in your project root — Agent CI loads it automatically (`KEY=VALUE` syntax, `#` comments supported).
 
+Only `AGENT_CI_*`-prefixed keys from `.env.agent-ci` are applied to the CLI process environment (so they influence Docker/network resolution, etc.). Non-prefixed keys in the file are still resolved as workflow secrets via `${{ secrets.FOO }}`. Shell environment variables always take precedence over `.env.agent-ci` entries.
+
 ### General
 
 | Variable                | Default                         | Description                                                                                                               |
@@ -168,14 +170,14 @@ All configuration is available via environment variables. For persistent machine
 
 ### Docker
 
-| Variable                                      | Default                             | Description                                                                                           |
-| --------------------------------------------- | ----------------------------------- | ----------------------------------------------------------------------------------------------------- |
-| `DOCKER_HOST`                                 | `unix:///var/run/docker.sock`       | Docker daemon socket or URL. Set to `ssh://user@host` to use a remote daemon.                         |
-| `AGENT_CI_DTU_HOST`                           | `host.docker.internal`              | Hostname or IP that runner containers use to reach the DTU mock server on the host.                   |
-| `AGENT_CI_DOCKER_EXTRA_HOSTS`                 | `host.docker.internal:host-gateway` | Comma-separated `host:ip` entries passed to Docker `ExtraHosts`. Fully replaces the default when set. |
-| `AGENT_CI_DOCKER_HOST_GATEWAY`                | `host-gateway`                      | Override the default `host-gateway` token or IP for the automatic host mapping.                       |
-| `AGENT_CI_DOCKER_DISABLE_DEFAULT_EXTRA_HOSTS` | unset                               | Set to `1` to disable the default `host.docker.internal` mapping.                                     |
-| `AGENT_CI_DOCKER_BRIDGE_GATEWAY`              | auto-detected                       | Fallback gateway IP when Agent CI runs inside Docker and cannot detect its container IP.              |
+| Variable                                      | Default                             | Description                                                                                                                                                                                                       |
+| --------------------------------------------- | ----------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `AGENT_CI_DOCKER_HOST`                        | `unix:///var/run/docker.sock`       | Docker daemon socket or URL. Set to `ssh://user@host` or `tcp://…` to use a remote daemon. **Note:** the standard `DOCKER_HOST` env var is not honoured — setting it causes agent-ci to exit with a rename error. |
+| `AGENT_CI_DTU_HOST`                           | `host.docker.internal`              | Hostname or IP that runner containers use to reach the DTU mock server on the host.                                                                                                                               |
+| `AGENT_CI_DOCKER_EXTRA_HOSTS`                 | `host.docker.internal:host-gateway` | Comma-separated `host:ip` entries passed to Docker `ExtraHosts`. Fully replaces the default when set.                                                                                                             |
+| `AGENT_CI_DOCKER_HOST_GATEWAY`                | `host-gateway`                      | Override the default `host-gateway` token or IP for the automatic host mapping.                                                                                                                                   |
+| `AGENT_CI_DOCKER_DISABLE_DEFAULT_EXTRA_HOSTS` | unset                               | Set to `1` to disable the default `host.docker.internal` mapping.                                                                                                                                                 |
+| `AGENT_CI_DOCKER_BRIDGE_GATEWAY`              | auto-detected                       | Fallback gateway IP when Agent CI runs inside Docker and cannot detect its container IP.                                                                                                                          |
 
 ---
 
@@ -231,11 +233,13 @@ Default image mapping:
 
 ## Remote Docker
 
-Agent CI connects to Docker via the `DOCKER_HOST` environment variable. By default it uses the local socket (`unix:///var/run/docker.sock`), but you can point it at any remote Docker daemon:
+Agent CI connects to Docker via the `AGENT_CI_DOCKER_HOST` environment variable. By default it uses the local socket (`unix:///var/run/docker.sock`), but you can point it at any remote Docker daemon:
 
 ```bash
-DOCKER_HOST=ssh://user@remote-server npx @redwoodjs/agent-ci run --workflow .github/workflows/ci.yml
+AGENT_CI_DOCKER_HOST=ssh://user@remote-server npx @redwoodjs/agent-ci run --workflow .github/workflows/ci.yml
 ```
+
+> **Note:** the standard `DOCKER_HOST` env var is **not** honoured. If you have it set for the regular Docker CLI, agent-ci exits with an error asking you to rename to `AGENT_CI_DOCKER_HOST`. This lets agent-ci target a different daemon than your shell's `docker` CLI without the two colliding — and it lets the value live in `.env.agent-ci`.
 
 ### Docker host resolution for job containers
 
@@ -253,7 +257,7 @@ If your setup is custom, use environment overrides:
 - `AGENT_CI_DOCKER_DISABLE_DEFAULT_EXTRA_HOSTS=1` — disable the default `host.docker.internal` mapping
 - `AGENT_CI_DOCKER_BRIDGE_GATEWAY` — fallback gateway IP used when Agent CI runs inside Docker and cannot detect its container IP, and as an explicit DTU host override outside Docker when `AGENT_CI_DTU_HOST` is not set
 
-When using a remote daemon (`DOCKER_HOST=ssh://...`), `host-gateway` resolves relative to the remote Docker host. If DTU is not reachable from that host, set `AGENT_CI_DTU_HOST` and `AGENT_CI_DOCKER_EXTRA_HOSTS` explicitly for your network.
+When using a remote daemon (`AGENT_CI_DOCKER_HOST=ssh://...`), `host-gateway` resolves relative to the remote Docker host. If DTU is not reachable from that host, set `AGENT_CI_DTU_HOST` and `AGENT_CI_DOCKER_EXTRA_HOSTS` explicitly for your network.
 
 ---
 

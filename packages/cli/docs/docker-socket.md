@@ -51,13 +51,21 @@ Why the top-level `~/.colima/docker.sock` and not `~/.colima/<profile>/docker.so
 
 ### Rootless Docker / custom locations
 
-If your daemon's socket lives somewhere else (e.g. `/run/user/1000/docker.sock` for rootless), set `DOCKER_HOST` explicitly:
+If your daemon's socket lives somewhere else (e.g. `/run/user/1000/docker.sock` for rootless), set `AGENT_CI_DOCKER_HOST` explicitly:
 
 ```sh
-export DOCKER_HOST=unix:///run/user/1000/docker.sock
+export AGENT_CI_DOCKER_HOST=unix:///run/user/1000/docker.sock
 ```
 
-agent-ci honours `DOCKER_HOST` ahead of `/var/run/docker.sock` and uses your explicit path for both the API client and the container bind-mount.
+Or, persistently, add it to `.env.agent-ci` at the repo root:
+
+```
+AGENT_CI_DOCKER_HOST=unix:///run/user/1000/docker.sock
+```
+
+agent-ci honours `AGENT_CI_DOCKER_HOST` ahead of `/var/run/docker.sock` and uses your explicit path for both the API client and the container bind-mount.
+
+> **Note:** the standard `DOCKER_HOST` env var is **not** honoured by agent-ci. If you have it set in your shell for the regular Docker CLI, agent-ci will exit with an error asking you to rename to `AGENT_CI_DOCKER_HOST`. This avoids collisions between "what agent-ci should target" (often a Lima/OrbStack VM) and "what the shell's Docker CLI targets".
 
 ## Diagnosing "but it's right there"
 

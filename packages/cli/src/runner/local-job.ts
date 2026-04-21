@@ -95,9 +95,9 @@ export function getDocker(): Docker {
     } else if (socket.uri.startsWith("ssh://")) {
       _docker = new Docker({ host: socket.uri, protocol: "ssh" as const });
     } else {
-      // Let dockerode/docker-modem parse non-unix, non-ssh DOCKER_HOST values
-      // from the environment. This preserves tcp:// support without changing the
-      // existing unix:// or ssh:// behavior.
+      // Let dockerode/docker-modem parse non-unix, non-ssh host URIs from the
+      // environment. cli.ts forwards AGENT_CI_DOCKER_HOST → DOCKER_HOST at
+      // bootstrap so dockerode's default client still picks up tcp:// URIs.
       _docker = new Docker();
     }
   }

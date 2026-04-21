@@ -44,7 +44,7 @@ function socketFromDockerContext(): string | undefined {
 export interface DockerSocket {
   /** Filesystem path to the socket (no unix:// prefix), with symlinks resolved. Used for the Docker API client. */
   socketPath: string;
-  /** Full URI suitable for DOCKER_HOST (e.g. "unix:///path/to/socket"). */
+  /** Full URI suitable for AGENT_CI_DOCKER_HOST (e.g. "unix:///path/to/socket"). */
   uri: string;
   /**
    * Path to use as the bind-mount source when mounting the Docker socket into a container.
@@ -67,16 +67,17 @@ export interface DockerSocket {
  *     its shared-mount list. Our process's permissions are irrelevant here —
  *     only path recognition matters.
  *
- * The bind-mount invariant: unless the user has set DOCKER_HOST explicitly,
- * `/var/run/docker.sock` must exist and be the bind-mount source. Every Docker
- * provider either creates it directly (Docker Desktop, native dockerd) or can
- * be pointed at it via a symlink (OrbStack does this automatically; Colima is
- * a manual `ln -sf`). We refuse to guess provider-specific paths — those tend
- * to fail later at bind-mount time with confusing errors (#197, #209, #263).
+ * The bind-mount invariant: unless the user has set AGENT_CI_DOCKER_HOST
+ * explicitly, `/var/run/docker.sock` must exist and be the bind-mount source.
+ * Every Docker provider either creates it directly (Docker Desktop, native
+ * dockerd) or can be pointed at it via a symlink (OrbStack does this
+ * automatically; Colima is a manual `ln -sf`). We refuse to guess
+ * provider-specific paths — those tend to fail later at bind-mount time with
+ * confusing errors (#197, #209, #263).
  *
  * Resolution order:
- *  1. `DOCKER_HOST` env var wins outright (local paths validated; non-unix
- *     schemes returned as-is).
+ *  1. `AGENT_CI_DOCKER_HOST` env var wins outright (local paths validated;
+ *     non-unix schemes returned as-is).
  *  2. `/var/run/docker.sock` must exist. If we can R/W it, its resolved path
  *     is the API `socketPath`; otherwise we look up the active docker context
  *     to find a readable path (#209), but `bindMountPath` stays as
@@ -84,8 +85,8 @@ export interface DockerSocket {
  *  3. Neither → throw with a doc link.
  */
 export function resolveDockerSocket(): DockerSocket {
-  // 1. Explicit DOCKER_HOST wins.
-  const envHost = process.env.DOCKER_HOST?.trim();
+  // 1. Explicit AGENT_CI_DOCKER_HOST wins.
+  const envHost = process.env.AGENT_CI_DOCKER_HOST?.trim();
   if (envHost) {
     if (!envHost.startsWith("unix://")) {
       // Non-unix scheme (ssh://, tcp://) — container bind-mount is out of scope.
@@ -96,7 +97,9 @@ export function resolveDockerSocket(): DockerSocket {
     if (resolved) {
       return { socketPath: resolved, uri: `unix://${resolved}`, bindMountPath: socketPath };
     }
-    throw unusableSocketError(`DOCKER_HOST=${envHost} does not resolve to a working socket.`);
+    throw unusableSocketError(
+      `AGENT_CI_DOCKER_HOST=${envHost} does not resolve to a working socket.`,
+    );
   }
 
   // 2. /var/run/docker.sock must exist. existsSync returns false for dangling
@@ -138,7 +141,7 @@ function unusableSocketError(detail: string): Error {
     `agent-ci couldn't use a Docker socket at /var/run/docker.sock.`,
     detail,
     ``,
-    `A working Docker socket is required there (or set DOCKER_HOST explicitly).`,
+    `A working Docker socket is required there (or set AGENT_CI_DOCKER_HOST explicitly).`,
   ];
   if (dockerDesktopRunningWithoutDefaultSocket()) {
     lines.push(

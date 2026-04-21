@@ -4,6 +4,7 @@ import os from "os";
 import path from "path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+  applyAgentCiEnv,
   config,
   getFirstRemoteUrl,
   loadMachineSecrets,
@@ -278,5 +279,89 @@ describe("loadMachineSecrets", () => {
 
     const secrets = loadMachineSecrets(dir, ["FROM_FILE", "FROM_ENV"]);
     expect(secrets).toEqual({ FROM_FILE: "file-val", FROM_ENV: "env-val" });
+  });
+});
+
+// ─── applyAgentCiEnv ─────────────────────────────────────────────────────────
+
+describe("applyAgentCiEnv", () => {
+  let tmpDir: string;
+  const savedEnv: Record<string, string | undefined> = {};
+
+  function saveEnv(...keys: string[]) {
+    for (const k of keys) {
+      savedEnv[k] = process.env[k];
+    }
+  }
+
+  afterEach(() => {
+    if (tmpDir) {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+    for (const [k, v] of Object.entries(savedEnv)) {
+      if (v === undefined) {
+        delete process.env[k];
+      } else {
+        process.env[k] = v;
+      }
+    }
+    for (const k of Object.keys(savedEnv)) {
+      delete savedEnv[k];
+    }
+  });
+
+  function writeEnvFile(content: string): string {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "agent-ci-env-"));
+    fs.writeFileSync(path.join(tmpDir, ".env.agent-ci"), content);
+    return tmpDir;
+  }
+
+  it("does nothing when .env.agent-ci is missing", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "agent-ci-env-"));
+    tmpDir = dir;
+    saveEnv("AGENT_CI_DOCKER_HOST");
+    delete process.env.AGENT_CI_DOCKER_HOST;
+
+    applyAgentCiEnv(dir);
+
+    expect(process.env.AGENT_CI_DOCKER_HOST).toBeUndefined();
+  });
+
+  it("copies AGENT_CI_* keys from file into process.env", () => {
+    const dir = writeEnvFile(
+      "AGENT_CI_DOCKER_HOST=unix:///tmp/foo.sock\nAGENT_CI_DTU_HOST=10.0.0.1\n",
+    );
+    saveEnv("AGENT_CI_DOCKER_HOST", "AGENT_CI_DTU_HOST");
+    delete process.env.AGENT_CI_DOCKER_HOST;
+    delete process.env.AGENT_CI_DTU_HOST;
+
+    applyAgentCiEnv(dir);
+
+    expect(process.env.AGENT_CI_DOCKER_HOST).toBe("unix:///tmp/foo.sock");
+    expect(process.env.AGENT_CI_DTU_HOST).toBe("10.0.0.1");
+  });
+
+  it("does not overwrite values already set in process.env", () => {
+    const dir = writeEnvFile("AGENT_CI_DOCKER_HOST=from-file\n");
+    saveEnv("AGENT_CI_DOCKER_HOST");
+    process.env.AGENT_CI_DOCKER_HOST = "from-shell";
+
+    applyAgentCiEnv(dir);
+
+    expect(process.env.AGENT_CI_DOCKER_HOST).toBe("from-shell");
+  });
+
+  it("ignores keys that do not start with AGENT_CI_", () => {
+    const dir = writeEnvFile("MY_TOKEN=secret\nFOO=bar\nAGENT_CI_X=y\n");
+    saveEnv("MY_TOKEN", "FOO", "AGENT_CI_X");
+    delete process.env.MY_TOKEN;
+    delete process.env.FOO;
+    delete process.env.AGENT_CI_X;
+
+    applyAgentCiEnv(dir);
+
+    expect(process.env.MY_TOKEN).toBeUndefined();
+    expect(process.env.FOO).toBeUndefined();
+    expect(process.env.AGENT_CI_X).toBe("y");
   });
 });

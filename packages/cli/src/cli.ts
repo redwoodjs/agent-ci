@@ -2,7 +2,7 @@
 import { execSync } from "child_process";
 import path from "path";
 import fs from "fs";
-import { config, loadMachineSecrets, resolveRepoSlug } from "./config.js";
+import { applyAgentCiEnv, config, loadMachineSecrets, resolveRepoSlug } from "./config.js";
 import { getNextLogNum } from "./output/logger.js";
 import {
   setWorkingDirectory,
@@ -87,6 +87,24 @@ function findSignalsDir(runnerName: string): string | null {
 }
 
 async function run() {
+  // Bootstrap: `.env.agent-ci` (AGENT_CI_* keys only) → process.env, shell wins.
+  applyAgentCiEnv(resolveRepoRoot());
+
+  // DOCKER_HOST was removed in favor of AGENT_CI_DOCKER_HOST so that the value
+  // can live in .env.agent-ci without colliding with the shell's expectation
+  // that DOCKER_HOST points at the real Docker daemon.
+  if (process.env.DOCKER_HOST) {
+    console.error(
+      "[Agent CI] Error: DOCKER_HOST is no longer supported.\n" +
+        "  Rename it to AGENT_CI_DOCKER_HOST (shell env or .env.agent-ci).",
+    );
+    process.exit(1);
+  }
+  if (process.env.AGENT_CI_DOCKER_HOST) {
+    // Forward to DOCKER_HOST so dockerode's default client picks it up.
+    process.env.DOCKER_HOST = process.env.AGENT_CI_DOCKER_HOST;
+  }
+
   const args = process.argv.slice(2);
   const command = args[0];
 

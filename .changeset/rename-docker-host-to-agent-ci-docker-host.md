@@ -1,6 +1,6 @@
 ---
-"@redwoodjs/agent-ci": major
-"dtu-github-actions": major
+"@redwoodjs/agent-ci": minor
+"dtu-github-actions": minor
 ---
 
 Rename `DOCKER_HOST` to `AGENT_CI_DOCKER_HOST` and load `AGENT_CI_*` vars from `.env.agent-ci`.

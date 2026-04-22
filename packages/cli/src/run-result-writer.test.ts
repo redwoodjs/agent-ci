@@ -19,7 +19,7 @@ function job(overrides: Partial<JobResult> = {}): JobResult {
     taskId: "task",
     succeeded: true,
     durationMs: 1000,
-    debugLogPath: "/dev/null",
+    debugLogPath: "/tmp/agent-ci-missing-debug.log",
     ...overrides,
   };
 }
@@ -127,6 +127,101 @@ describe("buildRunResultJson", () => {
   it("omits failingStep when none is set", () => {
     const out = buildRunResultJson({ ...base, results: [job({ succeeded: false })] });
     expect(out.jobs[0]).not.toHaveProperty("failingStep");
+  });
+
+  it("emits steps[] with per-step logPath when the file exists", () => {
+    const logDir = fs.mkdtempSync(path.join(os.tmpdir(), "agent-ci-logs-"));
+    try {
+      const stepsDir = path.join(logDir, "steps");
+      fs.mkdirSync(stepsDir, { recursive: true });
+      const setupLog = path.join(stepsDir, "Setup.log");
+      const buildLog = path.join(stepsDir, "Build.log");
+      fs.writeFileSync(setupLog, "ok\n");
+      fs.writeFileSync(buildLog, "boom\n");
+
+      const out = buildRunResultJson({
+        ...base,
+        results: [
+          job({
+            steps: [
+              { name: "Setup", status: "passed", logPath: setupLog },
+              { name: "Build", status: "failed", logPath: buildLog },
+              { name: "Deploy", status: "skipped" },
+            ],
+          }),
+        ],
+      });
+
+      expect(out.jobs[0].steps).toEqual([
+        { name: "Setup", status: "passed", logPath: setupLog },
+        { name: "Build", status: "failed", logPath: buildLog },
+        { name: "Deploy", status: "skipped" },
+      ]);
+    } finally {
+      fs.rmSync(logDir, { recursive: true, force: true });
+    }
+  });
+
+  it("drops step logPath when the file has been cleaned up", () => {
+    const out = buildRunResultJson({
+      ...base,
+      results: [
+        job({
+          steps: [{ name: "Setup", status: "passed", logPath: "/tmp/definitely-missing.log" }],
+        }),
+      ],
+    });
+    expect(out.jobs[0].steps).toEqual([{ name: "Setup", status: "passed" }]);
+  });
+
+  it("includes debugLogPath and failingStepLogPath when files exist", () => {
+    const logDir = fs.mkdtempSync(path.join(os.tmpdir(), "agent-ci-logs-"));
+    try {
+      const debugLog = path.join(logDir, "debug.log");
+      const failingLog = path.join(logDir, "steps", "Build.log");
+      fs.mkdirSync(path.dirname(failingLog), { recursive: true });
+      fs.writeFileSync(debugLog, "");
+      fs.writeFileSync(failingLog, "");
+
+      const out = buildRunResultJson({
+        ...base,
+        results: [
+          job({
+            succeeded: false,
+            debugLogPath: debugLog,
+            failedStep: "Build",
+            failedStepLogPath: failingLog,
+          }),
+        ],
+      });
+
+      expect(out.jobs[0].debugLogPath).toBe(debugLog);
+      expect(out.jobs[0].failingStepLogPath).toBe(failingLog);
+    } finally {
+      fs.rmSync(logDir, { recursive: true, force: true });
+    }
+  });
+
+  it("omits debugLogPath and failingStepLogPath when files are gone", () => {
+    const out = buildRunResultJson({
+      ...base,
+      results: [
+        job({
+          succeeded: false,
+          debugLogPath: "/tmp/gone/debug.log",
+          failedStep: "Build",
+          failedStepLogPath: "/tmp/gone/steps/Build.log",
+        }),
+      ],
+    });
+    expect(out.jobs[0]).not.toHaveProperty("debugLogPath");
+    expect(out.jobs[0]).not.toHaveProperty("failingStepLogPath");
+    expect(out.jobs[0].failingStep).toBe("Build");
+  });
+
+  it("omits steps when the job has none", () => {
+    const out = buildRunResultJson({ ...base, results: [job()] });
+    expect(out.jobs[0]).not.toHaveProperty("steps");
   });
 });
 

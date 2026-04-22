@@ -6,12 +6,24 @@ import type { JobResult } from "./output/reporter.js";
 
 export const RUN_RESULT_SCHEMA_VERSION = 1;
 
+export interface RunResultStepEntry {
+  name: string;
+  status: "passed" | "failed" | "skipped";
+  /** Only present when the per-step log file still exists at write time. */
+  logPath?: string;
+}
+
 export interface RunResultJobEntry {
   name: string;
   workflow: string;
   status: "passed" | "failed";
   durationMs: number;
   failingStep?: string;
+  /** Only present when the on-disk file still exists at write time. */
+  failingStepLogPath?: string;
+  /** Only present when the on-disk file still exists at write time. */
+  debugLogPath?: string;
+  steps?: RunResultStepEntry[];
 }
 
 export interface RunResultFile {
@@ -89,14 +101,49 @@ export function resolveRunResultPath(
   );
 }
 
+/** Include a file path only when the file is still on disk — passing-job logs get cleaned up. */
+function pathIfExists(p: string | undefined): string | undefined {
+  if (!p) {
+    return undefined;
+  }
+  try {
+    return fs.existsSync(p) ? p : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export function buildRunResultJson(input: RunResultInput): RunResultFile {
-  const jobs: RunResultJobEntry[] = input.results.map((r) => ({
-    name: r.name,
-    workflow: r.workflow,
-    status: r.succeeded ? "passed" : "failed",
-    durationMs: r.durationMs,
-    ...(r.failedStep ? { failingStep: r.failedStep } : {}),
-  }));
+  const jobs: RunResultJobEntry[] = input.results.map((r) => {
+    const entry: RunResultJobEntry = {
+      name: r.name,
+      workflow: r.workflow,
+      status: r.succeeded ? "passed" : "failed",
+      durationMs: r.durationMs,
+    };
+    const debugLogPath = pathIfExists(r.debugLogPath);
+    if (debugLogPath) {
+      entry.debugLogPath = debugLogPath;
+    }
+    if (r.failedStep) {
+      entry.failingStep = r.failedStep;
+    }
+    const failingStepLogPath = pathIfExists(r.failedStepLogPath);
+    if (failingStepLogPath) {
+      entry.failingStepLogPath = failingStepLogPath;
+    }
+    if (r.steps && r.steps.length > 0) {
+      entry.steps = r.steps.map((s) => {
+        const step: RunResultStepEntry = { name: s.name, status: s.status };
+        const logPath = pathIfExists(s.logPath);
+        if (logPath) {
+          step.logPath = logPath;
+        }
+        return step;
+      });
+    }
+    return entry;
+  });
   const status: "passed" | "failed" = input.results.every((r) => r.succeeded) ? "passed" : "failed";
   return {
     schemaVersion: RUN_RESULT_SCHEMA_VERSION,

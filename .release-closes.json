@@ -1,22 +1,12 @@
 [
   {
-    "issue": 290,
-    "pr": 305,
-    "changeset": "defaults-run-working-directory.md"
+    "issue": 308,
+    "pr": null,
+    "changeset": "rename-docker-host-to-agent-ci-docker-host.md"
   },
   {
-    "issue": 294,
-    "pr": 305,
-    "changeset": "hashfiles-dotted-dirs.md"
-  },
-  {
-    "issue": 293,
-    "pr": 305,
-    "changeset": "shell-defaults.md"
-  },
-  {
-    "issue": 295,
-    "pr": 305,
-    "changeset": "steps-outputs-empty.md"
+    "issue": 288,
+    "pr": null,
+    "changeset": "tmux-pane-run-state.md"
   }
 ]

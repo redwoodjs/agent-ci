@@ -1,5 +1,31 @@
 # @redwoodjs/agent-ci
 
+## 0.13.0
+
+### Minor Changes
+
+- 77ea148: Rename `DOCKER_HOST` to `AGENT_CI_DOCKER_HOST` and load `AGENT_CI_*` vars from `.env.agent-ci`.
+
+  **Breaking:** agent-ci no longer honours the standard `DOCKER_HOST` env var. If it is set in the shell, agent-ci exits immediately with an error asking you to rename it. Rename it in your shell (or move it to `.env.agent-ci`) as `AGENT_CI_DOCKER_HOST`. This avoids the long-standing collision where users wanted agent-ci to target one daemon (e.g. a Lima/OrbStack VM) while their shell's `docker` CLI targeted another.
+
+  **New:** `AGENT_CI_*`-prefixed keys in `.env.agent-ci` are now loaded into the CLI process environment at startup, so Docker/network configuration (e.g. `AGENT_CI_DOCKER_HOST`, `AGENT_CI_DTU_HOST`, `AGENT_CI_DOCKER_EXTRA_HOSTS`) no longer has to be exported in the shell. Shell env vars still take precedence over `.env.agent-ci`. Non-prefixed keys in the file remain workflow secrets (`${{ secrets.FOO }}`) as before.
+
+  Refs #308.
+
+- 3212927: Persist the latest run result per worktree to `$AGENT_CI_STATE_DIR` (or OS-default state dir) as JSON, so external consumers (tmux panes, status bars, editor integrations) can read the current branch's CI status without re-running the tool or scraping human output.
+
+  The file is written atomically after every `agent-ci run` / `agent-ci run --all` and keyed by `<branch>.<worktree-hash>.json` under `<org>/<repo>/`, so two worktrees on the same branch don't stomp each other. Each job entry carries the full step list with per-step `logPath`, plus `debugLogPath` for the whole job. Paths are only included when the file still exists at write time. Includes `headSha` so consumers can detect stale results themselves.
+
+  Refs #288
+
+### Patch Changes
+
+- f5f7dbd: Fix: honor step-level `if:` conditions. Previously every step ran regardless of its `if:` clause, because `parseWorkflowSteps` never extracted `step.if` from the workflow, and the server fell back to `condition: "success()"` for every step. Now the condition is forwarded to the runner's EvaluateStepIf, so gates like `if: contains(runner.name, 'blacksmith')`, `if: always()`, and `if: ${{ false }}` behave as they do on real GitHub Actions.
+- Updated dependencies [77ea148]
+- Updated dependencies [f5f7dbd]
+- Updated dependencies [3212927]
+  - dtu-github-actions@0.13.0
+
 ## 0.12.4
 
 ### Patch Changes

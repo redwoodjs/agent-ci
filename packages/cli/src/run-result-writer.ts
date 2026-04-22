@@ -20,8 +20,6 @@ export interface RunResultJobEntry {
   durationMs: number;
   failingStep?: string;
   /** Only present when the on-disk file still exists at write time. */
-  failingStepLogPath?: string;
-  /** Only present when the on-disk file still exists at write time. */
   debugLogPath?: string;
   steps?: RunResultStepEntry[];
 }
@@ -127,10 +125,6 @@ export function buildRunResultJson(input: RunResultInput): RunResultFile {
     }
     if (r.failedStep) {
       entry.failingStep = r.failedStep;
-    }
-    const failingStepLogPath = pathIfExists(r.failedStepLogPath);
-    if (failingStepLogPath) {
-      entry.failingStepLogPath = failingStepLogPath;
     }
     if (r.steps && r.steps.length > 0) {
       entry.steps = r.steps.map((s) => {

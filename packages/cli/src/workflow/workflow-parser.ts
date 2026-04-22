@@ -1055,6 +1055,7 @@ export async function parseWorkflowSteps(
         if (workingDirectory) {
           inputs.workingDirectory = workingDirectory;
         }
+        const condition = parseStepIf(rawStep.if);
         return {
           Type: "Action",
           Name: stepName,
@@ -1077,6 +1078,7 @@ export async function parseWorkflowSteps(
             vars,
             runnerContext,
           ),
+          ...(condition !== undefined ? { condition } : {}),
         };
       } else if ("uses" in step) {
         // Basic support for 'uses' steps
@@ -1094,6 +1096,7 @@ export async function parseWorkflowSteps(
 
         const isCheckout = !isLocalAction && name.trim().toLowerCase() === "actions/checkout";
         const stepWith = rawStep.with || {};
+        const condition = parseStepIf(rawStep.if);
 
         return {
           Type: "Action",
@@ -1185,6 +1188,7 @@ export async function parseWorkflowSteps(
             vars,
             runnerContext,
           ),
+          ...(condition !== undefined ? { condition } : {}),
         };
       }
       return null;
@@ -1541,6 +1545,32 @@ export function parseJobIf(filePath: string, jobId: string): string | null {
   const wrapped = expr.match(/^\$\{\{\s*([\s\S]*?)\s*\}\}$/);
   if (wrapped) {
     expr = wrapped[1];
+  }
+  return expr;
+}
+
+/**
+ * Normalize a step-level `if:` value into a condition string for the runner's
+ * EvaluateStepIf. Accepts the raw YAML value (may be string, boolean, null).
+ * Strips a surrounding `${{ }}` wrapper so the runner sees a bare expression,
+ * matching the format it uses for the default `success()`.
+ * Returns undefined when no condition should be forwarded (the server then
+ * defaults to `success()`).
+ */
+export function parseStepIf(rawIf: unknown): string | undefined {
+  if (rawIf === undefined || rawIf === null) {
+    return undefined;
+  }
+  let expr = String(rawIf).trim();
+  if (expr === "") {
+    return undefined;
+  }
+  const wrapped = expr.match(/^\$\{\{\s*([\s\S]*?)\s*\}\}$/);
+  if (wrapped) {
+    expr = wrapped[1].trim();
+    if (expr === "") {
+      return undefined;
+    }
   }
   return expr;
 }

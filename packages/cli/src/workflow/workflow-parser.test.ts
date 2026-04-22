@@ -1318,7 +1318,7 @@ describe("expandExpressions real-world patterns", () => {
 
 // ─── Job-level if conditions ──────────────────────────────────────────────────
 
-import { evaluateJobIf, parseJobIf } from "./workflow-parser.js";
+import { evaluateJobIf, parseJobIf, parseStepIf } from "./workflow-parser.js";
 
 describe("parseJobIf", () => {
   let tmpDir: string;
@@ -1375,6 +1375,48 @@ jobs:
       - run: echo ok
 `);
     expect(parseJobIf(filePath, "check")).toBe("always()");
+  });
+});
+
+describe("parseStepIf", () => {
+  it("returns undefined for null or undefined", () => {
+    expect(parseStepIf(undefined)).toBeUndefined();
+    expect(parseStepIf(null)).toBeUndefined();
+  });
+
+  it("returns undefined for an empty string", () => {
+    expect(parseStepIf("")).toBeUndefined();
+    expect(parseStepIf("   ")).toBeUndefined();
+  });
+
+  it("returns a naked expression unchanged", () => {
+    expect(parseStepIf("contains(runner.name, 'blacksmith')")).toBe(
+      "contains(runner.name, 'blacksmith')",
+    );
+    expect(parseStepIf("always()")).toBe("always()");
+  });
+
+  it("strips a ${{ }} wrapper", () => {
+    expect(parseStepIf("${{ contains(runner.name, 'blacksmith') }}")).toBe(
+      "contains(runner.name, 'blacksmith')",
+    );
+    expect(parseStepIf("${{ !contains(runner.name, 'blacksmith') }}")).toBe(
+      "!contains(runner.name, 'blacksmith')",
+    );
+  });
+
+  it("coerces boolean YAML values to string", () => {
+    expect(parseStepIf(true)).toBe("true");
+    expect(parseStepIf(false)).toBe("false");
+  });
+
+  it("trims whitespace inside and outside the wrapper", () => {
+    expect(parseStepIf("   always()   ")).toBe("always()");
+    expect(parseStepIf("${{   always()   }}")).toBe("always()");
+  });
+
+  it("returns undefined when the wrapper contains only whitespace", () => {
+    expect(parseStepIf("${{  }}")).toBeUndefined();
   });
 });
 
@@ -1580,6 +1622,46 @@ jobs:
     const steps = await parseWorkflowSteps(filePath, "test", undefined, undefined, needsCtx);
 
     expect((steps[0] as any).Name).toBe("Shard 3");
+  });
+
+  it("forwards step-level if: conditions as step.condition", async () => {
+    const filePath = writeWorkflowTree(`
+name: Step If Test
+on: [push]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: no-if
+        run: echo one
+      - name: naked
+        if: contains(runner.name, 'blacksmith')
+        run: echo two
+      - name: wrapped
+        if: \${{ !contains(runner.name, 'blacksmith') }}
+        run: echo three
+      - name: always
+        if: always()
+        run: echo four
+      - name: false-literal
+        if: \${{ false }}
+        run: echo five
+      - name: uses-with-if
+        if: \${{ runner.os == 'Linux' }}
+        uses: actions/checkout@v4
+`);
+    const steps = await parseWorkflowSteps(filePath, "test");
+    const conds = steps.map((s: any) => s.condition);
+    // no-if → undefined (server defaults to success())
+    expect(conds[0]).toBeUndefined();
+    // naked expression passes through unchanged
+    expect(conds[1]).toBe("contains(runner.name, 'blacksmith')");
+    // ${{ }} wrapper is stripped
+    expect(conds[2]).toBe("!contains(runner.name, 'blacksmith')");
+    expect(conds[3]).toBe("always()");
+    expect(conds[4]).toBe("false");
+    // applies to `uses` steps too
+    expect(conds[5]).toBe("runner.os == 'Linux'");
   });
 });
 

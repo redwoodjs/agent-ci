@@ -1,0 +1,57 @@
+name: "Smoke: step-level if: conditions"
+
+# Proves that the step-level `if:` field is honored by the runner:
+# skipped steps don't execute their `run:` script, and truthy gates do.
+#
+# Strategy: each "should be skipped" step runs `exit 1`. If the gate
+# leaks, the job fails. A terminal step asserts the expected files are
+# present (written by "should run" steps) and the forbidden ones absent.
+
+on:
+  pull_request_target:
+    types: [opened, labeled, synchronize]
+
+jobs:
+  step-if:
+    if: '!github.event.pull_request.draft && (contains(fromJSON(''["MEMBER", "OWNER", "COLLABORATOR"]''), github.event.pull_request.author_association) || contains(github.event.pull_request.labels.*.name, ''safe-to-run''))'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Skipped by naked false expression
+        if: contains(runner.name, 'this-substring-will-never-match-xyzzy')
+        run: |
+          echo "❌ naked-contains gate leaked" > /tmp/leak-naked
+          exit 1
+
+      - name: Skipped by wrapped false expression
+        if: ${{ contains(runner.name, 'this-substring-will-never-match-xyzzy') }}
+        run: |
+          echo "❌ wrapped-contains gate leaked" > /tmp/leak-wrapped
+          exit 1
+
+      - name: Skipped by literal false
+        if: ${{ false }}
+        run: |
+          echo "❌ literal-false gate leaked" > /tmp/leak-literal
+          exit 1
+
+      - name: Runs under always()
+        if: always()
+        run: echo "ran" > /tmp/ran-always
+
+      - name: Runs under literal true
+        if: ${{ true }}
+        run: echo "ran" > /tmp/ran-true
+
+      - name: Runs under negation of a matching contains()
+        if: ${{ !contains(runner.name, 'this-substring-will-never-match-xyzzy') }}
+        run: echo "ran" > /tmp/ran-negation
+
+      - name: Assert expected skip/run outcomes
+        run: |
+          for f in /tmp/leak-naked /tmp/leak-wrapped /tmp/leak-literal; do
+            [ ! -e "$f" ] || { echo "❌ $f exists — a gated step leaked"; exit 1; }
+          done
+          for f in /tmp/ran-always /tmp/ran-true /tmp/ran-negation; do
+            [ -e "$f" ] || { echo "❌ $f missing — a truthy gate was not honored"; exit 1; }
+          done
+          echo "✅ all step-if gates behaved as expected"

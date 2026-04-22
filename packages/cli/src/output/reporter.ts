@@ -5,6 +5,8 @@ import fs from "fs";
 export interface StepResult {
   name: string;
   status: "passed" | "failed" | "skipped";
+  /** Absolute path to `<logDir>/steps/<id>.log`. File is deleted after passing runs. */
+  logPath?: string;
 }
 
 export interface JobResult {

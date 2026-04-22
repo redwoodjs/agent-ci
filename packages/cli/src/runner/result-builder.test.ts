@@ -58,6 +58,42 @@ describe("parseTimelineSteps", () => {
     expect(steps).toHaveLength(1);
     expect(steps[0].name).toBe("Build");
   });
+
+  it("attaches per-step logPath when logDir is given and the file exists", async () => {
+    const { parseTimelineSteps } = await import("./result-builder.js");
+    const stepsDir = path.join(tmpDir, "steps");
+    fs.mkdirSync(stepsDir, { recursive: true });
+    // Sanitized name match
+    fs.writeFileSync(path.join(stepsDir, "Run-tests.log"), "a");
+    // Record-id fallback
+    fs.writeFileSync(path.join(stepsDir, "uuid-build.log"), "b");
+
+    const timelinePath = path.join(tmpDir, "timeline.json");
+    fs.writeFileSync(
+      timelinePath,
+      JSON.stringify([
+        { type: "Task", name: "Run tests", result: "Succeeded" },
+        { type: "Task", name: "Build", result: "Failed", id: "uuid-build" },
+        { type: "Task", name: "Deploy", result: "Skipped" },
+      ]),
+    );
+
+    const steps = parseTimelineSteps(timelinePath, tmpDir);
+    expect(steps[0].logPath).toBe(path.join(stepsDir, "Run-tests.log"));
+    expect(steps[1].logPath).toBe(path.join(stepsDir, "uuid-build.log"));
+    expect(steps[2].logPath).toBeUndefined();
+  });
+
+  it("leaves logPath undefined when logDir is omitted", async () => {
+    const { parseTimelineSteps } = await import("./result-builder.js");
+    const timelinePath = path.join(tmpDir, "timeline.json");
+    fs.writeFileSync(
+      timelinePath,
+      JSON.stringify([{ type: "Task", name: "Build", result: "Succeeded" }]),
+    );
+    const steps = parseTimelineSteps(timelinePath);
+    expect(steps[0].logPath).toBeUndefined();
+  });
 });
 
 // ── sanitizeStepName ──────────────────────────────────────────────────────────

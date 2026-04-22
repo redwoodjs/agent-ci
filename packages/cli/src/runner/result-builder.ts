@@ -11,28 +11,50 @@ import {
 
 /**
  * Read `timeline.json` and map task records into `StepResult[]`.
+ *
+ * When `logDir` is provided, attach `logPath` to each step by locating the
+ * step's log under `<logDir>/steps/`. The DTU keys per-step log files by one
+ * of: sanitized step name, record id, or log id — we try all three and use
+ * the first that exists on disk. Passing-run log directories get cleaned up
+ * after the run, so `logPath` is only set when the file is present.
  */
-export function parseTimelineSteps(timelinePath: string): StepResult[] {
+export function parseTimelineSteps(timelinePath: string, logDir?: string): StepResult[] {
   try {
     if (!fs.existsSync(timelinePath)) {
       return [];
     }
     const records: any[] = JSON.parse(fs.readFileSync(timelinePath, "utf-8"));
+    const stepsDir = logDir ? path.join(logDir, "steps") : null;
     return records
       .filter((r: any) => r.type === "Task" && r.name)
-      .map((r: any) => ({
-        name: r.name,
-        status:
-          r.result === "Succeeded" || r.result === "succeeded"
-            ? ("passed" as const)
-            : r.result === "Failed" || r.result === "failed"
-              ? ("failed" as const)
-              : r.result === "Skipped" || r.result === "skipped"
-                ? ("skipped" as const)
-                : r.state === "completed"
-                  ? ("passed" as const)
-                  : ("skipped" as const),
-      }));
+      .map((r: any) => {
+        const step: StepResult = {
+          name: r.name,
+          status:
+            r.result === "Succeeded" || r.result === "succeeded"
+              ? ("passed" as const)
+              : r.result === "Failed" || r.result === "failed"
+                ? ("failed" as const)
+                : r.result === "Skipped" || r.result === "skipped"
+                  ? ("skipped" as const)
+                  : r.state === "completed"
+                    ? ("passed" as const)
+                    : ("skipped" as const),
+        };
+        if (stepsDir) {
+          for (const id of [sanitizeStepName(r.name), r.id, r.log?.id]) {
+            if (!id) {
+              continue;
+            }
+            const candidate = path.join(stepsDir, `${id}.log`);
+            if (fs.existsSync(candidate)) {
+              step.logPath = candidate;
+              break;
+            }
+          }
+        }
+        return step;
+      });
   } catch {
     return [];
   }
@@ -290,7 +312,7 @@ export function buildJobResult(opts: BuildJobResultOpts): JobResult {
     stepOutputs,
   } = opts;
 
-  const steps = parseTimelineSteps(timelinePath);
+  const steps = parseTimelineSteps(timelinePath, logDir);
   const result: JobResult = {
     name: containerName,
     workflow: job.workflowPath ? path.basename(job.workflowPath) : "unknown",

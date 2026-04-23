@@ -1,0 +1,13 @@
+{
+  "name": "skill-evals",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "eval": "node run.mjs",
+    "rescore": "node rescore.mjs"
+  },
+  "dependencies": {
+    "execa": "^9.5.1",
+    "yaml": "^2.6.1"
+  }
+}

@@ -1,0 +1,5 @@
+# Eval outputs — regenerated every `pnpm eval` / `pnpm rescore`.
+scorecard.json
+scorecard.md
+scorecard-replay.json
+scorecard-replay.md

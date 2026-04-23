@@ -1,0 +1,13 @@
+name: "Smoke: smolvm checkout"
+
+on: [workflow_dispatch]
+
+jobs:
+  checkout-only:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Show files
+        run: ls -la
+      - name: Show package.json head
+        run: head -20 package.json

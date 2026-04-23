@@ -15,6 +15,8 @@ import type Docker from "dockerode";
 import { executeLocalJob, getDocker } from "./runner/local-job.js";
 import { executeMacosVmJob } from "./runner/macos-vm/macos-vm-job.js";
 import { checkMacosVmHost } from "./runner/macos-vm/host-capability.js";
+import { executeSmolvmJob } from "./runner/smolvm/smolvm-job.js";
+import { checkSmolvmHost } from "./runner/smolvm/host-capability.js";
 import {
   discoverRunnerImage,
   ensureRunnerImage,
@@ -975,11 +977,23 @@ async function handleWorkflow(options: {
   });
   const warnedUnsupportedOS = new Set<string>();
   const macosVmHost = checkMacosVmHost();
+  const smolvmBackendRequested = (process.env.AGENT_CI_BACKEND || "").toLowerCase() === "smolvm";
+  const smolvmHost = smolvmBackendRequested
+    ? checkSmolvmHost()
+    : { supported: false as const, reason: "" };
+  if (smolvmBackendRequested && !smolvmHost.supported) {
+    process.stderr.write(
+      `\nwarning: AGENT_CI_BACKEND=smolvm requested but host is unsupported: ${smolvmHost.reason}\n` +
+        `         Falling back to Docker for Linux jobs.\n\n`,
+    );
+  }
   const classifyJob = (ej: ExpandedJob) => {
     const labels = parseJobRunsOn(ej.workflowPath, ej.sourceTaskName ?? ej.taskName);
     return { labels, kind: classifyRunsOn(labels) };
   };
   const canRunMacosHere = (kind: RunnerOSKind) => kind === "macos" && macosVmHost.supported;
+  const canRunSmolvmHere = (kind: RunnerOSKind) =>
+    smolvmBackendRequested && smolvmHost.supported && (kind === "linux" || kind === "other");
   const maybeSkipUnsupportedOS = (ej: ExpandedJob): JobResult | null => {
     const { labels, kind } = classifyJob(ej);
     if (!isUnsupportedOS(kind) || canRunMacosHere(kind)) {
@@ -997,8 +1011,12 @@ async function handleWorkflow(options: {
   // Returns the executor for a job. Callers have already filtered out
   // OS-skipped jobs via maybeSkipUnsupportedOS.
   const runJobExecutor = (ej: ExpandedJob, job: Job): Promise<JobResult> => {
-    if (canRunMacosHere(classifyJob(ej).kind)) {
+    const kind = classifyJob(ej).kind;
+    if (canRunMacosHere(kind)) {
       return executeMacosVmJob(job);
+    }
+    if (canRunSmolvmHere(kind)) {
+      return executeSmolvmJob(job);
     }
     return executeLocalJob(job, { pauseOnFailure, store });
   };

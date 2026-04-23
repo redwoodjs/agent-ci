@@ -1,0 +1,4 @@
+# Fixture repos under experiments/ are deliberately broken test artifacts
+# (syntax errors, style violations, etc.) used to measure LLM-agent behavior.
+# Formatting them defeats their purpose.
+experiments/skill-evals/fixtures/**

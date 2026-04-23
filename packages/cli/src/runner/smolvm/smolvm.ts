@@ -10,7 +10,7 @@ import { spawn, type ChildProcess, type SpawnOptions } from "node:child_process"
 // We need persistent VMs so we can exec into them across the job lifecycle,
 // so the high-level `runMachine` below composes create + start.
 //
-// CLI surface verified against smolvm 0.5.19. See:
+// CLI surface verified against smolvm 0.5.20. See:
 //   https://github.com/smol-machines/smolvm
 
 export interface CreateMachineOptions {

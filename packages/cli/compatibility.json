@@ -418,6 +418,11 @@
           "proof": [".github/workflows/smoke-vars-preflight.yml"]
         },
         {
+          "key": "`env.*`",
+          "status": "supported",
+          "notes": "The merged step environment (workflow-level → job-level → step-level, with step taking precedence) is available as `env.*` in `with:` inputs, `run:` scripts, `name:`, and `env:` value expressions. Not yet supported in `if:` conditions (the expression is evaluated by the runner, not the parser). Note: `env.*` references inside an `env:` block (one env var referencing another declared in the same block) are not evaluated — only the already-computed merged value is exposed."
+        },
+        {
           "key": "`inputs.*`",
           "status": "supported",
           "notes": "Reusable-workflow and (nominally) `workflow_dispatch` input values. Inside a called workflow, `inputs.<name>` resolves to the caller's `with:` value or the declared `default:`.",

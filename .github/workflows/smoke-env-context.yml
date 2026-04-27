@@ -1,0 +1,82 @@
+name: "Smoke: env.* context in expressions"
+
+# Exercises `${{ env.* }}` expression expansion (issue #320). Companion to
+# smoke-env-scoping.yml: that one verifies env vars reach the step's runtime
+# shell; this one verifies references to those vars are resolved by the
+# expression evaluator BEFORE the step runs — in `with:` inputs, `run:`
+# scripts, `name:`, and other steps' `env:` value expressions.
+#
+# Without the parser fix these all expanded to the empty string (the original
+# Rails CI repro: `path: ${{ env.CACHE_PATH }}` reached actions/cache as "").
+
+on:
+  pull_request_target:
+    types: [opened, labeled, synchronize]
+
+env:
+  WORKFLOW_KEY: workflow-val
+  SHARED: from-workflow
+
+jobs:
+  env-context:
+    if: '!github.event.pull_request.draft && (contains(fromJSON(''["MEMBER", "OWNER", "COLLABORATOR"]''), github.event.pull_request.author_association) || contains(github.event.pull_request.labels.*.name, ''safe-to-run''))'
+    runs-on: ubuntu-latest
+    env:
+      JOB_KEY: job-val
+      SHARED: from-job
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: env.* in `with:` resolves workflow-level value
+        uses: ./.github/actions/smoke-local-action
+        with:
+          tag: ${{ env.WORKFLOW_KEY }}
+      - name: Assert workflow-level env reached the action's `with:` input
+        run: |
+          got=$(cat /tmp/agent-ci-smoke-local-action 2>/dev/null || echo MISSING)
+          [ "$got" = "tag=workflow-val" ] || { echo "❌ workflow-level: $got"; exit 1; }
+          echo "✅ env.WORKFLOW_KEY expanded in with:"
+
+      - name: env.* in `with:` resolves job-level value
+        uses: ./.github/actions/smoke-local-action
+        with:
+          tag: ${{ env.JOB_KEY }}
+      - name: Assert job-level env reached the action's `with:` input
+        run: |
+          got=$(cat /tmp/agent-ci-smoke-local-action 2>/dev/null || echo MISSING)
+          [ "$got" = "tag=job-val" ] || { echo "❌ job-level: $got"; exit 1; }
+          echo "✅ env.JOB_KEY expanded in with:"
+
+      - name: env.* in `with:` honours step > job > workflow precedence
+        uses: ./.github/actions/smoke-local-action
+        env:
+          SHARED: from-step
+        with:
+          tag: ${{ env.SHARED }}
+      - name: Assert step-level override won precedence
+        run: |
+          got=$(cat /tmp/agent-ci-smoke-local-action 2>/dev/null || echo MISSING)
+          [ "$got" = "tag=from-step" ] || { echo "❌ precedence: $got"; exit 1; }
+          echo "✅ env.SHARED resolved to step-level override"
+
+      - name: env.* expands inside a `run:` script body
+        run: |
+          GOT="${{ env.JOB_KEY }}"
+          [ "$GOT" = "job-val" ] || { echo "❌ run: $GOT"; exit 1; }
+          echo "✅ env.JOB_KEY expanded in run:"
+
+      - name: env.* expands inside another step's `env:` value
+        env:
+          MIRRORED: ${{ env.JOB_KEY }}
+        run: |
+          [ "$MIRRORED" = "job-val" ] || { echo "❌ env-value: $MIRRORED"; exit 1; }
+          echo "✅ env.JOB_KEY expanded in another step's env: value"
+
+      - name: env.* missing key resolves to empty string (matches GitHub)
+        env:
+          MISSING: ${{ env.NEVER_DECLARED }}
+        run: |
+          [ -z "$MISSING" ] || { echo "❌ missing key produced: '$MISSING'"; exit 1; }
+          echo "✅ unknown env.* key → empty string"

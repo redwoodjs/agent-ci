@@ -69,6 +69,14 @@ import { createDiffRenderer } from "./output/diff-renderer.js";
 import { createFailedJobResult, wrapJobError, isJobError } from "./runner/job-result.js";
 import { postCommitStatus } from "./commit-status.js";
 import { writeRunResult } from "./run-result-writer.js";
+import {
+  formatEvent,
+  isDetachedWorker,
+  readDetachedMarker,
+  runDetachedLauncher,
+  shouldLaunchDetached,
+  tailRetryUntilOutcome,
+} from "./launcher.js";
 
 function findSignalsDir(runnerName: string): string | null {
   const workDir = getWorkingDirectory();
@@ -185,6 +193,25 @@ async function run() {
       githubToken = process.env.AGENT_CI_GITHUB_TOKEN;
     }
 
+    // ── Detached-worker dispatch (issue #315) ────────────────────────────────
+    // When --pause-on-failure is set and stdout is a pipe/redirect (and we're
+    // not already inside an agent harness that monitors live output), the CLI
+    // would otherwise hang forever on pause — output buffered until EOF, which
+    // never comes until retry, which the caller can't discover. Hand off to a
+    // launcher that spawns the real run as a detached worker and exits 77 the
+    // moment the worker emits the pause sentinel.
+    if (
+      shouldLaunchDetached({
+        pauseOnFailure,
+        stdoutIsTTY: Boolean(process.stdout.isTTY),
+        agentMode: isAgentMode(),
+        alreadyWorker: isDetachedWorker(),
+      })
+    ) {
+      const { exitCode } = await runDetachedLauncher(args);
+      process.exit(exitCode);
+    }
+
     let workingDir = process.env.AGENT_CI_WORKING_DIR;
     if (workingDir) {
       if (!path.isAbsolute(workingDir)) {
@@ -263,6 +290,7 @@ async function run() {
       }
       persistRunResult({ results, repoRoot, startedAt, sha, branch });
       const anyFailed = results.length === 0 || results.some((r) => !r.succeeded);
+      emitDetachedCompletedSentinel(anyFailed ? "failed" : "passed");
       process.exit(anyFailed ? 1 : 0);
     }
 
@@ -306,10 +334,9 @@ async function run() {
       postCommitStatus(results, sha, githubToken);
     }
     persistRunResult({ results, repoRoot: repoRootFallback, startedAt, sha });
-    if (results.length === 0 || results.some((r) => !r.succeeded)) {
-      process.exit(1);
-    }
-    process.exit(0);
+    const anyFailed = results.length === 0 || results.some((r) => !r.succeeded);
+    emitDetachedCompletedSentinel(anyFailed ? "failed" : "passed");
+    process.exit(anyFailed ? 1 : 0);
   } else if (command === "retry" || command === "abort") {
     let runnerName: string | undefined;
     let fromStep: string | undefined;
@@ -367,9 +394,30 @@ async function run() {
         fs.writeFileSync(path.join(signalsDir, "from-step"), fromStep);
       }
     }
+    // ── Detached-worker tail (issue #315) ───────────────────────────────────
+    // If the original run was launched via the detached launcher, tail the
+    // worker's log starting at the current end-of-file so that a re-failure
+    // surfaces as another exit-77 in the retrying shell — matching the
+    // launcher's behavior on the initial pause. Snapshot the offset BEFORE
+    // writing the signal file so we don't miss a paused/completed sentinel
+    // that the worker emits between the signal write and our first poll.
+    const runDir = path.dirname(signalsDir);
+    const marker = command === "retry" ? readDetachedMarker(runDir) : null;
+    let tailStartOffset = 0;
+    if (marker) {
+      try {
+        tailStartOffset = fs.statSync(marker.workerLogPath).size;
+      } catch {
+        // log missing — fall back to no tail
+      }
+    }
     fs.writeFileSync(path.join(signalsDir, command), "");
     const extra = fromStep ? ` (from step ${fromStep === "*" ? "1" : fromStep})` : "";
     console.log(`[Agent CI] Sent '${command}' signal to ${runnerName}${extra}`);
+    if (marker && command === "retry") {
+      const result = await tailRetryUntilOutcome(marker, tailStartOffset);
+      process.exit(result.exitCode);
+    }
     process.exit(0);
   } else {
     printUsage();
@@ -605,12 +653,46 @@ async function runWorkflows(options: {
   const storeFilePath = path.join(getWorkingDirectory(), "runs", runId, "run-state.json");
   const store = new RunStateStore(runId, storeFilePath);
 
-  // Start the render loop — reads from store, never touches execution logic
-  // In agent mode (AI_AGENT=1 or --quiet), skip animated rendering to avoid token waste
-  // but register a synchronous callback for important state changes.
+  // ── Detached-worker pause sentinel (issue #315) ──────────────────────────
+  // The launcher (parent process) tails our stdout looking for this sentinel.
+  // The instant it sees one, it disowns us and exits 77 — freeing the caller's
+  // pipe/redirect — while we keep running and waiting for retry/abort.
+  // Fire once per (runner, attempt) so retries re-emit on subsequent failures.
+  if (isDetachedWorker()) {
+    const sentinelSent = new Set<string>();
+    store.onUpdate((state) => {
+      for (const wf of state.workflows) {
+        for (const job of wf.jobs) {
+          if (job.status !== "paused") {
+            continue;
+          }
+          const key = `${job.runnerId}:${job.attempt ?? 1}`;
+          if (sentinelSent.has(key)) {
+            continue;
+          }
+          sentinelSent.add(key);
+          process.stdout.write(
+            formatEvent({
+              event: "run.paused",
+              runner: job.runnerId,
+              step: job.pausedAtStep,
+              attempt: job.attempt,
+              workflow: wf.id,
+              retry_cmd: `agent-ci retry --name ${job.runnerId}`,
+            }) + "\n",
+          );
+        }
+      }
+    });
+  }
+
+  // Start the render loop — reads from store, never touches execution logic.
+  // In agent mode (AI_AGENT=1 or --quiet), or when running as a detached worker
+  // (whose stdout is a log file, not a terminal), skip animated rendering and
+  // register a synchronous callback that emits structured lines instead.
   let renderInterval: ReturnType<typeof setInterval> | null = null;
   let renderer: ReturnType<typeof createDiffRenderer> | null = null;
-  if (isAgentMode()) {
+  if (isAgentMode() || isDetachedWorker()) {
     const reportedPauses = new Set<string>();
     const reportedSteps = new Map<string, Set<string>>();
     const emit = (msg: string) => process.stderr.write(msg + "\n");
@@ -1561,6 +1643,18 @@ function resolveHeadSha(repoRoot: string, sha: string) {
   } catch {
     throw new Error(`Failed to resolve ref: ${sha}`);
   }
+}
+
+/**
+ * When running as a detached worker, emit a final `run.completed` NDJSON event
+ * so a sibling `agent-ci retry` (which is tailing this log) can decide whether
+ * to exit 0 (passed) or 1 (failed). No-op in normal interactive runs.
+ */
+function emitDetachedCompletedSentinel(status: "passed" | "failed"): void {
+  if (!isDetachedWorker()) {
+    return;
+  }
+  process.stdout.write(formatEvent({ event: "run.completed", status }) + "\n");
 }
 
 function persistRunResult(opts: {

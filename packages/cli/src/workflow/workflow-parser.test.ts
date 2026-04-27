@@ -1179,6 +1179,63 @@ describe("expandExpressions with needsContext", () => {
   });
 });
 
+// ─── expandExpressions with envContext ───────────────────────────────────────
+
+describe("expandExpressions with envContext", () => {
+  it("expands env.* from provided envContext", () => {
+    expect(
+      expandExpressions(
+        "path=${{ env.CACHE_PATH }}",
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        { CACHE_PATH: "tmp/cache" },
+      ),
+    ).toBe("path=tmp/cache");
+  });
+
+  it("expands env.* to empty string when envContext is not provided", () => {
+    expect(expandExpressions("${{ env.MISSING }}")).toBe("");
+  });
+
+  it("expands env.* to empty string when key is absent from envContext", () => {
+    expect(
+      expandExpressions(
+        "${{ env.MISSING }}",
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        { OTHER: "val" },
+      ),
+    ).toBe("");
+  });
+
+  it("expands multiple env.* vars in a cache key expression", () => {
+    const env = { RUBOCOP_CACHE_ROOT: "tmp/rubocop", DEPENDENCIES_HASH: "abc123" };
+    expect(
+      expandExpressions(
+        "rubocop-${{ runner.os }}-${{ env.DEPENDENCIES_HASH }}-default",
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        env,
+      ),
+    ).toBe("rubocop-Linux-abc123-default");
+  });
+});
+
 // ─── expandExpressions — boolean operators (issue #224) ──────────────────────
 
 describe("expandExpressions with boolean operators", () => {
@@ -1755,6 +1812,134 @@ jobs:
     expect(conds[4]).toBe("false");
     // applies to `uses` steps too
     expect(conds[5]).toBe("runner.os == 'Linux'");
+  });
+});
+
+// ─── parseWorkflowSteps with env context references ──────────────────────────
+
+describe("parseWorkflowSteps with env context references", () => {
+  let tmpDir: string;
+
+  afterEach(() => {
+    if (tmpDir) {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  function writeWorkflowTree(content: string): string {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "oa-env-ctx-"));
+    const workflowDir = path.join(tmpDir, ".github", "workflows");
+    fs.mkdirSync(workflowDir, { recursive: true });
+    const filePath = path.join(workflowDir, "test.yml");
+    fs.writeFileSync(filePath, content);
+    return filePath;
+  }
+
+  // Adapted from the GitHub Actions env context docs:
+  // https://docs.github.com/en/actions/reference/workflows-and-actions/contexts#example-usage-of-the-env-context
+  const MASCOT_WORKFLOW = `
+name: Hi Mascot
+on: push
+env:
+  mascot: Mona
+  super_duper_var: totally_awesome
+
+jobs:
+  windows_job:
+    runs-on: windows-latest
+    steps:
+      - run: echo 'Hi \${{ env.mascot }}'
+      - run: echo 'Hi \${{ env.mascot }}'
+        env:
+          mascot: Octocat
+  linux_job:
+    runs-on: ubuntu-latest
+    env:
+      mascot: Tux
+    steps:
+      - run: echo 'Hi \${{ env.mascot }}'
+`;
+
+  const CACHE_WORKFLOW = `
+name: Cache
+on: [push]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      CACHE_PATH: tmp/cache
+    steps:
+      - uses: actions/cache@v4
+        env:
+          CACHE_SUFFIX: abc123
+        with:
+          path: \${{ env.CACHE_PATH }}
+          key: build-\${{ runner.os }}-\${{ env.CACHE_SUFFIX }}
+`;
+
+  it("resolves workflow-level env", async () => {
+    const filePath = writeWorkflowTree(MASCOT_WORKFLOW);
+    const steps = await parseWorkflowSteps(filePath, "windows_job");
+    expect((steps[0] as any).Inputs.script).toBe("echo 'Hi Mona'");
+  });
+
+  it("resolves step-level env overriding workflow-level env", async () => {
+    const filePath = writeWorkflowTree(MASCOT_WORKFLOW);
+    const steps = await parseWorkflowSteps(filePath, "windows_job");
+    expect((steps[1] as any).Inputs.script).toBe("echo 'Hi Octocat'");
+  });
+
+  it("resolves job-level env overriding workflow-level env", async () => {
+    const filePath = writeWorkflowTree(MASCOT_WORKFLOW);
+    const steps = await parseWorkflowSteps(filePath, "linux_job");
+    expect((steps[0] as any).Inputs.script).toBe("echo 'Hi Tux'");
+  });
+
+  it("resolves job-level env in action input params", async () => {
+    const filePath = writeWorkflowTree(CACHE_WORKFLOW);
+    const steps = await parseWorkflowSteps(filePath, "build");
+    expect((steps[0] as any).Inputs.path).toBe("tmp/cache");
+  });
+
+  it("resolves job-level and step-level env in action input params", async () => {
+    const filePath = writeWorkflowTree(CACHE_WORKFLOW);
+    const steps = await parseWorkflowSteps(filePath, "build");
+    expect((steps[0] as any).Inputs.key).toBe("build-Linux-abc123");
+  });
+
+  it("returns empty string for env.* when env var does not exist", async () => {
+    const filePath = writeWorkflowTree(`
+name: Missing Env
+on: [push]
+jobs:
+  repro:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/cache@v4
+        with:
+          path: \${{ env.NONEXISTENT }}
+          key: my-key
+`);
+    const steps = await parseWorkflowSteps(filePath, "repro");
+    expect((steps[0] as any).Inputs.path).toBe("");
+  });
+
+  it("expands env.* in step name:", async () => {
+    const filePath = writeWorkflowTree(`
+name: Named Step Env
+on: [push]
+env:
+  DEPLOY_TARGET: production
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy to \${{ env.DEPLOY_TARGET }}
+        run: echo deploying
+`);
+    const steps = await parseWorkflowSteps(filePath, "deploy");
+    expect((steps[0] as any).Name).toBe("Deploy to production");
+    expect((steps[0] as any).DisplayName).toBe("Deploy to production");
   });
 });
 

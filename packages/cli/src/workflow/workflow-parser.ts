@@ -150,6 +150,7 @@ function resolveExprAtom(
   inputsContext?: Record<string, string>,
   vars?: Record<string, string>,
   runnerContext?: RunnerContext,
+  envContext?: Record<string, string>,
 ): string {
   // hashFiles('glob1', 'glob2', ...)
   const hashFilesMatch = trimmed.match(/^hashFiles\(([\s\S]+)\)$/);
@@ -209,6 +210,7 @@ function resolveExprAtom(
         inputsContext,
         vars,
         runnerContext,
+        envContext,
       );
     }
     try {
@@ -245,6 +247,7 @@ function resolveExprAtom(
         inputsContext,
         vars,
         runnerContext,
+        envContext,
       );
     }
     try {
@@ -272,6 +275,7 @@ function resolveExprAtom(
           inputsContext,
           vars,
           runnerContext,
+          envContext,
         );
       }
       return "";
@@ -292,6 +296,7 @@ function resolveExprAtom(
         inputsContext,
         vars,
         runnerContext,
+        envContext,
       );
       const needle = evaluateExprValue(
         args[1],
@@ -302,6 +307,7 @@ function resolveExprAtom(
         inputsContext,
         vars,
         runnerContext,
+        envContext,
       );
       // Try JSON array first
       try {
@@ -333,6 +339,7 @@ function resolveExprAtom(
         inputsContext,
         vars,
         runnerContext,
+        envContext,
       );
       const prefix = evaluateExprValue(
         args[1],
@@ -343,6 +350,7 @@ function resolveExprAtom(
         inputsContext,
         vars,
         runnerContext,
+        envContext,
       );
       return str.toLowerCase().startsWith(prefix.toLowerCase()) ? "true" : "false";
     }
@@ -363,6 +371,7 @@ function resolveExprAtom(
         inputsContext,
         vars,
         runnerContext,
+        envContext,
       );
       const suffix = evaluateExprValue(
         args[1],
@@ -373,6 +382,7 @@ function resolveExprAtom(
         inputsContext,
         vars,
         runnerContext,
+        envContext,
       );
       return str.toLowerCase().endsWith(suffix.toLowerCase()) ? "true" : "false";
     }
@@ -392,6 +402,7 @@ function resolveExprAtom(
       inputsContext,
       vars,
       runnerContext,
+      envContext,
     );
     const sep =
       args.length >= 2
@@ -404,6 +415,7 @@ function resolveExprAtom(
             inputsContext,
             vars,
             runnerContext,
+            envContext,
           )
         : ", ";
     try {
@@ -510,6 +522,10 @@ function resolveExprAtom(
   if (trimmed.startsWith("needs.")) {
     return "";
   }
+  if (trimmed.startsWith("env.")) {
+    const name = trimmed.slice("env.".length);
+    return envContext?.[name] ?? "";
+  }
 
   // Unknown atoms — return empty string
   return "";
@@ -529,6 +545,7 @@ function evaluateExprValue(
   inputsContext?: Record<string, string>,
   vars?: Record<string, string>,
   runnerContext?: RunnerContext,
+  envContext?: Record<string, string>,
 ): string {
   const trimmed = expr.trim();
   if (!trimmed) {
@@ -567,6 +584,7 @@ function evaluateExprValue(
           inputsContext,
           vars,
           runnerContext,
+          envContext,
         );
       }
       if (depth === 0) {
@@ -589,6 +607,7 @@ function evaluateExprValue(
         inputsContext,
         vars,
         runnerContext,
+        envContext,
       );
       if (isExprTruthy(lastVal)) {
         return lastVal;
@@ -611,6 +630,7 @@ function evaluateExprValue(
         inputsContext,
         vars,
         runnerContext,
+        envContext,
       );
       if (!isExprTruthy(lastVal)) {
         return lastVal;
@@ -633,6 +653,7 @@ function evaluateExprValue(
         inputsContext,
         vars,
         runnerContext,
+        envContext,
       );
       const right = evaluateExprValue(
         cmpParts[1].trim(),
@@ -643,6 +664,7 @@ function evaluateExprValue(
         inputsContext,
         vars,
         runnerContext,
+        envContext,
       );
       const result = compareValues(left, right, op);
       return result ? "true" : "false";
@@ -660,6 +682,7 @@ function evaluateExprValue(
       inputsContext,
       vars,
       runnerContext,
+      envContext,
     );
     return isExprTruthy(inner) ? "false" : "true";
   }
@@ -698,6 +721,7 @@ function evaluateExprValue(
     inputsContext,
     vars,
     runnerContext,
+    envContext,
   );
 }
 
@@ -716,6 +740,7 @@ export function expandExpressions(
   inputsContext?: Record<string, string>,
   vars?: Record<string, string>,
   runnerContext?: RunnerContext,
+  envContext?: Record<string, string>,
 ): string {
   return value.replace(/\$\{\{([\s\S]*?)\}\}/g, (_match, expr: string) => {
     const result = evaluateExprValue(
@@ -727,6 +752,7 @@ export function expandExpressions(
       inputsContext,
       vars,
       runnerContext,
+      envContext,
     );
     return result;
   });
@@ -1052,7 +1078,22 @@ export async function parseWorkflowSteps(
     .map((step, index) => {
       const stepId = step.id || `step-${index + 1}`;
       const rawStep = rawSteps[index] || {};
-      // Prefer raw YAML name to preserve ${{ }} expressions for our own expansion
+
+      const stepEnv = buildStepEnv(
+        rawYaml,
+        rawJob,
+        rawStep,
+        repoPath,
+        secrets,
+        matrixContext,
+        needsContext,
+        inputsContext,
+        vars,
+        runnerContext,
+      );
+
+      // Prefer raw YAML name to preserve ${{ }} expressions for our own expansion.
+      // Computed after stepEnv so that env.* references in step names resolve correctly.
       const rawName = rawStep.name != null ? String(rawStep.name) : step.name?.toString();
       let stepName = rawName
         ? expandExpressions(
@@ -1064,6 +1105,7 @@ export async function parseWorkflowSteps(
             inputsContext,
             vars,
             runnerContext,
+            stepEnv,
           )
         : stepId;
 
@@ -1098,6 +1140,7 @@ export async function parseWorkflowSteps(
           inputsContext,
           vars,
           runnerContext,
+          stepEnv,
         );
         const shell = resolveStepRunDefault(rawYaml, rawJob, rawStep, "shell");
         const inputs: Record<string, string> = {
@@ -1123,18 +1166,7 @@ export async function parseWorkflowSteps(
             Type: "Script",
           },
           Inputs: inputs,
-          Env: buildStepEnv(
-            rawYaml,
-            rawJob,
-            rawStep,
-            repoPath,
-            secrets,
-            undefined,
-            needsContext,
-            inputsContext,
-            vars,
-            runnerContext,
-          ),
+          Env: stepEnv,
           ...(condition !== undefined ? { condition } : {}),
         };
       } else if ("uses" in step) {
@@ -1183,6 +1215,7 @@ export async function parseWorkflowSteps(
                       inputsContext,
                       vars,
                       runnerContext,
+                      stepEnv,
                     ),
                   ]),
                 )
@@ -1200,6 +1233,7 @@ export async function parseWorkflowSteps(
                   inputsContext,
                   vars,
                   runnerContext,
+                  stepEnv,
                 ),
               ]),
             ),
@@ -1220,6 +1254,7 @@ export async function parseWorkflowSteps(
                         inputsContext,
                         vars,
                         runnerContext,
+                        stepEnv,
                       );
                       // The zero hash is a placeholder for "no SHA available" —
                       // normalize it to empty string so actions/checkout uses the
@@ -1233,18 +1268,7 @@ export async function parseWorkflowSteps(
                 }
               : {}), // Prevent actions/checkout from wiping the rsynced workspace
           },
-          Env: buildStepEnv(
-            rawYaml,
-            rawJob,
-            rawStep,
-            repoPath,
-            secrets,
-            matrixContext,
-            needsContext,
-            inputsContext,
-            vars,
-            runnerContext,
-          ),
+          Env: stepEnv,
           ...(condition !== undefined ? { condition } : {}),
         };
       }

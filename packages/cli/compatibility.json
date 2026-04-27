@@ -169,8 +169,12 @@
         {
           "key": "`jobs.<id>.runs-on`",
           "status": "partial",
-          "notes": "`ubuntu-*` / `linux` (and unspecified `self-hosted` / custom labels) run in a Linux container — the default image is minimal, see [runner-image.md](./runner-image.md) to add system tools. `macos-*` runs in a real macOS VM on Apple Silicon hosts with [tart](https://github.com/cirruslabs/tart) + `sshpass` installed; other hosts skip the job with a reason. `windows-*` is not yet supported and skips on every host.",
-          "proof": [".github/workflows/smoke-matrix.yml", ".github/workflows/smoke-macos.yml"]
+          "notes": "`ubuntu-*` / `linux` (and unspecified `self-hosted` / custom labels) run in a Linux container — the default image is minimal, see [runner-image.md](./runner-image.md) to add system tools. `macos-*` runs in a real macOS VM on Apple Silicon hosts with [tart](https://github.com/cirruslabs/tart) + `sshpass` installed; other hosts skip the job with a reason. `windows-*` is not yet supported and skips on every host. When a label declares a larger runner spec (e.g. `ubuntu-latest-8-cores`) than the local machine provides, the job is tagged `degraded` and a warning is printed before it starts — execution is not blocked, only annotated.",
+          "proof": [
+            ".github/workflows/smoke-matrix.yml",
+            ".github/workflows/smoke-macos.yml",
+            ".github/workflows/smoke-resource-mismatch.yml"
+          ]
         },
         {
           "key": "`jobs.<id>.environment`",

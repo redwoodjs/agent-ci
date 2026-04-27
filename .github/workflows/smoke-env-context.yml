@@ -1,0 +1,63 @@
+name: "Smoke: env.* context in expressions"
+
+# Exercises `${{ env.* }}` expression expansion (issue #320). Companion to
+# smoke-env-scoping.yml: that one verifies env vars reach the step's runtime
+# shell; this one verifies references to those vars are resolved by the
+# expression evaluator BEFORE the step runs — in `with:` inputs, `run:`
+# scripts, and other steps' `env:` value expressions.
+#
+# Without the parser fix these all expanded to the empty string (the original
+# Rails CI repro: `path: ${{ env.CACHE_PATH }}` reached actions/cache as "").
+
+on:
+  pull_request_target:
+    types: [opened, labeled, synchronize]
+
+env:
+  WORKFLOW_KEY: workflow-val
+  SHARED: from-workflow
+
+jobs:
+  env-context:
+    if: '!github.event.pull_request.draft && (contains(fromJSON(''["MEMBER", "OWNER", "COLLABORATOR"]''), github.event.pull_request.author_association) || contains(github.event.pull_request.labels.*.name, ''safe-to-run''))'
+    runs-on: ubuntu-latest
+    env:
+      JOB_KEY: job-val
+      SHARED: from-job
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: env.* in `run:` body resolves workflow- and job-level values
+        run: |
+          [ "${{ env.WORKFLOW_KEY }}" = "workflow-val" ] || exit 1
+          [ "${{ env.JOB_KEY }}"      = "job-val" ]      || exit 1
+
+      - name: step-level env wins over job and workflow
+        env:
+          SHARED: from-step
+        run: '[ "${{ env.SHARED }}" = "from-step" ] || exit 1'
+
+      - name: env.* expands inside another step's `env:` value
+        env:
+          MIRRORED: ${{ env.JOB_KEY }}
+        run: '[ "$MIRRORED" = "job-val" ] || exit 1'
+
+      - name: unknown env.* key resolves to empty string (matches GitHub)
+        env:
+          MISSING: ${{ env.NEVER_DECLARED }}
+        run: '[ -z "$MISSING" ] || exit 1'
+
+      # The only path that requires a real action is `with:` — that's the
+      # original Rails bug surface (`path: ${{ env.CACHE_PATH }}` → "").
+      - name: env.* expands in `with:` inputs
+        uses: ./.github/actions/smoke-local-action
+        env:
+          SHARED: from-step
+        with:
+          tag: ${{ env.SHARED }}
+      - name: Assert step-level env reached the action's `with:` input
+        run: |
+          got=$(cat /tmp/agent-ci-smoke-local-action 2>/dev/null || echo MISSING)
+          [ "$got" = "tag=from-step" ] || { echo "❌ with: $got"; exit 1; }

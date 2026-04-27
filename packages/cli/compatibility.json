@@ -420,7 +420,8 @@
         {
           "key": "`env.*`",
           "status": "supported",
-          "notes": "The merged step environment (workflow-level → job-level → step-level, with step taking precedence) is available as `env.*` in `with:` inputs, `run:` scripts, `name:`, and `env:` value expressions. Not yet supported in `if:` conditions (the expression is evaluated by the runner, not the parser). Note: `env.*` references inside an `env:` block (one env var referencing another declared in the same block) are not evaluated — only the already-computed merged value is exposed."
+          "notes": "The merged step environment (workflow-level → job-level → step-level, with step taking precedence) is available as `env.*` in `with:` inputs, `run:` scripts, `name:`, and `env:` value expressions. Not yet supported in `if:` conditions (the expression is evaluated by the runner, not the parser). Note: `env.*` references inside an `env:` block (one env var referencing another declared in the same block) are not evaluated — only the already-computed merged value is exposed.",
+          "proof": [".github/workflows/smoke-env-context.yml"]
         },
         {
           "key": "`inputs.*`",

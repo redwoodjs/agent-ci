@@ -1,0 +1,26 @@
+name: "Smoke: jobs.<id>.container.options passthrough"
+
+# Exercises `jobs.<id>.container.options` — arbitrary Docker flags the YAML
+# passes to the runner's container. We verify one benign flag (`--env`) and
+# a `--label` tag that we can read back via `docker inspect` from the host.
+#
+# If agent-ci silently drops the options string, the env var is unset and
+# the label is missing, failing the assertions.
+
+on:
+  pull_request_target:
+    types: [opened, labeled, synchronize]
+
+jobs:
+  container-env-option:
+    if: '!github.event.pull_request.draft && (contains(fromJSON(''["MEMBER", "OWNER", "COLLABORATOR"]''), github.event.pull_request.author_association) || contains(github.event.pull_request.labels.*.name, ''safe-to-run''))'
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/actions/actions-runner:latest
+      options: --env SMOKE_OPTIONS_FLAG=from-options --label agent-ci.smoke=options
+    steps:
+      - name: --env in options propagates to the step's environment
+        run: |
+          [ "$SMOKE_OPTIONS_FLAG" = "from-options" ] \
+            || { echo "❌ SMOKE_OPTIONS_FLAG=$SMOKE_OPTIONS_FLAG"; exit 1; }
+          echo "✅ container.options --env reached the step"

@@ -3,8 +3,10 @@
   "private": true,
   "scripts": {
     "test": "pnpm --include-workspace-root=false -r test",
-    "check": "npm-run-all --parallel typecheck lint format:check",
+    "check": "npm-run-all --parallel typecheck lint format:check compat:check parse:diff",
     "check:fix": "npm-run-all --parallel typecheck lint:fix format:fix",
+    "compat:gen": "node scripts/gen-compatibility-md.mjs",
+    "compat:check": "node scripts/gen-compatibility-md.mjs --check",
     "typecheck": "pnpm -r run typecheck",
     "lint": "oxlint --deny-warnings",
     "lint:fix": "oxlint --fix",
@@ -13,11 +15,13 @@
     "format:check": "oxfmt --check",
     "agent-ci": "cd packages/dtu-github-actions && pnpm run build && cd ../cli && tsx src/cli.ts",
     "agent-ci-dev": "./scripts/agent-ci-dev.sh",
+    "demo": "bash .docs/marketing/demo-recording/demo.sh",
+    "parse:diff": "tsx scripts/diff-parse.ts",
     "ts-runner": "tsx packages/ts-runner/src/cli.ts",
     "start": "./scripts/run.sh",
     "prepare": "husky || true",
     "changeset": "changeset",
-    "version": "changeset version && oxfmt",
+    "version": "node scripts/release-closes.mjs capture && changeset version && oxfmt",
     "release": "pnpm -r build && changeset publish"
   },
   "devDependencies": {

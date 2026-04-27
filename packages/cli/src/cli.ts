@@ -2,7 +2,7 @@
 import { execSync } from "child_process";
 import path from "path";
 import fs from "fs";
-import { config, loadMachineSecrets, resolveRepoSlug } from "./config.js";
+import { applyAgentCiEnv, config, loadMachineSecrets, resolveRepoSlug } from "./config.js";
 import { getNextLogNum } from "./output/logger.js";
 import {
   setWorkingDirectory,
@@ -11,13 +11,15 @@ import {
 } from "./output/working-directory.js";
 import { debugCli } from "./output/debug.js";
 
+import type Docker from "dockerode";
 import { executeLocalJob, getDocker } from "./runner/local-job.js";
+import { executeMacosVmJob } from "./runner/macos-vm/macos-vm-job.js";
+import { checkMacosVmHost } from "./runner/macos-vm/host-capability.js";
 import {
   discoverRunnerImage,
   ensureRunnerImage,
   UPSTREAM_RUNNER_IMAGE,
 } from "./runner/runner-image.js";
-import { ensureImagePulled } from "./docker/image-pull.js";
 import {
   parseWorkflowSteps,
   parseWorkflowServices,
@@ -25,6 +27,8 @@ import {
   parseJobRunsOnLabels,
   validateSecrets,
   extractSecretRefs,
+  validateVars,
+  extractVarRefs,
   parseMatrixDef,
   expandMatrixCombinations,
   collapseMatrixToSingle,
@@ -34,8 +38,15 @@ import {
   parseJobIf,
   evaluateJobIf,
   parseFailFast,
+  parseJobRunsOn,
   expandExpressions,
 } from "./workflow/workflow-parser.js";
+import {
+  classifyRunsOn,
+  isUnsupportedOS,
+  formatUnsupportedOSWarning,
+  type RunnerOSKind,
+} from "./runner/runs-on-compat.js";
 import { resolveJobOutputs } from "./runner/result-builder.js";
 import { Job } from "./types.js";
 import { createConcurrencyLimiter, getDefaultMaxConcurrentJobs } from "./output/concurrency.js";
@@ -64,6 +75,7 @@ import {
   getHostResources,
   type ResourceFidelity,
 } from "./workflow/resource-classifier.js";
+import { writeRunResult } from "./run-result-writer.js";
 
 function findSignalsDir(runnerName: string): string | null {
   const workDir = getWorkingDirectory();
@@ -83,6 +95,24 @@ function findSignalsDir(runnerName: string): string | null {
 }
 
 async function run() {
+  // Bootstrap: `.env.agent-ci` (AGENT_CI_* keys only) → process.env, shell wins.
+  applyAgentCiEnv(resolveRepoRoot());
+
+  // DOCKER_HOST was removed in favor of AGENT_CI_DOCKER_HOST so that the value
+  // can live in .env.agent-ci without colliding with the shell's expectation
+  // that DOCKER_HOST points at the real Docker daemon.
+  if (process.env.DOCKER_HOST) {
+    console.error(
+      "[Agent CI] Error: DOCKER_HOST is no longer supported.\n" +
+        "  Rename it to AGENT_CI_DOCKER_HOST (shell env or .env.agent-ci).",
+    );
+    process.exit(1);
+  }
+  if (process.env.AGENT_CI_DOCKER_HOST) {
+    // Forward to DOCKER_HOST so dockerode's default client picks it up.
+    process.env.DOCKER_HOST = process.env.AGENT_CI_DOCKER_HOST;
+  }
+
   const args = process.argv.slice(2);
   const command = args[0];
 
@@ -95,6 +125,7 @@ async function run() {
     let githubToken: string | undefined;
     let commitStatus = false;
     let maxJobs: number | undefined;
+    const cliVars: Record<string, string> = {};
 
     for (let i = 1; i < args.length; i++) {
       if ((args[i] === "--workflow" || args[i] === "-w") && args[i + 1]) {
@@ -117,6 +148,21 @@ async function run() {
         i++;
       } else if (args[i] === "--commit-status") {
         commitStatus = true;
+      } else if (args[i] === "--var" && args[i + 1]) {
+        const raw = args[i + 1];
+        const eqIdx = raw.indexOf("=");
+        if (eqIdx < 1) {
+          console.error(`[Agent CI] Error: --var expects KEY=VALUE, got: ${raw}`);
+          process.exit(1);
+        }
+        const key = raw.slice(0, eqIdx).trim();
+        const value = raw.slice(eqIdx + 1);
+        if (!key) {
+          console.error(`[Agent CI] Error: --var expects KEY=VALUE, got: ${raw}`);
+          process.exit(1);
+        }
+        cliVars[key] = value;
+        i++;
       } else if (args[i] === "--github-token") {
         // If the next arg looks like a token value (not another flag), use it.
         // Otherwise, auto-resolve via `gh auth token`.
@@ -206,6 +252,7 @@ async function run() {
         process.exit(0);
       }
 
+      const startedAt = new Date();
       const results = await runWorkflows({
         workflowPaths: relevant,
         sha,
@@ -213,6 +260,7 @@ async function run() {
         noMatrix,
         githubToken,
         maxJobs,
+        vars: cliVars,
       });
       if (results.length > 0) {
         printSummary(results);
@@ -220,6 +268,7 @@ async function run() {
       if (commitStatus) {
         postCommitStatus(results, sha, githubToken);
       }
+      persistRunResult({ results, repoRoot, startedAt, sha, branch });
       const anyFailed = results.length === 0 || results.some((r) => !r.succeeded);
       process.exit(anyFailed ? 1 : 0);
     }
@@ -233,11 +282,11 @@ async function run() {
 
     // Resolve workflow path before calling runWorkflows
     let workflowPath: string;
+    const repoRootFallback = resolveRepoRoot();
     if (path.isAbsolute(workflow)) {
       workflowPath = workflow;
     } else {
       const cwd = process.cwd();
-      const repoRootFallback = resolveRepoRoot();
       const workflowsDir = path.resolve(repoRootFallback, ".github", "workflows");
       const pathsToTry = [
         path.resolve(cwd, workflow),
@@ -247,6 +296,7 @@ async function run() {
       workflowPath = pathsToTry.find((p) => fs.existsSync(p)) || pathsToTry[1];
     }
 
+    const startedAt = new Date();
     const results = await runWorkflows({
       workflowPaths: [workflowPath],
       sha,
@@ -254,6 +304,7 @@ async function run() {
       noMatrix,
       githubToken,
       maxJobs,
+      vars: cliVars,
     });
     if (results.length > 0) {
       printSummary(results);
@@ -261,6 +312,7 @@ async function run() {
     if (commitStatus) {
       postCommitStatus(results, sha, githubToken);
     }
+    persistRunResult({ results, repoRoot: repoRootFallback, startedAt, sha });
     if (results.length === 0 || results.some((r) => !r.succeeded)) {
       process.exit(1);
     }
@@ -344,7 +396,10 @@ async function prefetchRunnerImages(workflowPaths: string[]): Promise<void> {
 
   // The upstream runner image is always needed: default mode uses it
   // directly, direct-container mode uses it to seed the runner binary.
-  const pulls: Promise<unknown>[] = [ensureImagePulled(docker, UPSTREAM_RUNNER_IMAGE)];
+  // Check whether it's already cached — if not, pull with visible progress
+  // so first-time users understand what's happening instead of seeing a
+  // frozen spinner. See https://github.com/redwoodjs/agent-ci/issues/242
+  const pulls: Promise<unknown>[] = [pullUpstreamRunnerImage(docker)];
 
   // Additionally, each unique repo root may resolve to a custom runner
   // image (env override or Dockerfile). Build/pull each unique one.
@@ -367,10 +422,166 @@ async function prefetchRunnerImages(workflowPaths: string[]): Promise<void> {
   try {
     await Promise.all(pulls);
   } catch (err) {
-    // Don't block startup on prefetch failure — per-job calls will retry
-    // and produce a clearer error for the specific job that needs it.
-    debugCli(`[Agent CI] Image prefetch failed: ${(err as Error).message}`);
+    // Surface the error so users know what went wrong. Per-job calls in
+    // local-job.ts will retry, so this doesn't block startup.
+    console.error(`[Agent CI] Image prefetch failed: ${(err as Error).message}`);
   }
+}
+
+/**
+ * Pull the upstream runner image with user-visible progress output.
+ * On a cold cache (first run), pulling ~300 MB can take 30-60s — without
+ * feedback the CLI appears stuck. This mirrors the progress tracking that
+ * direct-container mode already does in local-job.ts.
+ */
+async function pullUpstreamRunnerImage(docker: Docker): Promise<void> {
+  try {
+    await docker.getImage(UPSTREAM_RUNNER_IMAGE).inspect();
+    return; // already cached
+  } catch {
+    // not present — fall through to pull
+  }
+
+  process.stderr.write(
+    `\nPulling runner image ${UPSTREAM_RUNNER_IMAGE}...\n` +
+      `  First run downloads the image (~300 MB); subsequent runs use the cache.\n\n`,
+  );
+
+  await new Promise<void>((resolve, reject) => {
+    docker.pull(UPSTREAM_RUNNER_IMAGE, (err: Error | null, stream: NodeJS.ReadableStream) => {
+      if (err) {
+        return reject(
+          new Error(`Failed to pull runner image '${UPSTREAM_RUNNER_IMAGE}': ${err.message}`),
+        );
+      }
+
+      const layerProgress = new Map<string, { current: number; total: number }>();
+      let currentPhase: "downloading" | "extracting" = "downloading";
+      let lastUpdate = 0;
+
+      const flushProgress = (force = false) => {
+        const now = Date.now();
+        if (!force && now - lastUpdate < 500) {
+          return;
+        }
+        lastUpdate = now;
+        let totalBytes = 0;
+        let currentBytes = 0;
+        for (const l of layerProgress.values()) {
+          totalBytes += l.total;
+          currentBytes += l.current;
+        }
+        if (totalBytes > 0) {
+          const pct = Math.round((currentBytes / totalBytes) * 100);
+          const currentMB = (currentBytes / 1_048_576).toFixed(0);
+          const totalMB = (totalBytes / 1_048_576).toFixed(0);
+          const label = currentPhase === "downloading" ? "Downloading" : "Extracting";
+          process.stderr.write(`\r  ${label}: ${pct}% (${currentMB} MB / ${totalMB} MB)  `);
+        }
+      };
+
+      docker.modem.followProgress(
+        stream,
+        (err: Error | null) => {
+          process.stderr.write("\r" + " ".repeat(60) + "\r");
+          if (err) {
+            reject(
+              new Error(`Failed to pull runner image '${UPSTREAM_RUNNER_IMAGE}': ${err.message}`),
+            );
+          } else {
+            process.stderr.write(`  Done.\n\n`);
+            resolve();
+          }
+        },
+        (event: {
+          status?: string;
+          id?: string;
+          progressDetail?: { current?: number; total?: number };
+        }) => {
+          if (!event.id) {
+            return;
+          }
+          const detail = event.progressDetail;
+          const hasByteCounts =
+            detail &&
+            typeof detail.current === "number" &&
+            typeof detail.total === "number" &&
+            detail.total > 0;
+
+          if (event.status === "Downloading" && hasByteCounts) {
+            layerProgress.set(event.id, { current: detail.current!, total: detail.total! });
+          } else if (event.status === "Download complete") {
+            const existing = layerProgress.get(event.id);
+            if (existing) {
+              existing.current = existing.total;
+            }
+          } else if (event.status === "Extracting" && hasByteCounts) {
+            if (currentPhase !== "extracting") {
+              currentPhase = "extracting";
+              layerProgress.clear();
+              flushProgress(true);
+            }
+            layerProgress.set(event.id, { current: detail.current!, total: detail.total! });
+          } else if (event.status === "Pull complete") {
+            const existing = layerProgress.get(event.id);
+            if (existing) {
+              existing.current = existing.total;
+            }
+          } else {
+            return;
+          }
+          flushProgress();
+        },
+      );
+    });
+  });
+}
+
+/**
+ * Scan every workflow for `${{ vars.FOO }}` references and exit with a
+ * combined error listing the missing vars and the `--var` flags needed.
+ * Called at the start of a run so users find out before any setup work
+ * happens.
+ */
+function preflightVars(workflowPaths: string[], vars: Record<string, string>): void {
+  const perFile: { file: string; missing: string[] }[] = [];
+  const allMissing = new Set<string>();
+  for (const wf of workflowPaths) {
+    let refs: string[];
+    try {
+      refs = extractVarRefs(wf);
+    } catch {
+      continue;
+    }
+    const missing = refs.filter((n) => !vars[n]);
+    if (missing.length > 0) {
+      perFile.push({ file: wf, missing });
+      for (const n of missing) {
+        allMissing.add(n);
+      }
+    }
+  }
+  if (allMissing.size === 0) {
+    return;
+  }
+  const lines: string[] = [
+    `[Agent CI] Missing vars required by workflow(s):`,
+    "",
+    ...perFile.map((m) => {
+      const rel = path.relative(process.cwd(), m.file);
+      const display = rel.startsWith("..") ? m.file : rel;
+      return `  ${display}: ${m.missing.join(", ")}`;
+    }),
+    "",
+    `Pass them via --var NAME=value (one flag per variable):`,
+    "",
+    ...Array.from(allMissing)
+      .sort()
+      .map((n) => `  --var ${n}=<value>`),
+    "",
+  ];
+  console.error(lines.join("\n"));
+  process.exit(1);
 }
 
 // ─── runWorkflows ──────────────────────────────────────────────────────────────
@@ -384,8 +595,13 @@ async function runWorkflows(options: {
   noMatrix?: boolean;
   githubToken?: string;
   maxJobs?: number;
+  vars?: Record<string, string>;
 }): Promise<JobResult[]> {
-  const { workflowPaths, sha, pauseOnFailure, noMatrix = false, githubToken } = options;
+  const { workflowPaths, sha, pauseOnFailure, noMatrix = false, githubToken, vars } = options;
+
+  // Pre-flight: scan all workflows for required vars before doing any setup
+  // work. Catches missing vars up front instead of mid-run.
+  preflightVars(workflowPaths, vars ?? {});
 
   // Suppress EventEmitter MaxListenersExceeded warnings when running many
   // parallel jobs (each job adds SIGINT/SIGTERM listeners).
@@ -518,6 +734,7 @@ async function runWorkflows(options: {
         store,
         githubToken,
         globalLimiter,
+        vars,
       });
       allResults.push(...results);
     } else {
@@ -571,6 +788,7 @@ async function runWorkflows(options: {
               baseRunNum: runNums[i + 1],
               githubToken,
               globalLimiter,
+              vars,
             }),
           ),
         );
@@ -593,6 +811,7 @@ async function runWorkflows(options: {
               baseRunNum: runNums[i],
               githubToken,
               globalLimiter,
+              vars,
             }),
           ),
         );
@@ -639,8 +858,10 @@ async function handleWorkflow(options: {
   baseRunNum?: number;
   githubToken?: string;
   globalLimiter: ReturnType<typeof createConcurrencyLimiter>;
+  vars?: Record<string, string>;
 }): Promise<JobResult[]> {
   const { sha, pauseOnFailure, noMatrix = false, store, githubToken } = options;
+  const vars = options.vars ?? {};
   let workflowPath = options.workflowPath;
 
   if (!fs.existsSync(workflowPath)) {
@@ -776,6 +997,52 @@ async function handleWorkflow(options: {
     }
   }
 
+  // ── Unsupported-OS skip (shared between single- and multi-job paths) ──────
+  // Jobs with `runs-on: macos-*` or `windows-*` can't be executed locally
+  // today — agent-ci only runs jobs in a Linux container. Rather than
+  // silently landing them there and failing at the first OS-specific step,
+  // we skip them with a visible warning. See:
+  //   https://github.com/redwoodjs/agent-ci/issues/254  (this guardrail)
+  //   https://github.com/redwoodjs/agent-ci/issues/258  (real macOS support)
+  const skippedResult = (ej: ExpandedJob): JobResult => ({
+    name: `agent-ci-skipped-${ej.taskName}`,
+    workflow: path.basename(ej.workflowPath),
+    taskId: ej.taskName,
+    succeeded: true,
+    durationMs: 0,
+    debugLogPath: "",
+    steps: [],
+  });
+  const warnedUnsupportedOS = new Set<string>();
+  const macosVmHost = checkMacosVmHost();
+  const classifyJob = (ej: ExpandedJob) => {
+    const labels = parseJobRunsOn(ej.workflowPath, ej.sourceTaskName ?? ej.taskName);
+    return { labels, kind: classifyRunsOn(labels) };
+  };
+  const canRunMacosHere = (kind: RunnerOSKind) => kind === "macos" && macosVmHost.supported;
+  const maybeSkipUnsupportedOS = (ej: ExpandedJob): JobResult | null => {
+    const { labels, kind } = classifyJob(ej);
+    if (!isUnsupportedOS(kind) || canRunMacosHere(kind)) {
+      return null;
+    }
+    if (!warnedUnsupportedOS.has(ej.taskName)) {
+      warnedUnsupportedOS.add(ej.taskName);
+      const capability = kind === "macos" && !macosVmHost.supported ? macosVmHost : undefined;
+      process.stderr.write(
+        formatUnsupportedOSWarning(ej.taskName, labels, kind, capability) + "\n\n",
+      );
+    }
+    return skippedResult(ej);
+  };
+  // Returns the executor for a job. Callers have already filtered out
+  // OS-skipped jobs via maybeSkipUnsupportedOS.
+  const runJobExecutor = (ej: ExpandedJob, job: Job): Promise<JobResult> => {
+    if (canRunMacosHere(classifyJob(ej).kind)) {
+      return executeMacosVmJob(job);
+    }
+    return executeLocalJob(job, { pauseOnFailure, store });
+  };
+
   // For single-job workflows, run directly without extra orchestration
   const limiter = options.globalLimiter;
   const hostResources = getHostResources();
@@ -823,6 +1090,10 @@ async function handleWorkflow(options: {
 
   if (expandedJobs.length === 1) {
     const ej = expandedJobs[0];
+    const osSkip = maybeSkipUnsupportedOS(ej);
+    if (osSkip) {
+      return [osSkip];
+    }
     const actualTaskName = ej.sourceTaskName ?? ej.taskName;
     const requiredRefs = extractSecretRefs(ej.workflowPath, actualTaskName);
     const secrets = loadMachineSecrets(repoRoot, requiredRefs);
@@ -831,6 +1102,7 @@ async function handleWorkflow(options: {
     }
     const secretsFilePath = path.join(repoRoot, ".env.agent-ci");
     validateSecrets(ej.workflowPath, actualTaskName, secrets, secretsFilePath);
+    validateVars(ej.workflowPath, actualTaskName, vars);
 
     // Resolve inputs for called workflow jobs
     let inputsContext: Record<string, string> | undefined;
@@ -838,7 +1110,15 @@ async function handleWorkflow(options: {
       inputsContext = { ...ej.inputDefaults };
       if (ej.inputs) {
         for (const [k, v] of Object.entries(ej.inputs)) {
-          inputsContext[k] = expandExpressions(v, repoRoot, secrets);
+          inputsContext[k] = expandExpressions(
+            v,
+            repoRoot,
+            secrets,
+            undefined,
+            undefined,
+            undefined,
+            vars,
+          );
         }
       }
       if (Object.keys(inputsContext).length === 0) {
@@ -853,6 +1133,7 @@ async function handleWorkflow(options: {
       ej.matrixContext,
       undefined,
       inputsContext,
+      vars,
     );
 
     store.addJob(ej.workflowPath, actualTaskName, ej.runnerName, {
@@ -889,7 +1170,7 @@ async function handleWorkflow(options: {
       taskId: ej.taskName,
     };
 
-    const result = await limiter.run(() => executeLocalJob(job, { pauseOnFailure, store }));
+    const result = await limiter.run(() => runJobExecutor(ej, job));
     return [result];
   }
 
@@ -917,6 +1198,7 @@ async function handleWorkflow(options: {
     }
     const secretsFilePath = path.join(repoRoot, ".env.agent-ci");
     validateSecrets(ej.workflowPath, actualTaskName, secrets, secretsFilePath);
+    validateVars(ej.workflowPath, actualTaskName, vars);
 
     // Use the job's position in expandedJobs (not a mutable counter) so the
     // runnerId is deterministic and matches the pre-registration at line 716.
@@ -963,6 +1245,7 @@ async function handleWorkflow(options: {
     ej: ExpandedJob,
     secrets: Record<string, string>,
     needsContext?: Record<string, Record<string, string>>,
+    vars?: Record<string, string>,
   ): Record<string, string> | undefined => {
     if (!ej.callerJobId) {
       return undefined;
@@ -976,7 +1259,15 @@ async function handleWorkflow(options: {
     const resolved: Record<string, string> = { ...ej.inputDefaults };
     if (ej.inputs) {
       for (const [k, v] of Object.entries(ej.inputs)) {
-        resolved[k] = expandExpressions(v, repoRoot, secrets, undefined, needsContext);
+        resolved[k] = expandExpressions(
+          v,
+          repoRoot,
+          secrets,
+          undefined,
+          needsContext,
+          undefined,
+          vars,
+        );
       }
     }
     resolvedInputsCache.set(ej.callerJobId, resolved);
@@ -999,7 +1290,8 @@ async function handleWorkflow(options: {
     }
     const secretsFilePath = path.join(repoRoot, ".env.agent-ci");
     validateSecrets(ej.workflowPath, actualTaskName, secrets, secretsFilePath);
-    const inputsContext = resolveInputsForJob(ej, secrets, needsContext);
+    validateVars(ej.workflowPath, actualTaskName, vars);
+    const inputsContext = resolveInputsForJob(ej, secrets, needsContext, vars);
     const steps = await parseWorkflowSteps(
       ej.workflowPath,
       actualTaskName,
@@ -1007,6 +1299,7 @@ async function handleWorkflow(options: {
       matrixContext,
       needsContext,
       inputsContext,
+      vars,
     );
     const services = await parseWorkflowServices(ej.workflowPath, actualTaskName);
     const container = await parseWorkflowContainer(ej.workflowPath, actualTaskName);
@@ -1016,7 +1309,7 @@ async function handleWorkflow(options: {
     job.services = services;
     job.container = container ?? undefined;
 
-    const result = await executeLocalJob(job, { pauseOnFailure, store });
+    const result = await runJobExecutor(ej, job);
 
     // result.outputs now contains raw step outputs (extracted inside executeLocalJob
     // before workspace cleanup). Resolve them to job-level outputs using the
@@ -1162,19 +1455,13 @@ async function handleWorkflow(options: {
     return !evaluateJobIf(ifExpr, upstreamResults, needsCtx);
   };
 
-  /** Create a synthetic skipped result for a job that was skipped by if: */
-  const skippedResult = (ej: ExpandedJob): JobResult => ({
-    name: `agent-ci-skipped-${ej.taskName}`,
-    workflow: path.basename(ej.workflowPath),
-    taskId: ej.taskName,
-    succeeded: true,
-    durationMs: 0,
-    debugLogPath: "",
-    steps: [],
-  });
-
-  /** Run a job or skip it based on if: condition */
+  /** Run a job or skip it based on if: condition or unsupported OS */
   const runOrSkipJob = async (ej: ExpandedJob): Promise<JobResult> => {
+    const osSkip = maybeSkipUnsupportedOS(ej);
+    if (osSkip) {
+      jobResultStatus.set(ej.taskName, "skipped");
+      return osSkip;
+    }
     if (shouldSkipJob(ej.taskName, ej)) {
       debugCli(`Skipping ${ej.taskName} (if: condition is false)`);
       const result = skippedResult(ej);
@@ -1318,12 +1605,19 @@ function printUsage() {
   console.log(
     "      --commit-status           Post a GitHub commit status after the run (requires --github-token)",
   );
+  console.log(
+    "      --var KEY=VALUE           Provide a workflow variable (${{ vars.KEY }}); repeat for multiple",
+  );
   console.log("");
   console.log("Secrets:");
   console.log("  Workflow secrets (${{ secrets.FOO }}) are resolved from:");
   console.log("    1. .env.agent-ci file in the repo root");
   console.log("    2. Environment variables (shell env acts as fallback)");
   console.log("    3. --github-token automatically provides secrets.GITHUB_TOKEN");
+  console.log("");
+  console.log("Vars:");
+  console.log("  Workflow vars (${{ vars.FOO }}) must be provided via --var FOO=VALUE.");
+  console.log("  The run fails if any referenced var is missing.");
 }
 
 function resolveRepoRoot() {
@@ -1350,6 +1644,35 @@ function resolveHeadSha(repoRoot: string, sha: string) {
     };
   } catch {
     throw new Error(`Failed to resolve ref: ${sha}`);
+  }
+}
+
+function persistRunResult(opts: {
+  results: JobResult[];
+  repoRoot: string;
+  startedAt: Date;
+  sha?: string;
+  branch?: string;
+}): void {
+  try {
+    const repo = config.GITHUB_REPO ?? resolveRepoSlug(opts.repoRoot);
+    const branch =
+      opts.branch ??
+      execSync("git rev-parse --abbrev-ref HEAD", { cwd: opts.repoRoot }).toString().trim();
+    const headSha = (
+      opts.sha ?? execSync("git rev-parse HEAD", { cwd: opts.repoRoot }).toString()
+    ).trim();
+    writeRunResult({
+      repo,
+      branch,
+      worktreePath: opts.repoRoot,
+      headSha,
+      startedAt: opts.startedAt,
+      finishedAt: new Date(),
+      results: opts.results,
+    });
+  } catch {
+    // Best-effort: never let result persistence fail the run.
   }
 }
 

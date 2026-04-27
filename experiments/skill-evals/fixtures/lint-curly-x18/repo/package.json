@@ -1,0 +1,15 @@
+{
+  "name": "lint-curly-x18-fixture",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "lint": "eslint src"
+  },
+  "dependencies": {
+    "@redwoodjs/agent-ci": "file:./fake-agent-ci"
+  },
+  "devDependencies": {
+    "eslint": "^9.0.0"
+  }
+}

@@ -1,34 +1,60 @@
 import path from "path";
 import fs from "fs";
 import { type JobResult, type StepResult, tailLogFile } from "../output/reporter.js";
-import { detectMissingToolHint, type ResolvedRunnerImage } from "./runner-image.js";
+import {
+  detectMissingToolHint,
+  detectToolcacheHint,
+  type ResolvedRunnerImage,
+} from "./runner-image.js";
 
 // ─── Timeline parsing ─────────────────────────────────────────────────────────
 
 /**
  * Read `timeline.json` and map task records into `StepResult[]`.
+ *
+ * When `logDir` is provided, attach `logPath` to each step by locating the
+ * step's log under `<logDir>/steps/`. The DTU keys per-step log files by one
+ * of: sanitized step name, record id, or log id — we try all three and use
+ * the first that exists on disk. Passing-run log directories get cleaned up
+ * after the run, so `logPath` is only set when the file is present.
  */
-export function parseTimelineSteps(timelinePath: string): StepResult[] {
+export function parseTimelineSteps(timelinePath: string, logDir?: string): StepResult[] {
   try {
     if (!fs.existsSync(timelinePath)) {
       return [];
     }
     const records: any[] = JSON.parse(fs.readFileSync(timelinePath, "utf-8"));
+    const stepsDir = logDir ? path.join(logDir, "steps") : null;
     return records
       .filter((r: any) => r.type === "Task" && r.name)
-      .map((r: any) => ({
-        name: r.name,
-        status:
-          r.result === "Succeeded" || r.result === "succeeded"
-            ? ("passed" as const)
-            : r.result === "Failed" || r.result === "failed"
-              ? ("failed" as const)
-              : r.result === "Skipped" || r.result === "skipped"
-                ? ("skipped" as const)
-                : r.state === "completed"
-                  ? ("passed" as const)
-                  : ("skipped" as const),
-      }));
+      .map((r: any) => {
+        const step: StepResult = {
+          name: r.name,
+          status:
+            r.result === "Succeeded" || r.result === "succeeded"
+              ? ("passed" as const)
+              : r.result === "Failed" || r.result === "failed"
+                ? ("failed" as const)
+                : r.result === "Skipped" || r.result === "skipped"
+                  ? ("skipped" as const)
+                  : r.state === "completed"
+                    ? ("passed" as const)
+                    : ("skipped" as const),
+        };
+        if (stepsDir) {
+          for (const id of [sanitizeStepName(r.name), r.id, r.log?.id]) {
+            if (!id) {
+              continue;
+            }
+            const candidate = path.join(stepsDir, `${id}.log`);
+            if (fs.existsSync(candidate)) {
+              step.logPath = candidate;
+              break;
+            }
+          }
+        }
+        return step;
+      });
   } catch {
     return [];
   }
@@ -265,6 +291,8 @@ export interface BuildJobResultOpts {
   stepOutputs?: Record<string, string>;
   /** The runner image the job used — used to attach actionable failure hints */
   resolvedRunnerImage?: ResolvedRunnerImage;
+  /** Host path of the toolcache bind mount — used for the toolcache-cleanup hint */
+  toolCacheDir?: string;
 }
 
 /**
@@ -284,7 +312,7 @@ export function buildJobResult(opts: BuildJobResultOpts): JobResult {
     stepOutputs,
   } = opts;
 
-  const steps = parseTimelineSteps(timelinePath);
+  const steps = parseTimelineSteps(timelinePath, logDir);
   const result: JobResult = {
     name: containerName,
     workflow: job.workflowPath ? path.basename(job.workflowPath) : "unknown",
@@ -313,25 +341,27 @@ export function buildJobResult(opts: BuildJobResultOpts): JobResult {
       result.lastOutputLines = tailLogFile(debugLogPath);
     }
 
-    // Attach an actionable hint if the failure matches a known missing-tool
-    // pattern (e.g. `cc`, `make`) and the user is still on the default runner
-    // image. Silent when they've already configured a custom image.
-    if (opts.resolvedRunnerImage) {
-      const errorContent =
-        (result.failedStepLogPath &&
-          (() => {
-            try {
-              return fs.readFileSync(result.failedStepLogPath, "utf-8");
-            } catch {
-              return "";
-            }
-          })()) ||
-        result.lastOutputLines?.join("\n") ||
-        "";
-      const hint = detectMissingToolHint(errorContent, opts.resolvedRunnerImage);
-      if (hint) {
-        result.hint = hint;
-      }
+    // Attach an actionable hint if the failure matches a known pattern —
+    // missing system tool on the default image, or a stale toolcache from a
+    // previous run blocking tar extraction.
+    const errorContent =
+      (result.failedStepLogPath &&
+        (() => {
+          try {
+            return fs.readFileSync(result.failedStepLogPath, "utf-8");
+          } catch {
+            return "";
+          }
+        })()) ||
+      result.lastOutputLines?.join("\n") ||
+      "";
+    const missingToolHint = opts.resolvedRunnerImage
+      ? detectMissingToolHint(errorContent, opts.resolvedRunnerImage)
+      : null;
+    const toolcacheHint = detectToolcacheHint(errorContent, opts.toolCacheDir);
+    const hint = missingToolHint ?? toolcacheHint;
+    if (hint) {
+      result.hint = hint;
     }
   }
 

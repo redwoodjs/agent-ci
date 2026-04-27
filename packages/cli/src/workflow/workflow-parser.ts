@@ -4,6 +4,35 @@ import crypto from "crypto";
 import { execSync } from "child_process";
 import { minimatch } from "minimatch";
 import { parse as parseYaml } from "yaml";
+import { classifyRunsOn } from "../runner/runs-on-compat.js";
+
+/**
+ * Values used to resolve `${{ runner.os }}` / `${{ runner.arch }}` at
+ * expression-expansion time. GitHub Actions evaluates these per-job based on
+ * the job's `runs-on:` label. Prior to issue #279 we hardcoded Linux/X64,
+ * which broke scripts gated on `runner.os == 'macOS'` in tart-backed VM jobs.
+ */
+export type RunnerContext = {
+  os: string;
+  arch: string;
+};
+
+/**
+ * Derive a `RunnerContext` from a job's `runs-on:` labels. Defaults to
+ * Linux/X64 for unknown labels so existing self-hosted configurations keep
+ * working. macOS is mapped to ARM64 because agent-ci's macOS backend (tart)
+ * only runs Apple Silicon VMs.
+ */
+export function runnerContextFromRunsOn(labels: string[]): RunnerContext {
+  switch (classifyRunsOn(labels)) {
+    case "macos":
+      return { os: "macOS", arch: "ARM64" };
+    case "windows":
+      return { os: "Windows", arch: "X64" };
+    default:
+      return { os: "Linux", arch: "X64" };
+  }
+}
 
 // @actions/workflow-parser imports .json files without `with { type: "json" }`,
 // which Node 22+ rejects. Register a custom ESM loader hook that transparently
@@ -82,10 +111,13 @@ function unquote(s: string): string {
 
 /** Compare two string values using the given operator. */
 function compareValues(left: string, right: string, op: string): boolean {
-  // Try numeric comparison if both sides look like numbers
+  // GitHub Actions coerces both sides to numbers when possible: empty string,
+  // null (surfaced here as ""), and numeric strings all become valid numeric
+  // operands. A genuinely non-numeric string coerces to NaN and comparisons
+  // involving NaN are all false, so bothNumeric stays false for those.
   const ln = Number(left);
   const rn = Number(right);
-  const bothNumeric = left !== "" && right !== "" && !isNaN(ln) && !isNaN(rn);
+  const bothNumeric = !isNaN(ln) && !isNaN(rn);
 
   switch (op) {
     case "==":
@@ -116,6 +148,8 @@ function resolveExprAtom(
   matrixContext?: Record<string, string>,
   needsContext?: Record<string, Record<string, string>>,
   inputsContext?: Record<string, string>,
+  vars?: Record<string, string>,
+  runnerContext?: RunnerContext,
 ): string {
   // hashFiles('glob1', 'glob2', ...)
   const hashFilesMatch = trimmed.match(/^hashFiles\(([\s\S]+)\)$/);
@@ -173,6 +207,8 @@ function resolveExprAtom(
         matrixContext,
         needsContext,
         inputsContext,
+        vars,
+        runnerContext,
       );
     }
     try {
@@ -186,7 +222,10 @@ function resolveExprAtom(
     }
   }
 
-  // toJSON(expr) — serialize a value to JSON
+  // toJSON(expr) — serialize a value to JSON with 2-space indentation,
+  // matching GitHub Actions' pretty-printing behavior. Parse rawValue first
+  // so that toJSON(fromJSON(...)) round-trips with pretty-printing instead
+  // of re-quoting a compact-JSON string.
   const toJsonMatch = trimmed.match(/^toJSON\(([\s\S]+)\)$/);
   if (toJsonMatch) {
     const inner = toJsonMatch[1].trim();
@@ -204,9 +243,15 @@ function resolveExprAtom(
         matrixContext,
         needsContext,
         inputsContext,
+        vars,
+        runnerContext,
       );
     }
-    return JSON.stringify(rawValue);
+    try {
+      return JSON.stringify(JSON.parse(rawValue), null, 2);
+    } catch {
+      return JSON.stringify(rawValue, null, 2);
+    }
   }
 
   // format('template {0} {1}', arg0, arg1)
@@ -225,6 +270,8 @@ function resolveExprAtom(
           matrixContext,
           needsContext,
           inputsContext,
+          vars,
+          runnerContext,
         );
       }
       return "";
@@ -243,6 +290,8 @@ function resolveExprAtom(
         matrixContext,
         needsContext,
         inputsContext,
+        vars,
+        runnerContext,
       );
       const needle = evaluateExprValue(
         args[1],
@@ -251,6 +300,8 @@ function resolveExprAtom(
         matrixContext,
         needsContext,
         inputsContext,
+        vars,
+        runnerContext,
       );
       // Try JSON array first
       try {
@@ -280,6 +331,8 @@ function resolveExprAtom(
         matrixContext,
         needsContext,
         inputsContext,
+        vars,
+        runnerContext,
       );
       const prefix = evaluateExprValue(
         args[1],
@@ -288,6 +341,8 @@ function resolveExprAtom(
         matrixContext,
         needsContext,
         inputsContext,
+        vars,
+        runnerContext,
       );
       return str.toLowerCase().startsWith(prefix.toLowerCase()) ? "true" : "false";
     }
@@ -306,6 +361,8 @@ function resolveExprAtom(
         matrixContext,
         needsContext,
         inputsContext,
+        vars,
+        runnerContext,
       );
       const suffix = evaluateExprValue(
         args[1],
@@ -314,6 +371,8 @@ function resolveExprAtom(
         matrixContext,
         needsContext,
         inputsContext,
+        vars,
+        runnerContext,
       );
       return str.toLowerCase().endsWith(suffix.toLowerCase()) ? "true" : "false";
     }
@@ -331,10 +390,21 @@ function resolveExprAtom(
       matrixContext,
       needsContext,
       inputsContext,
+      vars,
+      runnerContext,
     );
     const sep =
       args.length >= 2
-        ? evaluateExprValue(args[1], repoPath, secrets, matrixContext, needsContext, inputsContext)
+        ? evaluateExprValue(
+            args[1],
+            repoPath,
+            secrets,
+            matrixContext,
+            needsContext,
+            inputsContext,
+            vars,
+            runnerContext,
+          )
         : ", ";
     try {
       const arr = JSON.parse(val);
@@ -363,10 +433,10 @@ function resolveExprAtom(
 
   // Context variable substitutions
   if (trimmed === "runner.os") {
-    return "Linux";
+    return runnerContext?.os ?? "Linux";
   }
   if (trimmed === "runner.arch") {
-    return "X64";
+    return runnerContext?.arch ?? "X64";
   }
   if (trimmed === "github.run_id") {
     return "1";
@@ -409,17 +479,21 @@ function resolveExprAtom(
     const name = trimmed.slice("secrets.".length);
     return secrets?.[name] ?? "";
   }
+  if (trimmed.startsWith("vars.")) {
+    const name = trimmed.slice("vars.".length);
+    return vars?.[name] ?? "";
+  }
   if (trimmed.startsWith("inputs.")) {
     const name = trimmed.slice("inputs.".length);
     return inputsContext?.[name] ?? "";
   }
-  if (trimmed.startsWith("steps.") && trimmed.endsWith(".outputs.cache-hit")) {
-    return "";
-  }
   if (trimmed.startsWith("steps.")) {
-    // Steps references are resolved at execution time by the runner.
-    // Return a sentinel so expandExpressions can preserve the ${{ }} syntax.
-    return STEPS_DEFERRED_SENTINEL;
+    // Step-output references can't be resolved at parse time — the producing
+    // step hasn't run yet — and the runner does not re-evaluate `${{ }}`
+    // inside run-script bodies at runtime. Returning the sentinel used to
+    // leak the literal `${{ }}` to bash and trigger "bad substitution".
+    // Per the compatibility contract, resolve to an empty string at parse time.
+    return "";
   }
   if (trimmed.startsWith("needs.") && needsContext) {
     const parts = trimmed.split(".");
@@ -441,8 +515,6 @@ function resolveExprAtom(
   return "";
 }
 
-const STEPS_DEFERRED_SENTINEL = "\0__STEPS_DEFERRED__\0";
-
 /**
  * Evaluate an expression that may contain ||, &&, !, parentheses,
  * string literals, function calls, and context variable references.
@@ -455,6 +527,8 @@ function evaluateExprValue(
   matrixContext?: Record<string, string>,
   needsContext?: Record<string, Record<string, string>>,
   inputsContext?: Record<string, string>,
+  vars?: Record<string, string>,
+  runnerContext?: RunnerContext,
 ): string {
   const trimmed = expr.trim();
   if (!trimmed) {
@@ -491,6 +565,8 @@ function evaluateExprValue(
           matrixContext,
           needsContext,
           inputsContext,
+          vars,
+          runnerContext,
         );
       }
       if (depth === 0) {
@@ -511,6 +587,8 @@ function evaluateExprValue(
         matrixContext,
         needsContext,
         inputsContext,
+        vars,
+        runnerContext,
       );
       if (isExprTruthy(lastVal)) {
         return lastVal;
@@ -531,6 +609,8 @@ function evaluateExprValue(
         matrixContext,
         needsContext,
         inputsContext,
+        vars,
+        runnerContext,
       );
       if (!isExprTruthy(lastVal)) {
         return lastVal;
@@ -551,6 +631,8 @@ function evaluateExprValue(
         matrixContext,
         needsContext,
         inputsContext,
+        vars,
+        runnerContext,
       );
       const right = evaluateExprValue(
         cmpParts[1].trim(),
@@ -559,6 +641,8 @@ function evaluateExprValue(
         matrixContext,
         needsContext,
         inputsContext,
+        vars,
+        runnerContext,
       );
       const result = compareValues(left, right, op);
       return result ? "true" : "false";
@@ -574,6 +658,8 @@ function evaluateExprValue(
       matrixContext,
       needsContext,
       inputsContext,
+      vars,
+      runnerContext,
     );
     return isExprTruthy(inner) ? "false" : "true";
   }
@@ -603,7 +689,16 @@ function evaluateExprValue(
   }
 
   // Atom: function call or context variable
-  return resolveExprAtom(trimmed, repoPath, secrets, matrixContext, needsContext, inputsContext);
+  return resolveExprAtom(
+    trimmed,
+    repoPath,
+    secrets,
+    matrixContext,
+    needsContext,
+    inputsContext,
+    vars,
+    runnerContext,
+  );
 }
 
 /**
@@ -619,6 +714,8 @@ export function expandExpressions(
   matrixContext?: Record<string, string>,
   needsContext?: Record<string, Record<string, string>>,
   inputsContext?: Record<string, string>,
+  vars?: Record<string, string>,
+  runnerContext?: RunnerContext,
 ): string {
   return value.replace(/\$\{\{([\s\S]*?)\}\}/g, (_match, expr: string) => {
     const result = evaluateExprValue(
@@ -628,11 +725,9 @@ export function expandExpressions(
       matrixContext,
       needsContext,
       inputsContext,
+      vars,
+      runnerContext,
     );
-    // Steps references are deferred to runtime — preserve the ${{ }} syntax
-    if (result === STEPS_DEFERRED_SENTINEL) {
-      return _match;
-    }
     return result;
   });
 }
@@ -710,7 +805,10 @@ function findFiles(rootDir: string, pattern: string): string[] {
       return;
     }
     for (const entry of entries) {
-      if (entry.name.startsWith(".") || entry.name === "node_modules") {
+      // Skip node_modules only. Dotted directories (`.github`, `.cargo`, …)
+      // are common hashFiles targets and GitHub Actions' hashFiles descends
+      // into them when the pattern asks for them.
+      if (entry.name === "node_modules") {
         continue;
       }
       const relChild = relative ? `${relative}/${entry.name}` : entry.name;
@@ -810,6 +908,111 @@ export async function parseMatrixDef(
   return Object.keys(result).length > 0 ? result : null;
 }
 
+/**
+ * Shells we wrap scripts for, by invoking them as a child process via heredoc.
+ * The runner always executes Script steps with bash; when the user asks for a
+ * non-bash shell we need to hand the script off to the requested interpreter
+ * ourselves. Flags mirror what the GitHub-hosted runner uses by default.
+ */
+const SHELL_INVOCATIONS: Record<string, string> = {
+  sh: "sh -e",
+  python: "python3",
+  pwsh: "pwsh -NoLogo -NoProfile -NonInteractive -Command -",
+};
+
+function wrapScriptForShell(script: string, shell: string): string {
+  const invocation = SHELL_INVOCATIONS[shell];
+  if (!invocation) {
+    // bash, or something we don't know how to wrap — leave the script alone.
+    // The runner's default shell is bash, which is what most workflows expect.
+    return script;
+  }
+  // Use a delimiter that is extremely unlikely to appear in real scripts.
+  const delimiter = "__AGENT_CI_SHELL_WRAP_EOF__";
+  return `${invocation} <<'${delimiter}'\n${script}\n${delimiter}`;
+}
+
+/**
+ * Resolve a `defaults.run.<key>` value with GitHub Actions precedence:
+ * step override beats job `defaults.run.<key>`, which beats workflow-level
+ * `defaults.run.<key>`. Returns undefined when none is declared at any level.
+ */
+function resolveStepRunDefault(
+  rawYaml: unknown,
+  rawJob: unknown,
+  rawStep: unknown,
+  key: string,
+): string | undefined {
+  const pick = (source: unknown): string | undefined => {
+    if (!source || typeof source !== "object") {
+      return undefined;
+    }
+    const v = (source as Record<string, unknown>)[key];
+    return typeof v === "string" && v.length > 0 ? v : undefined;
+  };
+  const pickDefault = (source: unknown): string | undefined => {
+    if (!source || typeof source !== "object") {
+      return undefined;
+    }
+    const run = (source as { defaults?: { run?: unknown } }).defaults?.run;
+    return pick(run);
+  };
+  return pick(rawStep) ?? pickDefault(rawJob) ?? pickDefault(rawYaml);
+}
+
+/**
+ * Build a step's effective env by merging workflow-level, job-level, and
+ * step-level `env:` blocks in that order — step overrides job overrides
+ * workflow, per GitHub Actions semantics — then expanding each value's
+ * `${{ }}` expressions.
+ *
+ * Returns undefined when no env is declared at any level, matching the
+ * prior shape so a step with no env produces no `Env` field.
+ */
+function buildStepEnv(
+  rawYaml: unknown,
+  rawJob: unknown,
+  rawStep: unknown,
+  repoPath: string | undefined,
+  secrets: Record<string, string> | undefined,
+  matrixContext: Record<string, string> | undefined,
+  needsContext: Record<string, Record<string, string>> | undefined,
+  inputsContext: Record<string, string> | undefined,
+  vars: Record<string, string> | undefined,
+  runnerContext: RunnerContext | undefined,
+): Record<string, string> | undefined {
+  const pick = (source: unknown): Record<string, unknown> => {
+    if (!source || typeof source !== "object") {
+      return {};
+    }
+    const env = (source as { env?: unknown }).env;
+    return env && typeof env === "object" ? (env as Record<string, unknown>) : {};
+  };
+  const merged: Record<string, unknown> = {
+    ...pick(rawYaml),
+    ...pick(rawJob),
+    ...pick(rawStep),
+  };
+  if (Object.keys(merged).length === 0) {
+    return undefined;
+  }
+  return Object.fromEntries(
+    Object.entries(merged).map(([k, v]) => [
+      k,
+      expandExpressions(
+        String(v),
+        repoPath,
+        secrets,
+        matrixContext,
+        needsContext,
+        inputsContext,
+        vars,
+        runnerContext,
+      ),
+    ]),
+  );
+}
+
 export async function parseWorkflowSteps(
   filePath: string,
   taskName: string,
@@ -817,12 +1020,16 @@ export async function parseWorkflowSteps(
   matrixContext?: Record<string, string>,
   needsContext?: Record<string, Record<string, string>>,
   inputsContext?: Record<string, string>,
+  vars?: Record<string, string>,
 ) {
   const template = await getWorkflowTemplate(filePath);
   const rawYaml = parseYaml(fs.readFileSync(filePath, "utf8"));
 
   // Derive repoPath from filePath (.../repoPath/.github/workflows/foo.yml → repoPath)
   const repoPath = path.dirname(path.dirname(path.dirname(filePath)));
+  // Resolve ${{ runner.os }} / ${{ runner.arch }} from the job's runs-on so
+  // that macOS/Windows jobs don't expand to Linux/X64 (issue #279).
+  const runnerContext = runnerContextFromRunsOn(parseJobRunsOn(filePath, taskName));
   // Find the job by ID or Name
   if (!template.jobs) {
     throw new Error(`No jobs found in workflow "${filePath}"`);
@@ -848,7 +1055,16 @@ export async function parseWorkflowSteps(
       // Prefer raw YAML name to preserve ${{ }} expressions for our own expansion
       const rawName = rawStep.name != null ? String(rawStep.name) : step.name?.toString();
       let stepName = rawName
-        ? expandExpressions(rawName, repoPath, secrets, matrixContext, needsContext, inputsContext)
+        ? expandExpressions(
+            rawName,
+            repoPath,
+            secrets,
+            matrixContext,
+            needsContext,
+            inputsContext,
+            vars,
+            runnerContext,
+          )
         : stepId;
 
       // If a step lacks an explicit name, we map it to standard GitHub Actions defaults
@@ -873,19 +1089,30 @@ export async function parseWorkflowSteps(
         // (e.g. dropping the text after an embedded ${{ }} boundary). The raw YAML
         // string is always the complete literal block scalar.
         const rawScript = rawStep.run != null ? String(rawStep.run) : step.run.toString();
+        const expandedScript = expandExpressions(
+          rawScript,
+          repoPath,
+          secrets,
+          matrixContext,
+          needsContext,
+          inputsContext,
+          vars,
+          runnerContext,
+        );
+        const shell = resolveStepRunDefault(rawYaml, rawJob, rawStep, "shell");
         const inputs: Record<string, string> = {
-          script: expandExpressions(
-            rawScript,
-            repoPath,
-            secrets,
-            matrixContext,
-            needsContext,
-            inputsContext,
-          ),
+          script: shell ? wrapScriptForShell(expandedScript, shell) : expandedScript,
         };
-        if (rawStep["working-directory"]) {
-          inputs.workingDirectory = rawStep["working-directory"];
+        const workingDirectory = resolveStepRunDefault(
+          rawYaml,
+          rawJob,
+          rawStep,
+          "working-directory",
+        );
+        if (workingDirectory) {
+          inputs.workingDirectory = workingDirectory;
         }
+        const condition = parseStepIf(rawStep.if);
         return {
           Type: "Action",
           Name: stepName,
@@ -896,21 +1123,19 @@ export async function parseWorkflowSteps(
             Type: "Script",
           },
           Inputs: inputs,
-          Env: rawStep.env
-            ? Object.fromEntries(
-                Object.entries(rawStep.env).map(([k, v]) => [
-                  k,
-                  expandExpressions(
-                    String(v),
-                    repoPath,
-                    secrets,
-                    undefined,
-                    needsContext,
-                    inputsContext,
-                  ),
-                ]),
-              )
-            : undefined,
+          Env: buildStepEnv(
+            rawYaml,
+            rawJob,
+            rawStep,
+            repoPath,
+            secrets,
+            undefined,
+            needsContext,
+            inputsContext,
+            vars,
+            runnerContext,
+          ),
+          ...(condition !== undefined ? { condition } : {}),
         };
       } else if ("uses" in step) {
         // Basic support for 'uses' steps
@@ -928,6 +1153,7 @@ export async function parseWorkflowSteps(
 
         const isCheckout = !isLocalAction && name.trim().toLowerCase() === "actions/checkout";
         const stepWith = rawStep.with || {};
+        const condition = parseStepIf(rawStep.if);
 
         return {
           Type: "Action",
@@ -955,6 +1181,8 @@ export async function parseWorkflowSteps(
                       matrixContext,
                       needsContext,
                       inputsContext,
+                      vars,
+                      runnerContext,
                     ),
                   ]),
                 )
@@ -970,6 +1198,8 @@ export async function parseWorkflowSteps(
                   matrixContext,
                   needsContext,
                   inputsContext,
+                  vars,
+                  runnerContext,
                 ),
               ]),
             ),
@@ -988,6 +1218,8 @@ export async function parseWorkflowSteps(
                         undefined,
                         needsContext,
                         inputsContext,
+                        vars,
+                        runnerContext,
                       );
                       // The zero hash is a placeholder for "no SHA available" —
                       // normalize it to empty string so actions/checkout uses the
@@ -1001,21 +1233,19 @@ export async function parseWorkflowSteps(
                 }
               : {}), // Prevent actions/checkout from wiping the rsynced workspace
           },
-          Env: rawStep.env
-            ? Object.fromEntries(
-                Object.entries(rawStep.env).map(([k, v]) => [
-                  k,
-                  expandExpressions(
-                    String(v),
-                    repoPath,
-                    secrets,
-                    matrixContext,
-                    needsContext,
-                    inputsContext,
-                  ),
-                ]),
-              )
-            : undefined,
+          Env: buildStepEnv(
+            rawYaml,
+            rawJob,
+            rawStep,
+            repoPath,
+            secrets,
+            matrixContext,
+            needsContext,
+            inputsContext,
+            vars,
+            runnerContext,
+          ),
+          ...(condition !== undefined ? { condition } : {}),
         };
       }
       return null;
@@ -1307,6 +1537,57 @@ export function validateSecrets(
 }
 
 /**
+ * Scan a workflow file for all `${{ vars.FOO }}` references.
+ * If `taskName` is provided, only the YAML subtree for that job is scanned.
+ * Returns a sorted, de-duplicated list of var names.
+ */
+export function extractVarRefs(filePath: string, taskName?: string): string[] {
+  const raw = fs.readFileSync(filePath, "utf8");
+  // Scope to the job subtree when a taskName is given so we don't pick up
+  // vars from other jobs.
+  let source = raw;
+  if (taskName) {
+    try {
+      const parsed = parseYaml(raw);
+      const jobDef = parsed?.jobs?.[taskName];
+      if (jobDef) {
+        source = JSON.stringify(jobDef);
+      }
+    } catch {
+      // Fall back to scanning the whole file
+    }
+  }
+  const names = new Set<string>();
+  for (const m of source.matchAll(/\$\{\{\s*vars\.([A-Za-z_][A-Za-z0-9_]*)\s*\}\}/g)) {
+    names.add(m[1]);
+  }
+  return Array.from(names).sort();
+}
+
+/**
+ * Validate that all vars referenced in a workflow job are present in the
+ * provided vars map. Throws with a descriptive message listing the missing
+ * var names and the `--var` flags needed to supply them.
+ */
+export function validateVars(
+  filePath: string,
+  taskName: string,
+  vars: Record<string, string>,
+): void {
+  const required = extractVarRefs(filePath, taskName);
+  const missing = required.filter((name) => !vars[name]);
+  if (missing.length === 0) {
+    return;
+  }
+  throw new Error(
+    `[Agent CI] Missing vars required by workflow job "${taskName}".\n` +
+      `Pass them via --var NAME=value (one flag per variable):\n\n` +
+      missing.map((n) => `  --var ${n}=<value>`).join("\n") +
+      "\n",
+  );
+}
+
+/**
  * Parse `jobs.<id>.outputs` definitions from a workflow YAML file.
  * Returns a Record<outputName, expressionTemplate> (e.g. { skip: "${{ steps.check.outputs.skip }}" }).
  * Returns {} if the job has no outputs or doesn't exist.
@@ -1340,6 +1621,32 @@ export function parseJobIf(filePath: string, jobId: string): string | null {
   const wrapped = expr.match(/^\$\{\{\s*([\s\S]*?)\s*\}\}$/);
   if (wrapped) {
     expr = wrapped[1];
+  }
+  return expr;
+}
+
+/**
+ * Normalize a step-level `if:` value into a condition string for the runner's
+ * EvaluateStepIf. Accepts the raw YAML value (may be string, boolean, null).
+ * Strips a surrounding `${{ }}` wrapper so the runner sees a bare expression,
+ * matching the format it uses for the default `success()`.
+ * Returns undefined when no condition should be forwarded (the server then
+ * defaults to `success()`).
+ */
+export function parseStepIf(rawIf: unknown): string | undefined {
+  if (rawIf === undefined || rawIf === null) {
+    return undefined;
+  }
+  let expr = String(rawIf).trim();
+  if (expr === "") {
+    return undefined;
+  }
+  const wrapped = expr.match(/^\$\{\{\s*([\s\S]*?)\s*\}\}$/);
+  if (wrapped) {
+    expr = wrapped[1].trim();
+    if (expr === "") {
+      return undefined;
+    }
   }
   return expr;
 }
@@ -1500,6 +1807,42 @@ function resolveValue(raw: string, needsCtx?: Record<string, Record<string, stri
  * Parse `strategy.fail-fast` for a job.
  * Returns true/false if explicitly set, undefined if not specified.
  */
+/**
+ * Parse the `runs-on:` field of a workflow job and return the labels as a flat
+ * array of strings. Accepts all three shapes GitHub allows:
+ *
+ *   - String:        `runs-on: ubuntu-latest`
+ *   - Array:         `runs-on: [self-hosted, macos, arm64]`
+ *   - Object form:   `runs-on: { group: foo, labels: [x, y] }`
+ *
+ * Returns an empty array if the job has no `runs-on:` (or the workflow is
+ * unparseable). Callers that need to detect a missing value should treat an
+ * empty array as "unknown".
+ */
+export function parseJobRunsOn(filePath: string, jobId: string): string[] {
+  const yaml = parseYaml(fs.readFileSync(filePath, "utf8"));
+  const raw = yaml?.jobs?.[jobId]?.["runs-on"];
+  if (raw == null) {
+    return [];
+  }
+  if (typeof raw === "string") {
+    return [raw];
+  }
+  if (Array.isArray(raw)) {
+    return raw.map((v) => String(v));
+  }
+  if (typeof raw === "object") {
+    const labels = (raw as Record<string, unknown>).labels;
+    if (Array.isArray(labels)) {
+      return labels.map((v) => String(v));
+    }
+    if (typeof labels === "string") {
+      return [labels];
+    }
+  }
+  return [];
+}
+
 export function parseFailFast(filePath: string, jobId: string): boolean | undefined {
   const yaml = parseYaml(fs.readFileSync(filePath, "utf8"));
   const strategy = yaml?.jobs?.[jobId]?.strategy;

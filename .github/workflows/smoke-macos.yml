@@ -1,0 +1,30 @@
+name: "Smoke: macOS runner"
+
+# Intended for local debugging of the tart-backed macOS VM path in agent-ci.
+# Run it via:
+#
+#   pnpm agent-ci-dev run --workflow .github/workflows/smoke-macos.yml
+#
+# workflow_dispatch is the only trigger so `agent-ci run --all` will NOT
+# pick this up — it stays out of the default smoke sweep and only fires
+# when we explicitly want to exercise macOS.
+
+on:
+  workflow_dispatch:
+
+jobs:
+  macos:
+    runs-on: macos-15
+    timeout-minutes: 5
+    steps:
+      - name: OS info
+        run: |
+          uname -a
+          sw_vers
+          sysctl -n machdep.cpu.brand_string
+
+      - name: Toolchain sanity
+        run: |
+          xcode-select -p
+          clang --version
+          git --version

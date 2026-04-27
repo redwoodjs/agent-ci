@@ -1,6 +1,6 @@
 {
   "name": "@redwoodjs/agent-ci",
-  "version": "0.10.4",
+  "version": "0.13.0",
   "description": "Local GitHub Actions runner — pause on failure, ~0ms cache, official runner binary. Built for AI coding agents.",
   "keywords": [
     "act-alternative",

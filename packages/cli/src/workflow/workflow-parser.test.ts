@@ -351,13 +351,13 @@ describe("expandExpressions", () => {
     expect(expandExpressions("shard-${{ matrix.shard }}")).toBe("shard-");
   });
 
-  it("preserves steps.* expressions for runtime resolution", () => {
-    // steps.*.outputs.cache-hit is still expanded (special-cased for cache actions)
+  it("resolves steps.* expressions to empty string at parse time", () => {
+    // The producing step has not run yet, and the runner does not re-evaluate
+    // `${{ }}` inside run-script bodies. Leaving the expression literal leaked
+    // raw `${{ }}` text to bash ("bad substitution"); resolving to empty here
+    // lets cross-step reads degrade to "" instead of crashing the shell.
     expect(expandExpressions("hit-${{ steps.cache.outputs.cache-hit }}")).toBe("hit-");
-    // General steps.* expressions are preserved for the runner to evaluate at runtime
-    expect(expandExpressions("${{ steps.some-step.outputs.result }}")).toBe(
-      "${{ steps.some-step.outputs.result }}",
-    );
+    expect(expandExpressions("${{ steps.some-step.outputs.result }}")).toBe("");
   });
 
   it("expands needs.* to empty string", () => {
@@ -1411,7 +1411,7 @@ describe("expandExpressions real-world patterns", () => {
 
 // ─── Job-level if conditions ──────────────────────────────────────────────────
 
-import { evaluateJobIf, parseJobIf } from "./workflow-parser.js";
+import { evaluateJobIf, parseJobIf, parseStepIf } from "./workflow-parser.js";
 
 describe("parseJobIf", () => {
   let tmpDir: string;
@@ -1468,6 +1468,48 @@ jobs:
       - run: echo ok
 `);
     expect(parseJobIf(filePath, "check")).toBe("always()");
+  });
+});
+
+describe("parseStepIf", () => {
+  it("returns undefined for null or undefined", () => {
+    expect(parseStepIf(undefined)).toBeUndefined();
+    expect(parseStepIf(null)).toBeUndefined();
+  });
+
+  it("returns undefined for an empty string", () => {
+    expect(parseStepIf("")).toBeUndefined();
+    expect(parseStepIf("   ")).toBeUndefined();
+  });
+
+  it("returns a naked expression unchanged", () => {
+    expect(parseStepIf("contains(runner.name, 'blacksmith')")).toBe(
+      "contains(runner.name, 'blacksmith')",
+    );
+    expect(parseStepIf("always()")).toBe("always()");
+  });
+
+  it("strips a ${{ }} wrapper", () => {
+    expect(parseStepIf("${{ contains(runner.name, 'blacksmith') }}")).toBe(
+      "contains(runner.name, 'blacksmith')",
+    );
+    expect(parseStepIf("${{ !contains(runner.name, 'blacksmith') }}")).toBe(
+      "!contains(runner.name, 'blacksmith')",
+    );
+  });
+
+  it("coerces boolean YAML values to string", () => {
+    expect(parseStepIf(true)).toBe("true");
+    expect(parseStepIf(false)).toBe("false");
+  });
+
+  it("trims whitespace inside and outside the wrapper", () => {
+    expect(parseStepIf("   always()   ")).toBe("always()");
+    expect(parseStepIf("${{   always()   }}")).toBe("always()");
+  });
+
+  it("returns undefined when the wrapper contains only whitespace", () => {
+    expect(parseStepIf("${{  }}")).toBeUndefined();
   });
 });
 
@@ -1674,6 +1716,46 @@ jobs:
 
     expect((steps[0] as any).Name).toBe("Shard 3");
   });
+
+  it("forwards step-level if: conditions as step.condition", async () => {
+    const filePath = writeWorkflowTree(`
+name: Step If Test
+on: [push]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: no-if
+        run: echo one
+      - name: naked
+        if: contains(runner.name, 'blacksmith')
+        run: echo two
+      - name: wrapped
+        if: \${{ !contains(runner.name, 'blacksmith') }}
+        run: echo three
+      - name: always
+        if: always()
+        run: echo four
+      - name: false-literal
+        if: \${{ false }}
+        run: echo five
+      - name: uses-with-if
+        if: \${{ runner.os == 'Linux' }}
+        uses: actions/checkout@v4
+`);
+    const steps = await parseWorkflowSteps(filePath, "test");
+    const conds = steps.map((s: any) => s.condition);
+    // no-if → undefined (server defaults to success())
+    expect(conds[0]).toBeUndefined();
+    // naked expression passes through unchanged
+    expect(conds[1]).toBe("contains(runner.name, 'blacksmith')");
+    // ${{ }} wrapper is stripped
+    expect(conds[2]).toBe("!contains(runner.name, 'blacksmith')");
+    expect(conds[3]).toBe("always()");
+    expect(conds[4]).toBe("false");
+    // applies to `uses` steps too
+    expect(conds[5]).toBe("runner.os == 'Linux'");
+  });
 });
 
 // ─── parseWorkflowSteps with local composite actions ──────────────────────────
@@ -1752,5 +1834,521 @@ jobs:
 
     expect(inputs["node-version"]).toBe("18");
     expect(inputs["cache-key"]).toBe("my-cache");
+  });
+});
+
+// ─── extractVarRefs & validateVars ────────────────────────────────────────────
+
+import { extractVarRefs, validateVars } from "./workflow-parser.js";
+
+describe("extractVarRefs", () => {
+  // SPEC-V-011: workflow with no var refs returns empty array
+  // SPEC-V-014: duplicate refs deduplicate
+  // SPEC-V-015: job scoping
+
+  let tmpDir: string;
+
+  afterEach(() => {
+    if (tmpDir) {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  function writeWorkflow(content: string): string {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "oa-var-refs-"));
+    const filePath = path.join(tmpDir, "workflow.yml");
+    fs.writeFileSync(filePath, content);
+    return filePath;
+  }
+
+  // SPEC-V-011: workflow with no var references → empty array (not an error)
+  it("returns empty array when workflow has no vars references", () => {
+    const filePath = writeWorkflow(`
+name: No Vars
+on: [push]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo hello
+`);
+    expect(extractVarRefs(filePath)).toEqual([]);
+  });
+
+  // SPEC-V-014 + basic extraction: extracts unique sorted var names from whole file
+  it("extracts unique sorted var names from the whole file", () => {
+    const filePath = writeWorkflow(`
+name: Vars Test
+on: [push]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      ENV: \${{ vars.APP_ENV }}
+      REGION: \${{ vars.DEPLOY_REGION }}
+      DUP: \${{ vars.APP_ENV }}
+    steps:
+      - run: echo ok
+`);
+    expect(extractVarRefs(filePath)).toEqual(["APP_ENV", "DEPLOY_REGION"]);
+  });
+
+  // SPEC-V-015: job scoping — only extracts refs for the named job
+  it("scopes to the specified job when taskName is provided", () => {
+    const filePath = writeWorkflow(`
+name: Multi Job
+on: [push]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      ENV: \${{ vars.BUILD_ENV }}
+    steps:
+      - run: echo build
+  test:
+    runs-on: ubuntu-latest
+    env:
+      ENV: \${{ vars.TEST_ENV }}
+    steps:
+      - run: echo test
+`);
+    expect(extractVarRefs(filePath, "test")).toEqual(["TEST_ENV"]);
+    expect(extractVarRefs(filePath, "build")).toEqual(["BUILD_ENV"]);
+  });
+
+  // SPEC-V-008: vars refs are not confused with secrets refs
+  it("does not return secrets refs as var refs", () => {
+    const filePath = writeWorkflow(`
+name: Mixed
+on: [push]
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    env:
+      TOKEN: \${{ secrets.API_KEY }}
+      ENV: \${{ vars.APP_ENV }}
+    steps:
+      - run: echo ok
+`);
+    expect(extractVarRefs(filePath)).toEqual(["APP_ENV"]);
+  });
+});
+
+describe("validateVars", () => {
+  // SPEC-V-002: missing var → error naming the var
+  // SPEC-V-011: no var refs → not an error
+  // SPEC-V-012: error message names missing vars and tells user how to pass them
+  // SPEC-V-013: only missing vars appear in error
+
+  let tmpDir: string;
+
+  afterEach(() => {
+    if (tmpDir) {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  function writeWorkflow(content: string): string {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "oa-validate-vars-"));
+    const filePath = path.join(tmpDir, "workflow.yml");
+    fs.writeFileSync(filePath, content);
+    return filePath;
+  }
+
+  // SPEC-V-001: all vars present → no error
+  it("does not throw when all required vars are present", () => {
+    const filePath = writeWorkflow(`
+name: Test
+on: [push]
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    env:
+      ENV: \${{ vars.APP_ENV }}
+    steps:
+      - run: echo ok
+`);
+    expect(() => validateVars(filePath, "run", { APP_ENV: "production" })).not.toThrow();
+  });
+
+  // SPEC-V-011: workflow with no var refs → not an error even with empty vars map
+  it("does not throw when workflow has no vars references", () => {
+    const filePath = writeWorkflow(`
+name: Test
+on: [push]
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo ok
+`);
+    expect(() => validateVars(filePath, "run", {})).not.toThrow();
+  });
+
+  // SPEC-V-002 + SPEC-V-012: error names missing vars and instructs to pass --var flags
+  it("throws listing missing vars and the --var flag syntax", () => {
+    const filePath = writeWorkflow(`
+name: Test
+on: [push]
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      HOST: \${{ vars.DB_HOST }}
+      PORT: \${{ vars.DB_PORT }}
+    steps:
+      - run: echo deploy
+`);
+    expect(() => validateVars(filePath, "deploy", {})).toThrow(/DB_HOST/);
+    expect(() => validateVars(filePath, "deploy", {})).toThrow(/DB_PORT/);
+    expect(() => validateVars(filePath, "deploy", {})).toThrow(/--var/);
+  });
+
+  // SPEC-V-013: only missing vars appear in error — supplied vars are not mentioned
+  it("only fails for missing vars, not for ones that are present", () => {
+    const filePath = writeWorkflow(`
+name: Test
+on: [push]
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    env:
+      A: \${{ vars.PRESENT_VAR }}
+      B: \${{ vars.MISSING_VAR }}
+    steps:
+      - run: echo ok
+`);
+    expect(() => validateVars(filePath, "run", { PRESENT_VAR: "value" })).toThrow(/MISSING_VAR/);
+    expect(() => validateVars(filePath, "run", { PRESENT_VAR: "value" })).not.toThrow(
+      /PRESENT_VAR/,
+    );
+  });
+});
+
+// ─── parseWorkflowSteps env merging (workflow → job → step) ──────────────────────
+describe("parseWorkflowSteps env merging", () => {
+  let tmpDir: string;
+
+  afterEach(() => {
+    if (tmpDir) {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  function writeWorkflowTree(content: string): string {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "oa-env-merge-"));
+    const workflowDir = path.join(tmpDir, ".github", "workflows");
+    fs.mkdirSync(workflowDir, { recursive: true });
+    const filePath = path.join(workflowDir, "test.yml");
+    fs.writeFileSync(filePath, content);
+    return filePath;
+  }
+
+  it("propagates job-level env to steps", async () => {
+    const filePath = writeWorkflowTree(`
+name: Job Env
+on: [push]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      FROM_JOB: job-value
+    steps:
+      - run: echo hi
+`);
+    const steps = await parseWorkflowSteps(filePath, "test");
+    expect((steps[0] as any).Env).toEqual({ FROM_JOB: "job-value" });
+  });
+
+  it("propagates workflow-level env to steps", async () => {
+    const filePath = writeWorkflowTree(`
+name: Workflow Env
+on: [push]
+env:
+  FROM_WORKFLOW: workflow-value
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo hi
+`);
+    const steps = await parseWorkflowSteps(filePath, "test");
+    expect((steps[0] as any).Env).toEqual({ FROM_WORKFLOW: "workflow-value" });
+  });
+
+  it("merges workflow + job + step env with step-overrides-job-overrides-workflow precedence", async () => {
+    const filePath = writeWorkflowTree(`
+name: Precedence
+on: [push]
+env:
+  LEVEL: workflow
+  WF_ONLY: workflow
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      LEVEL: job
+      JOB_ONLY: job
+    steps:
+      - env:
+          LEVEL: step
+          STEP_ONLY: step
+        run: echo hi
+`);
+    const steps = await parseWorkflowSteps(filePath, "test");
+    expect((steps[0] as any).Env).toEqual({
+      LEVEL: "step",
+      WF_ONLY: "workflow",
+      JOB_ONLY: "job",
+      STEP_ONLY: "step",
+    });
+  });
+
+  it("expands \\${{ vars.X }} in job-level env", async () => {
+    const filePath = writeWorkflowTree(`
+name: Vars In Job Env
+on: [push]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      API_URL: \${{ vars.API_URL }}
+    steps:
+      - run: echo hi
+`);
+    const vars = { API_URL: "https://api.example.com" };
+    const steps = await parseWorkflowSteps(
+      filePath,
+      "test",
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      vars,
+    );
+    expect((steps[0] as any).Env).toEqual({ API_URL: "https://api.example.com" });
+  });
+
+  it("returns undefined Env when no env declared at any level", async () => {
+    const filePath = writeWorkflowTree(`
+name: No Env
+on: [push]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo hi
+`);
+    const steps = await parseWorkflowSteps(filePath, "test");
+    expect((steps[0] as any).Env).toBeUndefined();
+  });
+});
+
+// ─── parseWorkflowSteps runner context from runs-on (issue #279) ──────────────
+describe("parseWorkflowSteps derives runner context from runs-on", () => {
+  let tmpDir: string;
+
+  afterEach(() => {
+    if (tmpDir) {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  function writeWorkflowTree(content: string): string {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "oa-runner-ctx-"));
+    const workflowDir = path.join(tmpDir, ".github", "workflows");
+    fs.mkdirSync(workflowDir, { recursive: true });
+    const filePath = path.join(workflowDir, "test.yml");
+    fs.writeFileSync(filePath, content);
+    return filePath;
+  }
+
+  it("expands runner.os to macOS and runner.arch to ARM64 for macos-14 runs-on", async () => {
+    const filePath = writeWorkflowTree(`
+name: macOS Build
+on: [push]
+jobs:
+  build:
+    runs-on: macos-14
+    steps:
+      - run: echo "os=\${{ runner.os }} arch=\${{ runner.arch }}"
+`);
+    const steps = await parseWorkflowSteps(filePath, "build");
+    expect((steps[0] as any).Inputs.script).toBe('echo "os=macOS arch=ARM64"');
+  });
+
+  it("expands runner.os to Windows for windows-latest runs-on", async () => {
+    const filePath = writeWorkflowTree(`
+name: Windows Build
+on: [push]
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - run: echo "\${{ runner.os }}"
+`);
+    const steps = await parseWorkflowSteps(filePath, "build");
+    expect((steps[0] as any).Inputs.script).toBe('echo "Windows"');
+  });
+
+  it("defaults to Linux/X64 for ubuntu runs-on (backward compat)", async () => {
+    const filePath = writeWorkflowTree(`
+name: Linux Build
+on: [push]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "os=\${{ runner.os }} arch=\${{ runner.arch }}"
+`);
+    const steps = await parseWorkflowSteps(filePath, "build");
+    expect((steps[0] as any).Inputs.script).toBe('echo "os=Linux arch=X64"');
+  });
+
+  it("expands runner.os in step env for macos-14 runs-on", async () => {
+    const filePath = writeWorkflowTree(`
+name: macOS Env
+on: [push]
+jobs:
+  build:
+    runs-on: macos-14
+    steps:
+      - env:
+          TARGET_OS: \${{ runner.os }}
+        run: echo ok
+`);
+    const steps = await parseWorkflowSteps(filePath, "build");
+    expect((steps[0] as any).Env).toEqual({ TARGET_OS: "macOS" });
+  });
+
+  it("expands runner.os in step name for self-hosted macos labels", async () => {
+    const filePath = writeWorkflowTree(`
+name: Self-hosted macOS
+on: [push]
+jobs:
+  build:
+    runs-on: [self-hosted, macos, arm64]
+    steps:
+      - name: On \${{ runner.os }}
+        run: echo hi
+`);
+    const steps = await parseWorkflowSteps(filePath, "build");
+    expect((steps[0] as any).Name).toBe("On macOS");
+  });
+});
+
+import { runnerContextFromRunsOn } from "./workflow-parser.js";
+
+describe("runnerContextFromRunsOn", () => {
+  it("classifies macos-14 to macOS/ARM64", () => {
+    expect(runnerContextFromRunsOn(["macos-14"])).toEqual({ os: "macOS", arch: "ARM64" });
+  });
+
+  it("classifies macos-latest to macOS/ARM64", () => {
+    expect(runnerContextFromRunsOn(["macos-latest"])).toEqual({ os: "macOS", arch: "ARM64" });
+  });
+
+  it("classifies windows-latest to Windows/X64", () => {
+    expect(runnerContextFromRunsOn(["windows-latest"])).toEqual({ os: "Windows", arch: "X64" });
+  });
+
+  it("classifies ubuntu-latest to Linux/X64", () => {
+    expect(runnerContextFromRunsOn(["ubuntu-latest"])).toEqual({ os: "Linux", arch: "X64" });
+  });
+
+  it("classifies empty labels to Linux/X64 (safe default)", () => {
+    expect(runnerContextFromRunsOn([])).toEqual({ os: "Linux", arch: "X64" });
+  });
+
+  it("classifies self-hosted+macos+arm64 to macOS/ARM64", () => {
+    expect(runnerContextFromRunsOn(["self-hosted", "macos", "arm64"])).toEqual({
+      os: "macOS",
+      arch: "ARM64",
+    });
+  });
+});
+
+import { parseJobRunsOn } from "./workflow-parser.js";
+
+describe("parseJobRunsOn", () => {
+  let tmpDir: string;
+
+  afterEach(() => {
+    if (tmpDir) {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  function writeWorkflow(content: string): string {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "oa-runson-test-"));
+    const filePath = path.join(tmpDir, "workflow.yml");
+    fs.writeFileSync(filePath, content);
+    return filePath;
+  }
+
+  it("returns a single-element array for a string runs-on", () => {
+    const filePath = writeWorkflow(`
+name: X
+on: [push]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo ok
+`);
+    expect(parseJobRunsOn(filePath, "build")).toEqual(["ubuntu-latest"]);
+  });
+
+  it("returns all labels for an array runs-on", () => {
+    const filePath = writeWorkflow(`
+name: X
+on: [push]
+jobs:
+  build:
+    runs-on: [self-hosted, macos, arm64]
+    steps:
+      - run: echo ok
+`);
+    expect(parseJobRunsOn(filePath, "build")).toEqual(["self-hosted", "macos", "arm64"]);
+  });
+
+  it("returns labels from the object form (group + labels)", () => {
+    const filePath = writeWorkflow(`
+name: X
+on: [push]
+jobs:
+  build:
+    runs-on:
+      group: my-group
+      labels: [macos-14, arm64]
+    steps:
+      - run: echo ok
+`);
+    expect(parseJobRunsOn(filePath, "build")).toEqual(["macos-14", "arm64"]);
+  });
+
+  it("returns an empty array when runs-on is missing", () => {
+    const filePath = writeWorkflow(`
+name: X
+on: [push]
+jobs:
+  build:
+    steps:
+      - run: echo ok
+`);
+    expect(parseJobRunsOn(filePath, "build")).toEqual([]);
+  });
+
+  it("returns an empty array when the job does not exist", () => {
+    const filePath = writeWorkflow(`
+name: X
+on: [push]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo ok
+`);
+    expect(parseJobRunsOn(filePath, "other")).toEqual([]);
   });
 });

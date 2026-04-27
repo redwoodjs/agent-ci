@@ -63,6 +63,36 @@ export const config: {
   GITHUB_API_URL: process.env.GITHUB_API_URL || "http://localhost:8910",
 };
 
+function parseEnvFile(filePath: string): Record<string, string> {
+  const result: Record<string, string> = {};
+  if (!fs.existsSync(filePath)) {
+    return result;
+  }
+  const lines = fs.readFileSync(filePath, "utf-8").split("\n");
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) {
+      continue;
+    }
+    const eqIdx = trimmed.indexOf("=");
+    if (eqIdx < 1) {
+      continue;
+    }
+    const key = trimmed.slice(0, eqIdx).trim();
+    let value = trimmed.slice(eqIdx + 1).trim();
+    if (
+      (value.startsWith('"') && value.endsWith('"')) ||
+      (value.startsWith("'") && value.endsWith("'"))
+    ) {
+      value = value.slice(1, -1);
+    }
+    if (key) {
+      result[key] = value;
+    }
+  }
+  return result;
+}
+
 /**
  * Load machine-local secrets from `.env.agent-ci` at the given base directory.
  * The file uses KEY=VALUE syntax (lines starting with # are ignored).
@@ -78,32 +108,7 @@ export function loadMachineSecrets(
   envFallbackKeys?: string[],
 ): Record<string, string> {
   const envMachinePath = path.join(baseDir ?? PROJECT_ROOT, ".env.agent-ci");
-  const secrets: Record<string, string> = {};
-  if (fs.existsSync(envMachinePath)) {
-    const lines = fs.readFileSync(envMachinePath, "utf-8").split("\n");
-    for (const line of lines) {
-      const trimmed = line.trim();
-      if (!trimmed || trimmed.startsWith("#")) {
-        continue;
-      }
-      const eqIdx = trimmed.indexOf("=");
-      if (eqIdx < 1) {
-        continue;
-      }
-      const key = trimmed.slice(0, eqIdx).trim();
-      let value = trimmed.slice(eqIdx + 1).trim();
-      // Strip optional surrounding quotes
-      if (
-        (value.startsWith('"') && value.endsWith('"')) ||
-        (value.startsWith("'") && value.endsWith("'"))
-      ) {
-        value = value.slice(1, -1);
-      }
-      if (key) {
-        secrets[key] = value;
-      }
-    }
-  }
+  const secrets = parseEnvFile(envMachinePath);
   // Fill missing secrets from process.env (shell env vars act as fallback)
   if (envFallbackKeys) {
     for (const key of envFallbackKeys) {
@@ -113,4 +118,25 @@ export function loadMachineSecrets(
     }
   }
   return secrets;
+}
+
+/**
+ * Apply `AGENT_CI_*` entries from `.env.agent-ci` to `process.env`.
+ *
+ * Shell env wins: a key already present in `process.env` is left untouched.
+ * Only `AGENT_CI_*`-prefixed keys are copied — workflow secret values that
+ * coexist in this file stay in the file and are read via `loadMachineSecrets`.
+ */
+export function applyAgentCiEnv(baseDir?: string): void {
+  const envMachinePath = path.join(baseDir ?? PROJECT_ROOT, ".env.agent-ci");
+  const parsed = parseEnvFile(envMachinePath);
+  for (const [key, value] of Object.entries(parsed)) {
+    if (!key.startsWith("AGENT_CI_")) {
+      continue;
+    }
+    if (process.env[key] !== undefined) {
+      continue;
+    }
+    process.env[key] = value;
+  }
 }

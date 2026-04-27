@@ -1,0 +1,83 @@
+name: "Smoke: actions/setup-node manifest fetch"
+
+# Reproduces #249 — actions/setup-node@v5 printed "Bad credentials" and fell
+# back to downloading Node directly from nodejs.org because @actions/tool-cache
+# hardcodes https://api.github.com and escapes our DTU. This smoke creates a
+# throwaway project, runs agent-ci against a workflow that uses setup-node,
+# and fails if the step logs the fallback path.
+
+on:
+  pull_request_target:
+    types: [opened, labeled, synchronize]
+
+jobs:
+  node-setup:
+    if: '!github.event.pull_request.draft && (contains(fromJSON(''["MEMBER", "OWNER", "COLLABORATOR"]''), github.event.pull_request.author_association) || contains(github.event.pull_request.labels.*.name, ''safe-to-run''))'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.30.1
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: "pnpm"
+
+      - run: pnpm install
+
+      - name: Build agent-ci
+        run: pnpm --filter @redwoodjs/agent-ci... -r build
+
+      - name: Create temp node-setup project
+        run: |
+          mkdir -p /tmp/node-setup-repro/.github/workflows
+          cat > /tmp/node-setup-repro/package.json << 'PKG'
+          { "name": "node-setup-repro", "private": true }
+          PKG
+
+          cat > /tmp/node-setup-repro/.github/workflows/test.yml << 'WF'
+          name: Test
+          on: push
+          jobs:
+            test:
+              runs-on: ubuntu-latest
+              steps:
+                - uses: actions/setup-node@v5
+                  with:
+                    node-version: 24
+                    package-manager-cache: false
+                - name: Verify node
+                  run: |
+                    node --version
+                    corepack --version
+          WF
+
+          cd /tmp/node-setup-repro
+          git init
+          git remote add origin https://github.com/test-org/node-setup-repro.git
+          git add -A
+          git -c user.name="test" -c user.email="test@test.com" commit -m "init"
+
+      - name: Run agent-ci against node-setup project
+        id: run
+        working-directory: /tmp/node-setup-repro
+        run: |
+          node "$GITHUB_WORKSPACE/packages/cli/dist/cli.js" \
+            run --workflow .github/workflows/test.yml --quiet 2>&1 | tee /tmp/node-setup.out
+
+      - name: Assert setup-node took the manifest path (no "Bad credentials")
+        run: |
+          if grep -q "Bad credentials" /tmp/node-setup.out; then
+            echo "::error::setup-node fell back to the nodejs.org path — the DTU manifest mock is broken."
+            grep -n "Bad credentials\|Falling back\|Acquiring" /tmp/node-setup.out || true
+            exit 1
+          fi
+          echo "OK: no 'Bad credentials' in setup-node output."

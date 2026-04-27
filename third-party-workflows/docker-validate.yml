@@ -1,0 +1,50 @@
+# Vendored from docker/build-push-action @ master:.github/workflows/validate.yml
+# Source:  https://github.com/docker/build-push-action
+# License: Apache-2.0 — see docker/build-push-action/LICENSE
+#
+# Used by `pnpm parse:diff` to widen differential-parse coverage beyond our
+# own smokes. Not executed — scan-only.
+
+name: validate
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+on:
+  push:
+    branches:
+      - "master"
+      - "releases/v*"
+  pull_request:
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.generate.outputs.matrix }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Generate matrix
+        id: generate
+        uses: docker/bake-action/subaction/matrix@a66e1c87e2eca0503c343edf1d208c716d54b8a8 # v7.1.0
+        with:
+          target: validate
+
+  validate:
+    runs-on: ubuntu-latest
+    needs:
+      - prepare
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJson(needs.prepare.outputs.matrix) }}
+    steps:
+      - name: Validate
+        uses: docker/bake-action@a66e1c87e2eca0503c343edf1d208c716d54b8a8 # v7.1.0
+        with:
+          targets: ${{ matrix.target }}

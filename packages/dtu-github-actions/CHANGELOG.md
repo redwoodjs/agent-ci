@@ -1,5 +1,180 @@
 # dtu-github-actions
 
+## 0.13.0
+
+### Minor Changes
+
+- 77ea148: Rename `DOCKER_HOST` to `AGENT_CI_DOCKER_HOST` and load `AGENT_CI_*` vars from `.env.agent-ci`.
+
+  **Breaking:** agent-ci no longer honours the standard `DOCKER_HOST` env var. If it is set in the shell, agent-ci exits immediately with an error asking you to rename it. Rename it in your shell (or move it to `.env.agent-ci`) as `AGENT_CI_DOCKER_HOST`. This avoids the long-standing collision where users wanted agent-ci to target one daemon (e.g. a Lima/OrbStack VM) while their shell's `docker` CLI targeted another.
+
+  **New:** `AGENT_CI_*`-prefixed keys in `.env.agent-ci` are now loaded into the CLI process environment at startup, so Docker/network configuration (e.g. `AGENT_CI_DOCKER_HOST`, `AGENT_CI_DTU_HOST`, `AGENT_CI_DOCKER_EXTRA_HOSTS`) no longer has to be exported in the shell. Shell env vars still take precedence over `.env.agent-ci`. Non-prefixed keys in the file remain workflow secrets (`${{ secrets.FOO }}`) as before.
+
+  Refs #308.
+
+### Patch Changes
+
+- f5f7dbd: Fix: honor step-level `if:` conditions. Previously every step ran regardless of its `if:` clause, because `parseWorkflowSteps` never extracted `step.if` from the workflow, and the server fell back to `condition: "success()"` for every step. Now the condition is forwarded to the runner's EvaluateStepIf, so gates like `if: contains(runner.name, 'blacksmith')`, `if: always()`, and `if: ${{ false }}` behave as they do on real GitHub Actions.
+- 3212927: Persist the latest run result per worktree to `$AGENT_CI_STATE_DIR` (or OS-default state dir) as JSON, so external consumers (tmux panes, status bars, editor integrations) can read the current branch's CI status without re-running the tool or scraping human output.
+
+  The file is written atomically after every `agent-ci run` / `agent-ci run --all` and keyed by `<branch>.<worktree-hash>.json` under `<org>/<repo>/`, so two worktrees on the same branch don't stomp each other. Each job entry carries the full step list with per-step `logPath`, plus `debugLogPath` for the whole job. Paths are only included when the file still exists at write time. Includes `headSha` so consumers can detect stale results themselves.
+
+  Refs #288
+
+## 0.12.4
+
+### Patch Changes
+
+- e2fe576: Make `packages/cli/compatibility.json` the single source of truth for the YAML compatibility matrix. The `compatibility.md` document and the website's compatibility table are both derived from it — run `pnpm compat:gen` after editing the JSON. `pnpm check` fails if the `.md` drifts out of sync.
+- e2fe576: Add a `proof` field to `compatibility.json` rows pointing at the workflow files that exercise each feature end-to-end. Internal field — not rendered in the markdown table or on the website. The `compat:gen` script fails if any listed proof path does not resolve on disk, so a file rename can't silently break a compatibility claim.
+
+  Refs #292.
+
+- 044de23: Forward `jobs.<id>.container.options` through to the runner container. Previously the options string was parsed but never handed to `docker.createContainer`, so `options: --env FOO=bar` silently produced a container without `FOO`. Now `--env`/`-e` and `--label`/`-l` flags inside `options:` are extracted and merged into the container's `Env` and `Labels`. Other Docker flags in `options:` (`--privileged`, `--user`, `--network`, `--cap-add`, `--workdir`, …) remain intentionally ignored — they clash with agent-ci's own container orchestration and can break the runner's invariants.
+
+  `actions/cache` and `GITHUB_TOKEN` compatibility notes updated to document existing limitations (no ref-based cache scoping; no OIDC id-token issuance) so the behaviour matches the documentation.
+
+  Refs #296.
+
+- e2fe576: Propagate `defaults.run.working-directory` to steps. Workflow-level and job-level `defaults.run.working-directory` were parsed but never applied — every step ran at the workspace root regardless of the declared default. Now merged with standard GitHub Actions precedence: step override beats job default beats workflow default.
+
+  Refs #290.
+
+- f44620b: Let `hashFiles()` descend into dotted directories. The recursive walker was skipping any directory whose name starts with `.`, which meant patterns like `hashFiles('.github/workflows/*.yml')` never matched a file and returned the zero-placeholder (`"000…"`, 40 chars). Now only `node_modules` is skipped; dotted directories are walked when a pattern asks for them. The resulting digest is real SHA-256 (64 chars), matching GitHub Actions.
+
+  Refs #294.
+
+- 5a23a5a: Flesh out `compatibility.json` with 15 rows that were absent before — features real GitHub Actions documents but our table said nothing about. Status is chosen per code inspection, so each row reflects current behaviour rather than aspirational coverage:
+  - **Workflow triggers**: sub-event filters `branches`/`branches-ignore` (supported), `paths`/`paths-ignore` (supported), `tags`/`tags-ignore` (unsupported), `types` (ignored), `workflow_dispatch.inputs` (ignored — dispatch itself isn't simulated), `workflow_call.inputs.*` (supported), `workflow_call.outputs.*.value` (supported).
+  - **Job-level**: `jobs.<id>.permissions` (ignored), `jobs.<id>.container.credentials` (unsupported), `jobs.<id>.services.*.credentials` (unsupported).
+  - **Step-level**: `steps[*].uses: docker://…` (unsupported — Docker-image action refs are not resolved).
+  - **Expressions**: `vars.*` (supported), `inputs.*` (supported), `steps.*.conclusion` / `steps.*.outcome` (unsupported), `job.*` runtime context (unsupported), `*` object-filter operator (unsupported).
+
+  No behaviour changes — just honest documentation. Closes the "missing rows" bucket on #296.
+
+- fdec27e: Split the remaining overloaded rows in `compatibility.json` so each documented feature has a row that reflects its real status. Pure documentation — no behaviour changes.
+  - **`github.*`** — split into three rows: `github.sha` (real from git), `github.repository` / `github.repository_owner` (derived from the remote), and a catch-all row documenting that everything else resolves to a static default or an empty string. The catch-all enumerates the rest of the context so a reader can tell `workflow_sha`, `triggering_actor`, etc. are not populated.
+  - **`runner.*`** — added a row for the unsupported siblings (`runner.name`, `runner.temp`, `runner.tool_cache`, `runner.debug`, `runner.environment`) so it's visible that only `runner.os` / `runner.arch` resolve.
+  - **`contains` / `startsWith` / `endsWith`** — three separate rows with per-function notes.
+  - **`success()` / `failure()` / `always()` / `cancelled()`** — downgraded to `partial` with a note clarifying that `cancelled()` always returns `false` locally (no cancellation signal).
+  - **`on` (other events)** — kept as one row but the note now enumerates the ~20 event names it covers so users can see exactly which triggers are no-ops.
+
+  Closes the "overloaded row" bucket on #296.
+
+- 78e3e01: Honor `defaults.run.shell` and step-level `shell:` for non-bash shells. The runner executes every `run:` step with bash regardless of `inputs.shell`, so the parser now wraps scripts that request `sh`, `python`, or `pwsh` with an explicit invocation of the requested interpreter (`sh -e <<'EOF' … EOF`). Workflow, job, and step scopes all use standard step-wins-over-job-wins-over-workflow precedence.
+
+  Refs #293.
+
+- e2fe576: Stop step-level `env:` from leaking into sibling steps. Each step's env now attaches as its own `environment` on the mapped step rather than being merged into the job-wide `EnvironmentVariables` map, where a later step's values could override an earlier step's reads of the same key.
+- f44620b: Stop leaking literal `${{ steps.<id>.outputs.<name> }}` text into `run:` scripts. The parser used to leave these expressions untouched on the premise that the runner would evaluate them at runtime, but the runner does not re-evaluate expressions inside run-script bodies — the literal `${{ }}` reached bash and produced "bad substitution" errors. The expression now resolves to an empty string at parse time, matching the long-standing documented behavior.
+
+  Use `needs.*.outputs.*` for cross-job values — those are resolved against real job outputs.
+
+  Refs #295.
+
+- ab410c7: Two small expression-engine fixes surfaced while running through #296's "questionable claim" rows:
+  1. **`toJSON` now pretty-prints with 2-space indent** to match GitHub Actions. Previously emitted compact JSON, which meant that any `hashFiles` key that consumed `toJSON(x)` would hash to a different digest locally vs. on GitHub. Parses `rawValue` before re-serialising so `toJSON(fromJSON(x))` round-trips.
+  2. **`''`, `null`, and numeric strings now coerce in comparisons** per the spec: `'' == 0`, `null == 0`, `'0' == 0` are all `true`; `'x' == 0` stays `false` because non-numeric strings become `NaN`. Previously, empty/null on either side fell out of the numeric path and was string-compared, so `'' == 0` resolved to `false`.
+
+  Refs #296.
+
+## 0.12.3
+
+### Patch Changes
+
+- 2e7c844: Document and surface Docker Desktop's default-socket toggle. Docker Desktop 4.x ships with `/var/run/docker.sock` disabled, so a fresh install will hit `agent-ci couldn't use a Docker socket at /var/run/docker.sock` even when Docker Desktop is running. The `docker-socket.md` recipe now walks through the Settings → Advanced toggle, and the resolver error appends a one-shot hint pointing at it whenever it detects Docker Desktop's user-side socket (`~/.docker/run/docker.sock`).
+
+  Refs #253.
+
+## 0.12.2
+
+### Patch Changes
+
+- e320288: fix(runner): nested agent-ci sibling containers collide on `agent-ci-1` when multiple outer runs execute in parallel. Each nested run has its own filesystem so it always allocated `agent-ci-1`, and the pre-spawn `docker rm -f` then killed a sibling belonging to a concurrent nested run. Include the outer container's hostname in the prefix when `/.dockerenv` is present so sibling names stay unique across nested runs. Fixes `smoke-bun-setup.yml` + `smoke-docker-buildx.yml` failing when run together via `agent-ci-dev run --all`.
+- 3f1c836: fix(workflow): expand `${{ runner.os }}` / `${{ runner.arch }}` from the job's `runs-on:` label instead of hardcoding Linux/X64. macOS jobs (e.g. `runs-on: macos-14`) now expand to `macOS`/`ARM64`, matching GitHub-hosted runner behavior and making conditionals like `if: runner.os == 'macOS'` work under tart-backed VM execution (#279).
+
+## 0.12.1
+
+### Patch Changes
+
+- 59d6c40: Fix `UnauthorizedAccessException` on `/home/runner/_diag` and workspace write failures when running on macOS with Colima or Docker Desktop (#263).
+
+  On those Docker backends the bind-mounted `_diag` and `_work` directories surface as `root:root 0755` inside the container because host permissions don't translate through the VM mount layer. The runner user (uid 1001) then can't write its diag logs or scratch files and the job crashes on startup. We now `MAYBE_SUDO chmod 1777` both mount points during container boot, mirroring the existing fix for `/home/runner/.cache` (#234). OrbStack and native Linux Docker are unaffected — the chmod is a no-op there.
+
+  Also hardens Docker socket detection: agent-ci now requires a working socket at `/var/run/docker.sock` (unless `DOCKER_HOST` is set explicitly) and fails fast with a link to a new per-provider setup guide (`packages/cli/docs/docker-socket.md`) instead of silently picking a provider-specific path that the mount layer later rejects. This eliminates a class of confusing "operation not supported" errors when switching Docker backends (e.g. leftover OrbStack symlinks on a Colima host).
+
+- cbf0c44: Release workflow now closes referenced issues on publish instead of on version-PR merge.
+
+  `pnpm run version` captures `Closes|Fixes|Resolves #N` references from pending changesets into `.release-closes.json`, pairs each with the PR that introduced the changeset, and rewrites the keywords to `Refs #N` in the changeset bodies so the "chore: version packages" PR does not close them on merge. After `changesets/action` publishes, a new step reads `.release-closes.json` and closes each issue with a `Closes Issue #N via PR #M.` comment.
+
+## 0.12.0
+
+### Minor Changes
+
+- 12220be: Run `runs-on: macos-*` jobs in a real macOS VM via [tart](https://github.com/cirruslabs/tart) on Apple Silicon hosts.
+
+  When the host is `darwin`/`arm64` with `tart` and `sshpass` installed, jobs whose `runs-on:` targets macOS launch a cirruslabs macOS VM, rsync in the macOS `actions-runner` binary, and connect the runner to the ephemeral DTU via the host bridge. Concurrency is capped at 2 VMs by default (override with `AGENT_CI_MACOS_VM_CONCURRENCY`).
+
+  Hosts that don't support this (Linux, Intel macOS, missing tart/sshpass) continue to skip macOS jobs with the same warning introduced in #273. Windows jobs are still skipped on all hosts.
+
+  Image mapping:
+  - `macos-13` → `macos-ventura-xcode:latest`
+  - `macos-14` → `macos-sonoma-xcode:latest`
+  - `macos-15` → `macos-sequoia-xcode:latest`
+  - `macos-26` → `macos-tahoe-xcode:latest`
+  - `macos` / `macos-latest` → `macos-sonoma-xcode:latest`
+  - Override with `AGENT_CI_MACOS_VM_IMAGE`.
+
+## 0.11.0
+
+### Minor Changes
+
+- 9474fb5: Skip jobs with `runs-on: macos-*` or `windows-*` instead of silently running them in a Linux container
+
+  Previously, jobs targeting macOS or Windows runners were silently routed to the Linux runner container and failed at the first OS-specific step (e.g. `Setup Xcode`), producing a confusing error. They now skip with a visible `[Agent CI]` warning that points at the tracking issues for real support. Linux and `self-hosted`-without-OS-hint jobs are unaffected.
+
+  Tracking:
+  - https://github.com/redwoodjs/agent-ci/issues/254 (this guardrail)
+  - https://github.com/redwoodjs/agent-ci/issues/258 (real macOS runner support)
+
+- 2bb4e57: Add support for `${{ vars.FOO }}` expressions in local workflow runs. Supply vars via the `--var KEY=VALUE` CLI flag (repeat for multiple). Runs fail with a clear error listing the missing vars if any required var is not provided.
+
+### Patch Changes
+
+- b6b9310: fix: docker/setup-buildx-action and other Docker socket users fail with "permission denied" on native Linux Docker (#257)
+
+  The runner container's entrypoint chmods the bind-mounted `/var/run/docker.sock` to `0666` so the `runner` user can talk to the Docker daemon. On native Linux Docker the socket is owned `root:docker`, so the chmod needs `sudo` — but it was using plain `chmod` and silently failing. Steps like `docker/setup-buildx-action@v4`, `docker login`, and `docker compose` then failed with `permission denied while trying to connect to the docker API at unix:///var/run/docker.sock`. Now escalated via `MAYBE_SUDO`, matching the other privileged entrypoint operations.
+
+- 372a47b: Support `env:` at workflow and job level (not just step level).
+
+  Previously the workflow parser only read `env:` declared directly on a step. Workflow-level and job-level `env:` blocks were silently ignored, so any workflow that relied on them — including workflows that referenced `${{ vars.X }}` in a job-level env — saw empty values at runtime.
+
+  The parser now merges `env:` from all three levels per the GitHub Actions spec: workflow → job → step, step-most-specific wins. Expressions (including `${{ vars.X }}`, `${{ secrets.X }}`, etc.) are expanded per-level.
+
+  This also makes the `smoke-vars-preflight.yml` Case 3 assertion actually verify the feature it documents — previously the assertion depended on env leaking in from the outer runner process.
+
+- 3b16523: Improve error hints when fetching remote reusable workflows from private repositories. GitHub returns HTTP 404 (not 401/403) when authentication is missing or insufficient for a private repo — to avoid leaking repo existence — so the 404 path now emits the same auth guidance as the 401/403 path, including instructions to run `gh auth login` and use `--github-token`. The hint also distinguishes between the no-token case (how to provide one) and the token-provided case (scope / fine-grained permission / SSO authorization may be missing).
+
+## 0.10.7
+
+### Patch Changes
+
+- e482875: Fix `actions/setup-node` emitting "Bad credentials" and falling back to a slow nodejs.org download. The bundled `@actions/tool-cache` hardcodes `api.github.com` for its versions-manifest fetch; the DTU now rewrites the URL in setup-node's tarball at cache time and mocks the `/repos/:owner/:repo/git/trees|blobs` endpoints so the manifest call routes through the DTU (fixes #249).
+
+  Also: when a step fails with `tar: ...: Cannot open: Permission denied` (typically from a stale `/opt/hostedtoolcache` bind mount left by a previous run), surface an actionable hint showing the host-side toolcache path and an `rm -rf` command to clear it (fixes #171).
+
+## 0.10.6
+
+### Patch Changes
+
+- 64d654d: Auto-pull runner image on first run with visible progress output. Previously, first-time users saw a frozen spinner or a confusing "No such image" error because the pull happened silently and failures were only debug-logged.
+
+## 0.10.5
+
+### Patch Changes
+
+- 2e2bd5e: fix: always show workflows and jobs in --all mode, fix duplicate matrix jobs
+
 ## 0.10.4
 
 ### Patch Changes

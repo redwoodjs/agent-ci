@@ -1,0 +1,149 @@
+name: "Smoke: docker/setup-buildx-action fails to run"
+
+# Reproduces #257 — docker/setup-buildx-action@v4 fails to run under agent-ci.
+#
+# Reported by @PatrikTheDev. A workflow step as trivial as
+#
+#   - uses: docker/setup-buildx-action@v4
+#
+# never successfully completes inside the runner container. The action needs
+# to shell out to the host's Docker daemon (via the bind-mounted socket) and
+# install/start a buildx builder; something in our runner environment or
+# Docker-in-Docker setup is preventing that from working the way it does on
+# github.com.
+#
+# This smoke test creates a throwaway project with a minimal workflow that
+# runs setup-buildx-action, executes it through agent-ci, and fails if
+# either agent-ci exits non-zero or if `docker buildx version` can't be
+# resolved after the action claims to have completed.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  docker-buildx:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.30.1
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: "pnpm"
+
+      - run: pnpm install
+
+      - name: Build agent-ci
+        run: pnpm --filter @redwoodjs/agent-ci... -r build
+
+      - name: Create temp docker-buildx project
+        run: |
+          mkdir -p /tmp/docker-buildx-repro/.github/workflows
+
+          cat > /tmp/docker-buildx-repro/package.json << 'PKG'
+          { "name": "docker-buildx-repro", "private": true }
+          PKG
+
+          # Inner workflow: the one agent-ci will execute inside a container
+          cat > /tmp/docker-buildx-repro/.github/workflows/test.yml << 'WF'
+          name: Test
+          on: push
+          jobs:
+            test:
+              runs-on: ubuntu-latest
+              steps:
+                - uses: docker/setup-buildx-action@v4
+                - name: Verify buildx
+                  run: |
+                    docker buildx version
+                    docker buildx ls
+                    echo "buildx is working"
+          WF
+
+          # agent-ci needs a git repo with a remote to resolve the repo slug
+          cd /tmp/docker-buildx-repro
+          git init
+          git remote add origin https://github.com/test-org/docker-buildx-repro.git
+          git add -A
+          git -c user.name="test" -c user.email="test@test.com" commit -m "init"
+
+      - name: Run agent-ci against docker-buildx project
+        id: run
+        working-directory: /tmp/docker-buildx-repro
+        env:
+          DEBUG: "agent-ci:*"
+          AI_AGENT: "1" # same as --quiet: no animated TUI, but still full logs
+        run: |
+          # agent-ci exits non-zero if any step fails, so propagate via pipefail
+          set -o pipefail
+          node "$GITHUB_WORKSPACE/packages/cli/dist/cli.js" \
+            run --workflow .github/workflows/test.yml 2>&1 | tee /tmp/docker-buildx.out
+
+      - name: Dump agent-ci step logs
+        if: always()
+        run: |
+          # agent-ci stores logs under /tmp/agent-ci on GitHub runners, but
+          # under <project>/.agent-ci when running inside a container (nested
+          # agent-ci-dev), because /tmp isn't host-shared there.
+          roots=()
+          [ -d /tmp/agent-ci ] && roots+=(/tmp/agent-ci)
+          [ -d "$GITHUB_WORKSPACE/packages/cli/.agent-ci" ] && roots+=("$GITHUB_WORKSPACE/packages/cli/.agent-ci")
+          echo "::group::agent-ci runs dir"
+          if [ "${#roots[@]}" -eq 0 ]; then echo "no agent-ci log roots found"; fi
+          for r in "${roots[@]}"; do
+            ls -la "$r/" 2>/dev/null || true
+            find "$r" -maxdepth 6 -type d 2>/dev/null | head -50
+          done
+          echo "::endgroup::"
+          for f in $(find "${roots[@]}" -path '*/logs/steps/*.log' 2>/dev/null); do
+            echo "::group::$f"
+            cat "$f"
+            echo "::endgroup::"
+          done
+          for f in $(find "${roots[@]}" -name 'debug.log' 2>/dev/null); do
+            echo "::group::$f"
+            tail -500 "$f"
+            echo "::endgroup::"
+          done
+
+      - name: Upload agent-ci logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: agent-ci-logs
+          path: |
+            /tmp/agent-ci/**/logs/**
+            ${{ github.workspace }}/packages/cli/.agent-ci/**/logs/**
+          if-no-files-found: warn
+
+      - name: Assert `docker buildx` is usable inside agent-ci
+        run: |
+          # agent-ci runs in quiet/AI-agent mode and doesn't stream per-step
+          # stdout to its top-level output. The "Verify buildx" step's output
+          # lives in the per-step log file. Check it there.
+          roots=()
+          [ -d /tmp/agent-ci ] && roots+=(/tmp/agent-ci)
+          [ -d "$GITHUB_WORKSPACE/packages/cli/.agent-ci" ] && roots+=("$GITHUB_WORKSPACE/packages/cli/.agent-ci")
+          if [ "${#roots[@]}" -eq 0 ]; then
+            echo "::error::no agent-ci log roots found — the nested run never produced logs."
+            exit 1
+          fi
+          log=$(find "${roots[@]}" -path '*/logs/steps/Verify-buildx.log' | head -1)
+          if [ -z "$log" ]; then
+            echo "::error::Verify-buildx.log missing — the step never ran."
+            exit 1
+          fi
+          if ! grep -q "buildx is working" "$log"; then
+            echo "::error::'buildx is working' not found in $log"
+            cat "$log"
+            exit 1
+          fi
+          echo "OK: docker/setup-buildx-action@v4 ran and buildx is usable."

@@ -1,3 +1,40 @@
+/**
+ * Parse the `options` string from `jobs.<id>.container.options` into a subset
+ * of Docker CLI flags our runner can map to dockerode createContainer fields.
+ * Only `--env`/`-e` and `--label`/`-l` are recognized today; anything else
+ * is silently ignored to avoid accidentally clashing with agent-ci's own
+ * container orchestration (volumes, networks, pids, etc). Extend the match
+ * list below as additional flags are proven safe via smoke coverage.
+ */
+export function parseContainerOptions(options: string | undefined): {
+  env: string[];
+  labels: Record<string, string>;
+} {
+  const env: string[] = [];
+  const labels: Record<string, string> = {};
+  if (!options) {
+    return { env, labels };
+  }
+  const tokens = options.match(/\S+/g) ?? [];
+  for (let i = 0; i < tokens.length; i++) {
+    const tok = tokens[i];
+    if ((tok === "--env" || tok === "-e") && i + 1 < tokens.length) {
+      env.push(tokens[++i]);
+      continue;
+    }
+    if ((tok === "--label" || tok === "-l") && i + 1 < tokens.length) {
+      const kv = tokens[++i];
+      const idx = kv.indexOf("=");
+      if (idx > 0) {
+        labels[kv.slice(0, idx)] = kv.slice(idx + 1);
+      } else {
+        labels[kv] = "";
+      }
+    }
+  }
+  return { env, labels };
+}
+
 export interface ContainerEnvOpts {
   containerName: string;
   registrationToken: string;
@@ -155,11 +192,27 @@ export function buildContainerCmd(opts: ContainerCmdOpts): string[] {
     // chmod is done host-side in workspacePrepPromise — skip it here
     `if [ -f /usr/bin/git ]; then MAYBE_SUDO mv /usr/bin/git /usr/bin/git.real 2>/dev/null; MAYBE_SUDO cp -p /tmp/agent-ci-shims/git /usr/bin/git 2>/dev/null; MAYBE_SUDO chmod +x /usr/bin/git 2>/dev/null; fi`,
     T("git-shim"),
-    `${svcPortForwardSnippet}chmod 666 /var/run/docker.sock 2>/dev/null || true`,
+    // The bind-mounted /var/run/docker.sock inherits host ownership (root:docker,
+    // 0660 on native Linux Docker). The runner user inside the container is
+    // not in the host's docker group, so without this chmod, any step that
+    // talks to the Docker socket (docker/setup-buildx-action, docker login,
+    // buildx, compose, ...) fails with "permission denied while trying to
+    // connect to the docker API at unix:///var/run/docker.sock" (#257).
+    // MAYBE_SUDO is required because runner (UID 1001) cannot chmod a
+    // root-owned socket without escalation. macOS/OrbStack/Colima usually
+    // ship the socket as world-accessible so this is a no-op there.
+    `${svcPortForwardSnippet}MAYBE_SUDO chmod 666 /var/run/docker.sock 2>/dev/null || true`,
     T("docker-sock"),
     // The Playwright bind mount creates /home/runner/.cache as root — make it
     // world-writable so tools like Cypress can mkdir inside it (#234).
     `MAYBE_SUDO chmod 1777 /home/runner/.cache 2>/dev/null || true`,
+    // On Colima / Docker Desktop the bind-mounted _diag and _work dirs
+    // surface as root:root inside the container (host perms don't translate
+    // through the VM mount layer), so the runner user (uid 1001) can't
+    // write diag logs or workspace scratch files (#263). OrbStack maps
+    // UIDs automatically, so this is effectively a no-op there.
+    `MAYBE_SUDO chmod 1777 /home/runner/_diag 2>/dev/null || true`,
+    `MAYBE_SUDO chmod 1777 /home/runner/_work 2>/dev/null || true`,
     `cd /home/runner`,
     `${credentialSnippet}true`,
     T("credentials"),

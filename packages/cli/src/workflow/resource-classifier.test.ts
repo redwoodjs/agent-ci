@@ -177,4 +177,27 @@ describe("classifyJobResources", () => {
         "Use a larger host or adjust the workflow resource hints to fit the available machine.",
     });
   });
+
+  it.each([["macos-15"], ["macos-latest"], ["windows-2022"], ["self-hosted"]])(
+    "returns faithful for non-ubuntu label %s (no resource opinion)",
+    (label) => {
+      expect(
+        classifyJobResources(collectJobResourceHints({ labels: [label] }), sufficientHost),
+      ).toEqual({
+        fidelity: "faithful",
+        summary: "host resources satisfy declared job hints",
+        reasons: [],
+        action: "No action needed.",
+      });
+    },
+  );
+
+  it("flags unknown ubuntu labels (e.g. a new GitHub-hosted variant) as degraded", () => {
+    const result = classifyJobResources(
+      collectJobResourceHints({ labels: ["ubuntu-99.04"] }),
+      sufficientHost,
+    );
+    expect(result.fidelity).toBe("degraded");
+    expect(result.reasons[0]).toMatch(/unknown runner label\(s\) \[ubuntu-99\.04\]/);
+  });
 });

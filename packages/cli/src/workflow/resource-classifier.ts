@@ -93,6 +93,16 @@ function hasExplicitResourceHints(hints: JobResourceHints): boolean {
 }
 
 function hasUnknownRunnerLabel(hints: JobResourceHints): boolean {
+  // Only opine on hosted ubuntu runners — that's the family RUNNER_SPECS
+  // covers. macOS / Windows / self-hosted / custom labels have no
+  // comparable spec table and are handled by runs-on-compat instead.
+  const looksLikeHostedUbuntu = hints.labels.some((label) => {
+    const lower = label.toLowerCase();
+    return lower === "ubuntu" || lower.startsWith("ubuntu-");
+  });
+  if (!looksLikeHostedUbuntu) {
+    return false;
+  }
   return hints.requestedNodeHeapMb === undefined && hints.requestedCpuCount === undefined;
 }
 

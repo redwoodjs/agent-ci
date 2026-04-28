@@ -29,7 +29,7 @@ describe("getDocker client construction", () => {
     expect(dockerCtor).toHaveBeenCalledWith({ socketPath: "/tmp/docker.sock" });
   });
 
-  it("uses ssh transport for ssh URIs", async () => {
+  it("parses ssh URIs into host/username/port (#322)", async () => {
     const mod = await import("./local-job.js");
     const socket: DockerSocket = {
       socketPath: "",
@@ -39,9 +39,52 @@ describe("getDocker client construction", () => {
 
     mod.__test_createDockerClient(socket);
 
+    // Regression: previously we passed the full URI as `host`, which caused
+    // ssh2 to DNS-resolve `ssh://user@remote-host` and fail with ENOTFOUND.
     expect(dockerCtor).toHaveBeenCalledWith({
-      host: "ssh://user@remote-host",
       protocol: "ssh",
+      host: "remote-host",
+      port: 22,
+      username: "user",
+      sshOptions: { agent: process.env.SSH_AUTH_SOCK },
+    });
+  });
+
+  it("parses ssh URIs with explicit port", async () => {
+    const mod = await import("./local-job.js");
+    const socket: DockerSocket = {
+      socketPath: "",
+      uri: "ssh://deploy@remote-host:2222",
+      bindMountPath: "",
+    };
+
+    mod.__test_createDockerClient(socket);
+
+    expect(dockerCtor).toHaveBeenCalledWith({
+      protocol: "ssh",
+      host: "remote-host",
+      port: 2222,
+      username: "deploy",
+      sshOptions: { agent: process.env.SSH_AUTH_SOCK },
+    });
+  });
+
+  it("parses ssh URIs without an explicit username", async () => {
+    const mod = await import("./local-job.js");
+    const socket: DockerSocket = {
+      socketPath: "",
+      uri: "ssh://remote-host",
+      bindMountPath: "",
+    };
+
+    mod.__test_createDockerClient(socket);
+
+    expect(dockerCtor).toHaveBeenCalledWith({
+      protocol: "ssh",
+      host: "remote-host",
+      port: 22,
+      username: undefined,
+      sshOptions: { agent: process.env.SSH_AUTH_SOCK },
     });
   });
 

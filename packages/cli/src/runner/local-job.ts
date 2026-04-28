@@ -94,7 +94,17 @@ export function getDocker(): Docker {
     if (socket.socketPath) {
       _docker = new Docker({ socketPath: socket.socketPath });
     } else if (socket.uri.startsWith("ssh://")) {
-      _docker = new Docker({ host: socket.uri, protocol: "ssh" as const });
+      // dockerode/docker-modem expects `host` to be the hostname only, with
+      // username/port carried separately. Passing the raw URI made ssh2 try
+      // to DNS-resolve `ssh://user@host`, failing with ENOTFOUND (#322).
+      const parsed = new URL(socket.uri);
+      _docker = new Docker({
+        protocol: "ssh" as const,
+        host: parsed.hostname,
+        port: parsed.port ? Number(parsed.port) : 22,
+        username: parsed.username ? decodeURIComponent(parsed.username) : undefined,
+        sshOptions: { agent: process.env.SSH_AUTH_SOCK },
+      });
     } else {
       // Let dockerode/docker-modem parse non-unix, non-ssh host URIs from the
       // environment. cli.ts forwards AGENT_CI_DOCKER_HOST → DOCKER_HOST at

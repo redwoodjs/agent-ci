@@ -1,6 +1,7 @@
 import path from "path";
 import fs from "fs";
 import { getWorkingDirectory } from "./working-directory.js";
+import { getLogsDirectory } from "./logs-directory.js";
 
 /** Root of all run directories: `<workingDir>/runs/` */
 function getRunsDir(): string {
@@ -78,7 +79,11 @@ export function createLogContext(prefix: string, preferredName?: string) {
     ({ num, name, runDir } = allocateRunDir(prefix));
   }
 
-  const logDir = path.join(runDir, "logs");
+  // Run logs live under a stable, agent-ci-owned directory (default `<stateDir>/logs/`),
+  // not next to the runner's working dir which lands in `os.tmpdir()` and gets pruned
+  // by the OS. Keeps log paths in run-result JSON resolvable after the OS cleans tmp.
+  // See issue #312.
+  const logDir = path.join(getLogsDirectory(), name);
   fs.mkdirSync(logDir, { recursive: true });
 
   return {

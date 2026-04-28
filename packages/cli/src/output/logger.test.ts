@@ -5,9 +5,11 @@ import os from "node:os";
 
 describe("Logger utilities", () => {
   let tmpDir: string;
+  let logsDir: string;
 
   beforeEach(() => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "agent-ci-logger-test-"));
+    logsDir = path.join(tmpDir, "logs-root");
     vi.resetModules();
   });
 
@@ -58,13 +60,17 @@ describe("Logger utilities", () => {
   });
 
   describe("createLogContext", () => {
-    it("creates runDir/logs/ and returns correct paths", async () => {
+    it("creates runDir under workingDir and logDir under logsDir", async () => {
       const { setWorkingDirectory } = await import("./working-directory.js");
+      const { setLogsDirectory } = await import("./logs-directory.js");
       const { createLogContext } = await import("./logger.js");
       setWorkingDirectory(tmpDir);
+      setLogsDirectory(logsDir);
 
       const ctx = createLogContext("agent-ci");
       expect(ctx.name).toMatch(/^agent-ci-\d+$/);
+      expect(ctx.runDir.startsWith(path.join(tmpDir, "runs"))).toBe(true);
+      expect(ctx.logDir.startsWith(logsDir)).toBe(true);
       expect(fs.existsSync(ctx.runDir)).toBe(true);
       expect(fs.existsSync(ctx.logDir)).toBe(true);
       expect(ctx.outputLogPath).toBe(path.join(ctx.logDir, "output.log"));
@@ -73,19 +79,23 @@ describe("Logger utilities", () => {
 
     it("uses preferredName when provided", async () => {
       const { setWorkingDirectory } = await import("./working-directory.js");
+      const { setLogsDirectory } = await import("./logs-directory.js");
       const { createLogContext } = await import("./logger.js");
       setWorkingDirectory(tmpDir);
+      setLogsDirectory(logsDir);
 
       const ctx = createLogContext("agent-ci", "agent-ci-redwoodjssdk-42");
       expect(ctx.name).toBe("agent-ci-redwoodjssdk-42");
       expect(ctx.runDir).toBe(path.join(tmpDir, "runs", "agent-ci-redwoodjssdk-42"));
-      expect(ctx.logDir).toBe(path.join(tmpDir, "runs", "agent-ci-redwoodjssdk-42", "logs"));
+      expect(ctx.logDir).toBe(path.join(logsDir, "agent-ci-redwoodjssdk-42"));
     });
 
     it("auto-increments when no preferredName given", async () => {
       const { setWorkingDirectory } = await import("./working-directory.js");
+      const { setLogsDirectory } = await import("./logs-directory.js");
       const { createLogContext } = await import("./logger.js");
       setWorkingDirectory(tmpDir);
+      setLogsDirectory(logsDir);
 
       const first = createLogContext("agent-ci");
       const second = createLogContext("agent-ci");
@@ -94,8 +104,10 @@ describe("Logger utilities", () => {
 
     it("skips over a directory that already exists (race condition)", async () => {
       const { setWorkingDirectory } = await import("./working-directory.js");
+      const { setLogsDirectory } = await import("./logs-directory.js");
       const { createLogContext } = await import("./logger.js");
       setWorkingDirectory(tmpDir);
+      setLogsDirectory(logsDir);
 
       // Pre-create runs/agent-ci-1 to simulate another process winning the race
       fs.mkdirSync(path.join(tmpDir, "runs", "agent-ci-1"), { recursive: true });
@@ -109,8 +121,10 @@ describe("Logger utilities", () => {
 
     it("handles multiple consecutive collisions", async () => {
       const { setWorkingDirectory } = await import("./working-directory.js");
+      const { setLogsDirectory } = await import("./logs-directory.js");
       const { createLogContext } = await import("./logger.js");
       setWorkingDirectory(tmpDir);
+      setLogsDirectory(logsDir);
 
       // Pre-create 1, 2, and 3 to simulate several concurrent processes
       fs.mkdirSync(path.join(tmpDir, "runs", "agent-ci-1"), { recursive: true });
@@ -125,8 +139,10 @@ describe("Logger utilities", () => {
 
     it("concurrent calls each get a unique directory", async () => {
       const { setWorkingDirectory } = await import("./working-directory.js");
+      const { setLogsDirectory } = await import("./logs-directory.js");
       const { createLogContext } = await import("./logger.js");
       setWorkingDirectory(tmpDir);
+      setLogsDirectory(logsDir);
 
       // Call createLogContext many times synchronously — each should get a unique dir
       const results = Array.from({ length: 10 }, () => createLogContext("agent-ci"));

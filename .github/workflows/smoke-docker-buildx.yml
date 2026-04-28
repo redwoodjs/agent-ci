@@ -81,6 +81,10 @@ jobs:
         env:
           DEBUG: "agent-ci:*"
           AI_AGENT: "1" # same as --quiet: no animated TUI, but still full logs
+          # Pin the per-run log dir so the assert step below has a known path.
+          # Since #312 logs live next to the checks JSON (default `<stateDir>/logs`),
+          # not under the runner's tmp working dir.
+          AGENT_CI_LOG_DIR: /tmp/agent-ci-buildx-logs
         run: |
           # agent-ci exits non-zero if any step fails, so propagate via pipefail
           set -o pipefail
@@ -90,10 +94,11 @@ jobs:
       - name: Dump agent-ci step logs
         if: always()
         run: |
-          # agent-ci stores logs under /tmp/agent-ci on GitHub runners, but
-          # under <project>/.agent-ci when running inside a container (nested
-          # agent-ci-dev), because /tmp isn't host-shared there.
+          # agent-ci writes per-run log artifacts under AGENT_CI_LOG_DIR (set above);
+          # its tmp working dir under /tmp/agent-ci or <project>/.agent-ci still
+          # holds runtime state (no logs since #312).
           roots=()
+          [ -d /tmp/agent-ci-buildx-logs ] && roots+=(/tmp/agent-ci-buildx-logs)
           [ -d /tmp/agent-ci ] && roots+=(/tmp/agent-ci)
           [ -d "$GITHUB_WORKSPACE/packages/cli/.agent-ci" ] && roots+=("$GITHUB_WORKSPACE/packages/cli/.agent-ci")
           echo "::group::agent-ci runs dir"
@@ -103,7 +108,7 @@ jobs:
             find "$r" -maxdepth 6 -type d 2>/dev/null | head -50
           done
           echo "::endgroup::"
-          for f in $(find "${roots[@]}" -path '*/logs/steps/*.log' 2>/dev/null); do
+          for f in $(find "${roots[@]}" \( -path '*/steps/*.log' -o -path '*/logs/steps/*.log' \) 2>/dev/null); do
             echo "::group::$f"
             cat "$f"
             echo "::endgroup::"
@@ -120,6 +125,7 @@ jobs:
         with:
           name: agent-ci-logs
           path: |
+            /tmp/agent-ci-buildx-logs/**
             /tmp/agent-ci/**/logs/**
             ${{ github.workspace }}/packages/cli/.agent-ci/**/logs/**
           if-no-files-found: warn
@@ -130,13 +136,16 @@ jobs:
           # stdout to its top-level output. The "Verify buildx" step's output
           # lives in the per-step log file. Check it there.
           roots=()
+          [ -d /tmp/agent-ci-buildx-logs ] && roots+=(/tmp/agent-ci-buildx-logs)
           [ -d /tmp/agent-ci ] && roots+=(/tmp/agent-ci)
           [ -d "$GITHUB_WORKSPACE/packages/cli/.agent-ci" ] && roots+=("$GITHUB_WORKSPACE/packages/cli/.agent-ci")
           if [ "${#roots[@]}" -eq 0 ]; then
             echo "::error::no agent-ci log roots found — the nested run never produced logs."
             exit 1
           fi
-          log=$(find "${roots[@]}" -path '*/logs/steps/Verify-buildx.log' | head -1)
+          # Post-#312 layout: <logsDir>/<run-name>/steps/Verify-buildx.log.
+          # Pre-#312 layout (kept as fallback while compat shakes out): <workDir>/runs/<run-name>/logs/steps/Verify-buildx.log.
+          log=$(find "${roots[@]}" \( -path '*/steps/Verify-buildx.log' -o -path '*/logs/steps/Verify-buildx.log' \) | head -1)
           if [ -z "$log" ]; then
             echo "::error::Verify-buildx.log missing — the step never ran."
             exit 1

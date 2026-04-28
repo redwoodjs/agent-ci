@@ -76,6 +76,7 @@ import {
   type ResourceFidelity,
 } from "./workflow/resource-classifier.js";
 import { writeRunResult } from "./run-result-writer.js";
+import { pruneLogs } from "./log-prune.js";
 import {
   EVENT_SCHEMA_VERSION,
   formatEvent,
@@ -231,6 +232,13 @@ async function run() {
         workingDir = path.resolve(PROJECT_ROOT, workingDir);
       }
       setWorkingDirectory(workingDir);
+    }
+
+    // Opportunistic, throttled cleanup of old per-run log dirs. Never fails the run.
+    try {
+      pruneLogs();
+    } catch {
+      /* noop */
     }
 
     if (runAll) {
@@ -430,6 +438,19 @@ async function run() {
     if (marker && command === "retry") {
       const result = await tailRetryUntilOutcome(marker, tailStartOffset);
       process.exit(result.exitCode);
+    }
+    process.exit(0);
+  } else if (command === "clean") {
+    const result = pruneLogs({ force: true });
+    if (result.skipped) {
+      console.log(`[Agent CI] Nothing to clean (${result.reason ?? "unknown"}).`);
+    } else {
+      console.log(
+        `[Agent CI] Removed ${result.removed.length} old run dir(s); kept ${result.kept}.`,
+      );
+      for (const name of result.removed) {
+        console.log(`  - ${name}`);
+      }
     }
     process.exit(0);
   } else {
@@ -1765,6 +1786,7 @@ function printUsage() {
   console.log("    --from-step <N>              Re-run from step N (skips earlier steps)");
   console.log("    --from-start                 Re-run all run: steps from the beginning");
   console.log("  abort --name <name>           Send abort signal to a paused runner");
+  console.log("  clean                         Delete old per-run log directories");
   console.log("");
   console.log("Options:");
   console.log("  -w, --workflow <path>         Path to the workflow file");

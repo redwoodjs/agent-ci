@@ -46,7 +46,9 @@ export interface RunResultInput {
   results: JobResult[];
 }
 
-export type StateDirEnv = Partial<Record<"AGENT_CI_STATE_DIR" | "XDG_STATE_HOME" | "HOME", string>>;
+export type StateDirEnv = Partial<
+  Record<"AGENT_CI_STATE_DIR" | "AGENT_CI_LOG_DIR" | "XDG_STATE_HOME" | "HOME", string>
+>;
 
 /**
  * Resolve the root directory for per-branch run-result JSON files.
@@ -70,6 +72,22 @@ export function resolveStateDir(
   }
   const xdgState = env.XDG_STATE_HOME || path.join(home, ".local", "state");
   return path.join(xdgState, "agent-ci");
+}
+
+/**
+ * Resolve the root directory for per-run log artifacts (logs, timeline, metadata).
+ * Defaults to `<stateDir>/logs/` so log lifetime is co-managed with the run-result
+ * JSON that references them. `AGENT_CI_LOG_DIR` overrides it for users who want
+ * logs in a cache-shaped location.
+ */
+export function resolveLogsDir(
+  env: StateDirEnv = process.env as StateDirEnv,
+  platform: NodeJS.Platform = process.platform,
+): string {
+  if (env.AGENT_CI_LOG_DIR) {
+    return env.AGENT_CI_LOG_DIR;
+  }
+  return path.join(resolveStateDir(env, platform), "logs");
 }
 
 /** Hex-ish short hash of the absolute worktree path — disambiguates branches that are checked out in multiple worktrees. */

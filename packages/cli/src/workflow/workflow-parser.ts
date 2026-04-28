@@ -1014,29 +1014,45 @@ function buildStepEnv(
     const env = (source as { env?: unknown }).env;
     return env && typeof env === "object" ? (env as Record<string, unknown>) : {};
   };
-  const merged: Record<string, unknown> = {
-    ...pick(rawYaml),
-    ...pick(rawJob),
-    ...pick(rawStep),
-  };
-  if (Object.keys(merged).length === 0) {
+  const workflowEnv = pick(rawYaml);
+  const jobEnv = pick(rawJob);
+  const stepEnv = pick(rawStep);
+  if (
+    Object.keys(workflowEnv).length === 0 &&
+    Object.keys(jobEnv).length === 0 &&
+    Object.keys(stepEnv).length === 0
+  ) {
     return undefined;
   }
-  return Object.fromEntries(
-    Object.entries(merged).map(([k, v]) => [
-      k,
-      expandExpressions(
-        String(v),
-        repoPath,
-        secrets,
-        matrixContext,
-        needsContext,
-        inputsContext,
-        vars,
-        runnerContext,
-      ),
-    ]),
-  );
+  // Resolve in scope order so each scope can reference the previous one via
+  // `${{ env.* }}` — workflow alone, then job (with workflow env), then step
+  // (with workflow + job env). Mirrors GitHub's outer-to-inner resolution.
+  const resolveScope = (
+    raw: Record<string, unknown>,
+    envContext: Record<string, string>,
+  ): Record<string, string> => {
+    return Object.fromEntries(
+      Object.entries(raw).map(([k, v]) => [
+        k,
+        expandExpressions(
+          String(v),
+          repoPath,
+          secrets,
+          matrixContext,
+          needsContext,
+          inputsContext,
+          vars,
+          runnerContext,
+          envContext,
+        ),
+      ]),
+    );
+  };
+  const resolvedWorkflow = resolveScope(workflowEnv, {});
+  const resolvedJob = resolveScope(jobEnv, resolvedWorkflow);
+  const baseEnv: Record<string, string> = { ...resolvedWorkflow, ...resolvedJob };
+  const resolvedStep = resolveScope(stepEnv, baseEnv);
+  return { ...baseEnv, ...resolvedStep };
 }
 
 export async function parseWorkflowSteps(

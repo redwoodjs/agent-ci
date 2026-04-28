@@ -91,6 +91,7 @@ Run GitHub Actions workflow jobs locally.
 | `--jobs <n>`               | `-j`  | Max concurrent containers (overrides auto-detection)                                                                                                         |
 | `--pause-on-failure`       | `-p`  | Pause on step failure for interactive debugging                                                                                                              |
 | `--quiet`                  | `-q`  | Suppress animated rendering (also enabled by `AI_AGENT=1`)                                                                                                   |
+| `--json`                   |       | Emit NDJSON event stream on stdout (also enabled by `AGENT_CI_JSON=1`); see [Agent output mode](#agent-output-mode-ndjson-event-stream)                      |
 | `--no-matrix`              |       | Collapse all matrix combinations into a single job (uses first value of each key)                                                                            |
 | `--github-token [<token>]` |       | GitHub token for fetching remote reusable workflows (auto-resolves via `gh auth token` if no value given). Also available as `AGENT_CI_GITHUB_TOKEN` env var |
 | `--commit-status`          |       | Post a GitHub commit status after the run (requires `--github-token`)                                                                                        |
@@ -161,12 +162,14 @@ Only `AGENT_CI_*`-prefixed keys from `.env.agent-ci` are applied to the CLI proc
 
 ### General
 
-| Variable                | Default                         | Description                                                                                                               |
-| ----------------------- | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| `GITHUB_REPO`           | auto-detected from `git remote` | Override the `owner/repo` used when emulating the GitHub API. Useful when the remote URL can't be detected automatically. |
-| `AI_AGENT`              | unset                           | Set to `1` to enable quiet mode (suppress animated rendering). Same effect as `--quiet`.                                  |
-| `DEBUG`                 | unset                           | Enable verbose debug logging. See [Debugging](#debugging) for supported namespaces.                                       |
-| `AGENT_CI_GITHUB_TOKEN` | unset                           | GitHub token for fetching remote reusable workflows. Alternative to the `--github-token` CLI flag.                        |
+| Variable                | Default                         | Description                                                                                                                                                                                                                                                                                  |
+| ----------------------- | ------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GITHUB_REPO`           | auto-detected from `git remote` | Override the `owner/repo` used when emulating the GitHub API. Useful when the remote URL can't be detected automatically.                                                                                                                                                                    |
+| `AI_AGENT`              | unset                           | Set to `1` to enable quiet mode (suppress animated rendering). Same effect as `--quiet`.                                                                                                                                                                                                     |
+| `AGENT_CI_JSON`         | unset                           | Set to `1` to emit the NDJSON event stream on stdout. Same effect as `--json`.                                                                                                                                                                                                               |
+| `AGENT_CI_DETACHED`     | unset                           | Set to `1` to force `--pause-on-failure` to use the detached launcher even on a TTY (for manual verification of the pause-then-exit-77 flow). The launcher uses this same env var internally to mark its worker child (with the worker's log path as the value), so do not set it to a path. |
+| `DEBUG`                 | unset                           | Enable verbose debug logging. See [Debugging](#debugging) for supported namespaces.                                                                                                                                                                                                          |
+| `AGENT_CI_GITHUB_TOKEN` | unset                           | GitHub token for fetching remote reusable workflows. Alternative to the `--github-token` CLI flag.                                                                                                                                                                                           |
 
 ### Docker
 
@@ -312,6 +315,48 @@ DEBUG=agent-ci:* npx @redwoodjs/agent-ci run --workflow .github/workflows/ci.yml
 ```
 
 ---
+
+## Agent output mode (NDJSON event stream)
+
+When `--json` is passed (or `AGENT_CI_JSON=1` is set), Agent CI emits a
+structured stream of newline-delimited JSON events on stdout — one JSON
+object per line, each with an `event` discriminator field. Wrappers (LLM
+agents, status dashboards, TUIs) can parse these instead of regex-scraping
+the human-readable output.
+
+`--json` is decoupled from `--quiet`/`AI_AGENT=1`: the latter only suppresses
+the animated renderer. Pass both to combine "no terminal animation" with
+"machine-readable stream." The animated renderer is automatically suppressed
+when `--json` is set so its ANSI sequences don't collide with the JSON
+stream on stdout.
+
+The schema is versioned via `schemaVersion` on `run.start`. Version `1` defines
+these events:
+
+| Event         | Required fields                                                                | Optional fields                     |
+| ------------- | ------------------------------------------------------------------------------ | ----------------------------------- |
+| `run.start`   | `ts`, `schemaVersion`, `runId`                                                 | `repo`, `branch`                    |
+| `run.finish`  | `status` (`passed`/`failed`)                                                   | `ts`, `durationMs`                  |
+| `run.paused`  | `runner`, `retry_cmd`                                                          | `ts`, `step`, `attempt`, `workflow` |
+| `job.start`   | `ts`, `job`, `runner`                                                          | `workflow`                          |
+| `job.finish`  | `ts`, `job`, `runner`, `status`                                                | `workflow`, `durationMs`            |
+| `step.start`  | `ts`, `job`, `runner`, `step`, `index`                                         |                                     |
+| `step.finish` | `ts`, `job`, `runner`, `step`, `index`, `status` (`passed`/`failed`/`skipped`) | `durationMs`                        |
+| `diagnostic`  | `ts`, `level` (`info`/`warning`/`error`), `message`                            |                                     |
+
+Example:
+
+```json
+{"event":"run.start","ts":"2026-04-28T10:15:00.000Z","schemaVersion":1,"runId":"run-1745837700000"}
+{"event":"job.start","ts":"…","job":"lint","runner":"agent-ci-1-job","workflow":"ci.yml"}
+{"event":"step.start","ts":"…","job":"lint","runner":"agent-ci-1-job","step":"eslint","index":1}
+{"event":"step.finish","ts":"…","job":"lint","runner":"agent-ci-1-job","step":"eslint","index":1,"status":"passed","durationMs":4123}
+{"event":"job.finish","ts":"…","job":"lint","runner":"agent-ci-1-job","workflow":"ci.yml","status":"passed","durationMs":8000}
+{"event":"run.finish","ts":"…","status":"passed","durationMs":18210}
+```
+
+Stderr carries the existing human-readable progress lines and is kept free
+of NDJSON noise. Non-JSON output passes through unchanged on stdout.
 
 ## The agentic dev loop
 

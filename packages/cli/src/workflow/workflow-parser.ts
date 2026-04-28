@@ -1505,6 +1505,22 @@ export function isWorkflowRelevant(
     }
   }
 
+  // 4. workflow_dispatch-only workflows are local fixtures (e.g.
+  // smoke-resource-mismatch.yml uses an unsatisfiable runner label and is
+  // never expected to run on real GitHub Actions). Include them in --all so
+  // agent-ci can still exercise them locally. Only opt in when
+  // workflow_dispatch is the sole event — if the workflow also lists
+  // pull_request / push, those checks already had their say above and the
+  // user's path/branch filters should be honored.
+  if (
+    events.workflow_dispatch !== undefined &&
+    !events.pull_request &&
+    !events.pull_request_target &&
+    !events.push
+  ) {
+    return true;
+  }
+
   return false;
 }
 

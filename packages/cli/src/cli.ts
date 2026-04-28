@@ -65,7 +65,7 @@ import { syncWorkspaceForRetry } from "./runner/sync.js";
 import { computeDirtySha } from "./runner/dirty-sha.js";
 import { RunStateStore } from "./output/run-state.js";
 import { renderRunState } from "./output/state-renderer.js";
-import { isAgentMode, setQuietMode } from "./output/agent-mode.js";
+import { isAgentMode, isJsonMode, setJsonMode, setQuietMode } from "./output/agent-mode.js";
 import { createDiffRenderer } from "./output/diff-renderer.js";
 import { createFailedJobResult, wrapJobError, isJobError } from "./runner/job-result.js";
 import { postCommitStatus } from "./commit-status.js";
@@ -76,6 +76,17 @@ import {
   type ResourceFidelity,
 } from "./workflow/resource-classifier.js";
 import { writeRunResult } from "./run-result-writer.js";
+import {
+  EVENT_SCHEMA_VERSION,
+  formatEvent,
+  isDetachedWorker,
+  isForceDetachedRequested,
+  readDetachedMarker,
+  runDetachedLauncher,
+  shouldLaunchDetached,
+  tailRetryUntilOutcome,
+  type LogEvent,
+} from "./launcher.js";
 
 function findSignalsDir(runnerName: string): string | null {
   const workDir = getWorkingDirectory();
@@ -137,6 +148,8 @@ async function run() {
         runAll = true;
       } else if (args[i] === "--quiet" || args[i] === "-q") {
         setQuietMode(true);
+      } else if (args[i] === "--json") {
+        setJsonMode(true);
       } else if (args[i] === "--no-matrix") {
         noMatrix = true;
       } else if ((args[i] === "--jobs" || args[i] === "-j") && args[i + 1]) {
@@ -190,6 +203,26 @@ async function run() {
     // Also accept AGENT_CI_GITHUB_TOKEN env var (CLI flag takes precedence)
     if (!githubToken && process.env.AGENT_CI_GITHUB_TOKEN) {
       githubToken = process.env.AGENT_CI_GITHUB_TOKEN;
+    }
+
+    // ── Detached-worker dispatch (issue #315) ────────────────────────────────
+    // When --pause-on-failure is set and stdout is a pipe/redirect (and we're
+    // not already inside an agent harness that monitors live output), the CLI
+    // would otherwise hang forever on pause — output buffered until EOF, which
+    // never comes until retry, which the caller can't discover. Hand off to a
+    // launcher that spawns the real run as a detached worker and exits 77 the
+    // moment the worker emits the pause sentinel.
+    if (
+      shouldLaunchDetached({
+        pauseOnFailure,
+        stdoutIsTTY: Boolean(process.stdout.isTTY),
+        agentMode: isAgentMode(),
+        alreadyWorker: isDetachedWorker(),
+        forceDetached: isForceDetachedRequested(),
+      })
+    ) {
+      const { exitCode } = await runDetachedLauncher(args);
+      process.exit(exitCode);
     }
 
     let workingDir = process.env.AGENT_CI_WORKING_DIR;
@@ -270,6 +303,7 @@ async function run() {
       }
       persistRunResult({ results, repoRoot, startedAt, sha, branch });
       const anyFailed = results.length === 0 || results.some((r) => !r.succeeded);
+      emitRunFinishSentinel(anyFailed ? "failed" : "passed");
       process.exit(anyFailed ? 1 : 0);
     }
 
@@ -313,10 +347,9 @@ async function run() {
       postCommitStatus(results, sha, githubToken);
     }
     persistRunResult({ results, repoRoot: repoRootFallback, startedAt, sha });
-    if (results.length === 0 || results.some((r) => !r.succeeded)) {
-      process.exit(1);
-    }
-    process.exit(0);
+    const anyFailed = results.length === 0 || results.some((r) => !r.succeeded);
+    emitRunFinishSentinel(anyFailed ? "failed" : "passed");
+    process.exit(anyFailed ? 1 : 0);
   } else if (command === "retry" || command === "abort") {
     let runnerName: string | undefined;
     let fromStep: string | undefined;
@@ -374,9 +407,30 @@ async function run() {
         fs.writeFileSync(path.join(signalsDir, "from-step"), fromStep);
       }
     }
+    // ── Detached-worker tail (issue #315) ───────────────────────────────────
+    // If the original run was launched via the detached launcher, tail the
+    // worker's log starting at the current end-of-file so that a re-failure
+    // surfaces as another exit-77 in the retrying shell — matching the
+    // launcher's behavior on the initial pause. Snapshot the offset BEFORE
+    // writing the signal file so we don't miss a paused/completed sentinel
+    // that the worker emits between the signal write and our first poll.
+    const runDir = path.dirname(signalsDir);
+    const marker = command === "retry" ? readDetachedMarker(runDir) : null;
+    let tailStartOffset = 0;
+    if (marker) {
+      try {
+        tailStartOffset = fs.statSync(marker.workerLogPath).size;
+      } catch {
+        // log missing — fall back to no tail
+      }
+    }
     fs.writeFileSync(path.join(signalsDir, command), "");
     const extra = fromStep ? ` (from step ${fromStep === "*" ? "1" : fromStep})` : "";
     console.log(`[Agent CI] Sent '${command}' signal to ${runnerName}${extra}`);
+    if (marker && command === "retry") {
+      const result = await tailRetryUntilOutcome(marker, tailStartOffset);
+      process.exit(result.exitCode);
+    }
     process.exit(0);
   } else {
     printUsage();
@@ -612,12 +666,142 @@ async function runWorkflows(options: {
   const storeFilePath = path.join(getWorkingDirectory(), "runs", runId, "run-state.json");
   const store = new RunStateStore(runId, storeFilePath);
 
-  // Start the render loop — reads from store, never touches execution logic
-  // In agent mode (AI_AGENT=1 or --quiet), skip animated rendering to avoid token waste
-  // but register a synchronous callback for important state changes.
+  // ── NDJSON event stream (issues #289 + #315) ─────────────────────────────
+  // Two emit modes share one listener:
+  //   - Full stream (`--json` / `AGENT_CI_JSON=1`): all lifecycle events on
+  //     stdout for agent harnesses. Decoupled from `--quiet` so `-q` doesn't
+  //     silently swap stdout for a JSON stream.
+  //   - Sentinel-only (detached worker, #315): just `run.paused` and
+  //     `run.finish` so the launcher can disown + exit 77 / drive exit code.
+  // The launcher's tailer filters non-sentinel events anyway, so when the
+  // user runs `-p` without `--json` we save the work by gating lifecycle
+  // events on the full-stream check below.
+  const fullEventStream = isJsonMode();
+  if (fullEventStream || isDetachedWorker()) {
+    const emit = (event: LogEvent) => process.stdout.write(formatEvent(event) + "\n");
+    if (fullEventStream) {
+      emit({
+        event: "run.start",
+        ts: new Date().toISOString(),
+        schemaVersion: EVENT_SCHEMA_VERSION,
+        runId,
+      });
+    }
+
+    const pausesEmitted = new Set<string>();
+    const jobsStarted = new Set<string>();
+    const jobsFinished = new Set<string>();
+    const stepsStarted = new Set<string>();
+    const stepsFinished = new Set<string>();
+    store.onUpdate((state) => {
+      for (const wf of state.workflows) {
+        for (const job of wf.jobs) {
+          if (fullEventStream) {
+            if (
+              !jobsStarted.has(job.runnerId) &&
+              (job.status === "running" ||
+                job.status === "paused" ||
+                job.status === "completed" ||
+                job.status === "failed")
+            ) {
+              jobsStarted.add(job.runnerId);
+              emit({
+                event: "job.start",
+                ts: job.startedAt ?? new Date().toISOString(),
+                job: job.id,
+                runner: job.runnerId,
+                workflow: wf.id,
+              });
+            }
+            for (const step of job.steps) {
+              const startKey = `${job.runnerId}:${step.index}:start`;
+              if (
+                !stepsStarted.has(startKey) &&
+                (step.status === "running" ||
+                  step.status === "completed" ||
+                  step.status === "failed" ||
+                  step.status === "skipped")
+              ) {
+                stepsStarted.add(startKey);
+                emit({
+                  event: "step.start",
+                  ts: step.startedAt ?? new Date().toISOString(),
+                  job: job.id,
+                  runner: job.runnerId,
+                  step: step.name,
+                  index: step.index,
+                });
+              }
+              const finishKey = `${job.runnerId}:${step.index}:finish`;
+              if (
+                !stepsFinished.has(finishKey) &&
+                (step.status === "completed" ||
+                  step.status === "failed" ||
+                  step.status === "skipped")
+              ) {
+                stepsFinished.add(finishKey);
+                emit({
+                  event: "step.finish",
+                  ts: step.completedAt ?? new Date().toISOString(),
+                  job: job.id,
+                  runner: job.runnerId,
+                  step: step.name,
+                  index: step.index,
+                  status:
+                    step.status === "completed"
+                      ? "passed"
+                      : step.status === "failed"
+                        ? "failed"
+                        : "skipped",
+                  durationMs: step.durationMs,
+                });
+              }
+            }
+          }
+          if (job.status === "paused") {
+            const key = `${job.runnerId}:${job.attempt ?? 1}`;
+            if (!pausesEmitted.has(key)) {
+              pausesEmitted.add(key);
+              emit({
+                event: "run.paused",
+                ts: new Date().toISOString(),
+                runner: job.runnerId,
+                step: job.pausedAtStep,
+                attempt: job.attempt,
+                workflow: wf.id,
+                retry_cmd: `agent-ci retry --name ${job.runnerId}`,
+              });
+            }
+          }
+          if (
+            fullEventStream &&
+            !jobsFinished.has(job.runnerId) &&
+            (job.status === "completed" || job.status === "failed")
+          ) {
+            jobsFinished.add(job.runnerId);
+            emit({
+              event: "job.finish",
+              ts: job.completedAt ?? new Date().toISOString(),
+              job: job.id,
+              runner: job.runnerId,
+              workflow: wf.id,
+              status: job.status === "completed" ? "passed" : "failed",
+              durationMs: job.durationMs,
+            });
+          }
+        }
+      }
+    });
+  }
+
+  // Start the render loop — reads from store, never touches execution logic.
+  // Skip animated rendering and emit structured stderr lines instead when:
+  //   - agent mode (AI_AGENT=1 or --quiet),
+  //   - --json (ANSI on stdout would collide with the NDJSON stream), or
+  //   - detached worker (stdout is a log file, not a terminal).
   let renderInterval: ReturnType<typeof setInterval> | null = null;
   let renderer: ReturnType<typeof createDiffRenderer> | null = null;
-  if (isAgentMode()) {
+  if (isAgentMode() || isJsonMode() || isDetachedWorker()) {
     const reportedPauses = new Set<string>();
     const reportedSteps = new Map<string, Set<string>>();
     const reportedRunners = new Set<string>();
@@ -1593,6 +1777,9 @@ function printUsage() {
     "  -q, --quiet                   Suppress animated rendering (also enabled by AI_AGENT=1)",
   );
   console.log(
+    "      --json                    Emit NDJSON event stream on stdout (also enabled by AGENT_CI_JSON=1)",
+  );
+  console.log(
     "      --no-matrix               Collapse all matrix combinations into a single job (uses first value of each key)",
   );
   console.log(
@@ -1645,6 +1832,21 @@ function resolveHeadSha(repoRoot: string, sha: string) {
   } catch {
     throw new Error(`Failed to resolve ref: ${sha}`);
   }
+}
+
+/**
+ * Emit the final `run.finish` NDJSON event when running under an agent harness
+ * or as a detached worker. In detached mode the launcher (and a sibling
+ * `agent-ci retry` tailing this log) reads it to drive its own exit code.
+ * No-op in normal interactive runs.
+ */
+function emitRunFinishSentinel(status: "passed" | "failed"): void {
+  if (!isJsonMode() && !isDetachedWorker()) {
+    return;
+  }
+  process.stdout.write(
+    formatEvent({ event: "run.finish", ts: new Date().toISOString(), status }) + "\n",
+  );
 }
 
 function persistRunResult(opts: {

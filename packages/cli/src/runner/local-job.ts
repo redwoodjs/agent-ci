@@ -25,6 +25,7 @@ import { writeJobMetadata } from "./metadata.js";
 import { writeGitShim } from "./git-shim.js";
 import { prepareWorkspace } from "./workspace.js";
 import { createRunDirectories } from "./directory-setup.js";
+import { writeDetachedMarker } from "../launcher.js";
 import {
   buildContainerEnv,
   buildContainerBinds,
@@ -210,6 +211,11 @@ export async function executeLocalJob(
     workflowPath: job.workflowPath,
   });
   debugRunner(`Detected package manager: ${dirs.detectedPM ?? "none (mounting all PM caches)"}`);
+
+  // Drop the detached-worker marker so `agent-ci retry --name X` (running in
+  // a separate process) can find this worker's log and tail it after sending
+  // the retry signal. No-op outside detached mode. See issue #315.
+  writeDetachedMarker(runDir);
 
   await fetch(`${dtuUrl}/_dtu/start-runner`, {
     method: "POST",

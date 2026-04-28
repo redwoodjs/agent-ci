@@ -1,0 +1,36 @@
+name: "Smoke: --json NDJSON event stream (#289)"
+
+# Asserts that `agent-ci run --json` emits a well-formed NDJSON event stream:
+# run.start with schemaVersion=1, step.start/finish for each step, job.finish,
+# and a final run.finish — and that every JSON line on stdout has a known
+# event field. See scripts/smoke-289.sh.
+
+on:
+  pull_request_target:
+    types: [opened, labeled, synchronize]
+    paths-ignore:
+      - "**/*.md"
+      - "docs/**"
+      - ".docs/**"
+      - "LICENSE"
+
+jobs:
+  json-events:
+    if: '!github.event.pull_request.draft && (contains(fromJSON(''["MEMBER", "OWNER", "COLLABORATOR"]''), github.event.pull_request.author_association) || contains(github.event.pull_request.labels.*.name, ''safe-to-run''))'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.30.1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: "pnpm"
+      - run: pnpm install
+      - run: pnpm --filter dtu-github-actions build
+      - name: agent-ci --json must emit a complete event stream
+        run: ./scripts/smoke-289.sh

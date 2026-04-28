@@ -1,12 +1,7 @@
 [
   {
-    "issue": 308,
-    "pr": null,
-    "changeset": "rename-docker-host-to-agent-ci-docker-host.md"
-  },
-  {
-    "issue": 288,
-    "pr": null,
-    "changeset": "tmux-pane-run-state.md"
+    "issue": 229,
+    "pr": 320,
+    "changeset": "resource-fidelity-classification.md"
   }
 ]

@@ -1,5 +1,21 @@
 # dtu-github-actions
 
+## 0.14.0
+
+### Patch Changes
+
+- 44595b1: Surface degraded local runs when the host machine is smaller than the runner spec declared by `runs-on:` (e.g. `ubuntu-latest-8-cores`). The job is tagged `degraded`, a warning is printed before execution, and `[degraded]` appears in CLI output. Execution is never blocked — slow runs and OOMs now have a visible cause instead of being a mystery.
+
+  Refs #229.
+
+- 76b46f9: Revert the opt-in smolvm backend (#287). The implementation proved too rough
+  to keep in-tree while iterating — it will return once the boot path is
+  reliable on the current smolvm release. `AGENT_CI_BACKEND=smolvm` is no
+  longer recognized; Linux jobs always run through Docker.
+- 6a26cae: Add support for expansion of variables in the `env` context in expressions.
+
+  `env` context variables deriving from the merged step environment (workflow-level + job-level + step-level `env:`) are now expanded in expressions, matching GitHub Actions behavior. Previously these references resolved to empty strings.
+
 ## 0.13.0
 
 ### Minor Changes

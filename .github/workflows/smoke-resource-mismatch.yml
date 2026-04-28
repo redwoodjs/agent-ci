@@ -9,14 +9,17 @@ name: "Smoke: resource fidelity (degraded mode)"
 # successfully (degraded is a warning, not a failure) and that the CLI
 # emitted the "in degraded mode" line. Unit coverage of the classifier
 # itself lives in `packages/cli/src/workflow/resource-classifier.test.ts`.
+#
+# Local-only: the `ubuntu-latest-999-cores` label is unsatisfiable on real
+# GitHub-hosted runners, so the workflow is gated to `workflow_dispatch:`
+# to keep PRs from queueing a job that can never be picked up. agent-ci's
+# `--all` discovery treats `workflow_dispatch:`-only workflows as relevant.
 
 on:
-  pull_request_target:
-    types: [opened, labeled, synchronize]
+  workflow_dispatch:
 
 jobs:
   resource-mismatch:
-    if: '!github.event.pull_request.draft && (contains(fromJSON(''["MEMBER", "OWNER", "COLLABORATOR"]''), github.event.pull_request.author_association) || contains(github.event.pull_request.labels.*.name, ''safe-to-run''))'
     runs-on: ubuntu-latest-999-cores
     steps:
       - name: Job runs even when host < declared runner spec

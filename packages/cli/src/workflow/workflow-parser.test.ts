@@ -996,6 +996,34 @@ describe("isWorkflowRelevant", () => {
     const template = prtTemplate({ paths: ["src/**"] });
     expect(isWorkflowRelevant(template, "feature", ["README.md"])).toBe(false);
   });
+
+  // ── workflow_dispatch ───────────────────────────────────────────────────
+
+  it("matches workflow_dispatch-only workflows (local fixtures)", () => {
+    expect(isWorkflowRelevant({ events: { workflow_dispatch: {} } }, "main")).toBe(true);
+  });
+
+  it("matches workflow_dispatch-only workflows declared as null (no inputs)", () => {
+    // GitHub allows `on: workflow_dispatch:` with no value, which YAML parses to null.
+    expect(isWorkflowRelevant({ events: { workflow_dispatch: null as any } }, "main")).toBe(true);
+  });
+
+  it("does not match when only event is unknown to the discoverer", () => {
+    expect(isWorkflowRelevant({ events: { schedule: [{ cron: "0 0 * * *" }] } }, "main")).toBe(
+      false,
+    );
+  });
+
+  it("honors pull_request paths-ignore even when workflow_dispatch is also listed", () => {
+    // workflow_dispatch alongside a real trigger should NOT override the trigger's filters.
+    const template = {
+      events: {
+        pull_request: { "paths-ignore": ["**/*.md"] },
+        workflow_dispatch: {},
+      },
+    };
+    expect(isWorkflowRelevant(template, "feature", ["README.md"])).toBe(false);
+  });
 });
 
 // ─── fromJSON / toJSON ────────────────────────────────────────────────────────

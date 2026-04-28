@@ -1,0 +1,9 @@
+{
+  "name": "missing-changeset-fixture",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "dependencies": {
+    "@redwoodjs/agent-ci": "file:./fake-agent-ci"
+  }
+}

@@ -50,11 +50,29 @@ describe("RunStateStore", () => {
     expect(wf.jobs[1].id).toBe("test");
   });
 
-  it("addJob ignores duplicate runnerId", () => {
+  it("addJob ignores duplicate runnerId when no metadata changes", () => {
     const store = makeStore();
     store.addJob("/repo/.github/workflows/ci.yml", "test", "agent-ci-1");
     store.addJob("/repo/.github/workflows/ci.yml", "test", "agent-ci-1");
     expect(store.getState().workflows[0].jobs).toHaveLength(1);
+  });
+
+  it("addJob merges metadata for duplicate runnerId", () => {
+    const store = makeStore();
+    store.addJob("/repo/.github/workflows/ci.yml", "test", "agent-ci-1");
+    store.addJob("/repo/.github/workflows/ci.yml", "test", "agent-ci-1", {
+      logDir: "/tmp/logs",
+      classification: "degraded",
+      classificationSummary: "summary",
+      classificationReasons: ["reason"],
+    });
+    expect(store.getState().workflows[0].jobs).toHaveLength(1);
+    expect(store.getState().workflows[0].jobs[0]).toMatchObject({
+      logDir: "/tmp/logs",
+      classification: "degraded",
+      classificationSummary: "summary",
+      classificationReasons: ["reason"],
+    });
   });
 
   it("updateJob updates the correct job", () => {

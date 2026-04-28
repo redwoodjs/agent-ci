@@ -88,6 +88,76 @@ describe("renderRunState", () => {
       expect(output).toContain("⠋ 2. Run pnpm check (0s...)");
     });
 
+    it("renders degraded job state with tag and summary child line", () => {
+      const state = makeState({
+        workflows: [
+          {
+            id: "ci.yml",
+            path: "/repo/.github/workflows/ci.yml",
+            status: "running",
+            jobs: [
+              {
+                id: "test",
+                runnerId: "agent-ci-5",
+                status: "running",
+                bootDurationMs: 2300,
+                classification: "degraded",
+                classificationSummary:
+                  "job resource hints exceed the available host capacity. Use a larger host or adjust the workflow resource hints to fit the available machine.",
+                classificationReasons: ["requestedCpuCount (8) exceeds host cpuCount (4)"],
+                steps: [{ name: "Run pnpm check", index: 1, status: "pending" }],
+              },
+            ],
+          },
+        ],
+      });
+
+      const output = renderRunState(state);
+      expect(output).toContain("test [degraded]");
+      expect(output).toContain(
+        "job resource hints exceed the available host capacity. Use a larger host or adjust the workflow resource hints to fit the available machine.",
+      );
+      expect(output).toContain("○ 1. Run pnpm check");
+    });
+
+    it("renders faithful job state unchanged when classification is absent", () => {
+      const state = makeState({
+        workflows: [
+          {
+            id: "ci.yml",
+            path: "/repo/.github/workflows/ci.yml",
+            status: "running",
+            jobs: [
+              {
+                id: "test",
+                runnerId: "agent-ci-5",
+                status: "running",
+                startedAt: "1970-01-01T00:00:00.000Z",
+                bootDurationMs: 2300,
+                steps: [
+                  { name: "Set up job", index: 1, status: "completed", durationMs: 1000 },
+                  {
+                    name: "Run pnpm check",
+                    index: 2,
+                    status: "running",
+                    startedAt: "1970-01-01T00:00:00.000Z",
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      });
+
+      expect(renderRunState(state)).toMatchInlineSnapshot(`
+        " ci.yml
+         ├── Starting runner agent-ci-5 (2.3s)
+         └── test
+             ├── ✓ 1. Set up job (1s)
+             └── ⠋ 2. Run pnpm check (0s...)"
+      `);
+    });
+
     it("renders completed steps with tick icons", () => {
       const state = makeState({
         workflows: [
@@ -281,6 +351,44 @@ describe("renderRunState", () => {
       const output = renderRunState(state);
       expect(output).toContain("retrying");
       expect(output).toContain("Run tests");
+    });
+  });
+
+  describe("multi-workflow mode", () => {
+    it("renders degraded tag in compact job nodes", () => {
+      const state = makeState({
+        workflows: [
+          {
+            id: "ci.yml",
+            path: "/repo/.github/workflows/ci.yml",
+            status: "running",
+            jobs: [
+              {
+                id: "lint",
+                runnerId: "agent-ci-1-j1",
+                status: "running",
+                classification: "degraded",
+                steps: [],
+              },
+              {
+                id: "test",
+                runnerId: "agent-ci-1-j2",
+                status: "queued",
+                steps: [],
+              },
+            ],
+          },
+          {
+            id: "deploy.yml",
+            path: "/repo/.github/workflows/deploy.yml",
+            status: "queued",
+            jobs: [],
+          },
+        ],
+      });
+
+      const output = renderRunState(state);
+      expect(output).toContain("lint [degraded]");
     });
   });
 

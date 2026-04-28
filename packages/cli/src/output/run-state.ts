@@ -1,6 +1,7 @@
 import fs from "fs";
 import fsp from "fs/promises";
 import path from "path";
+import type { ResourceFidelity } from "../workflow/resource-classifier.js";
 
 // ─── Status types ─────────────────────────────────────────────────────────────
 
@@ -55,6 +56,9 @@ export interface JobState {
     currentBytes: number;
     totalBytes: number;
   };
+  classification?: ResourceFidelity;
+  classificationSummary?: string;
+  classificationReasons?: string[];
 }
 
 export interface WorkflowState {
@@ -144,6 +148,9 @@ export class RunStateStore {
       wave?: number;
       logDir?: string;
       debugLogPath?: string;
+      classification?: ResourceFidelity;
+      classificationSummary?: string;
+      classificationReasons?: string[];
     },
   ): void {
     let wf = this.state.workflows.find((w) => w.path === workflowPath);
@@ -157,7 +164,11 @@ export class RunStateStore {
       this.state.workflows.push(wf);
     }
 
-    if (!wf.jobs.some((j) => j.runnerId === runnerId)) {
+    const existingJob = wf.jobs.find((j) => j.runnerId === runnerId);
+
+    if (existingJob) {
+      Object.assign(existingJob, options);
+    } else {
       wf.jobs.push({
         id: jobId,
         runnerId,

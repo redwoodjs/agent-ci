@@ -24,6 +24,7 @@ import {
   parseWorkflowSteps,
   parseWorkflowServices,
   parseWorkflowContainer,
+  parseJobRunsOnLabels,
   validateSecrets,
   extractSecretRefs,
   validateVars,
@@ -68,6 +69,12 @@ import { isAgentMode, isJsonMode, setJsonMode, setQuietMode } from "./output/age
 import { createDiffRenderer } from "./output/diff-renderer.js";
 import { createFailedJobResult, wrapJobError, isJobError } from "./runner/job-result.js";
 import { postCommitStatus } from "./commit-status.js";
+import {
+  classifyJobResources,
+  collectJobResourceHints,
+  getHostResources,
+  type ResourceFidelity,
+} from "./workflow/resource-classifier.js";
 import { writeRunResult } from "./run-result-writer.js";
 import {
   EVENT_SCHEMA_VERSION,
@@ -797,10 +804,19 @@ async function runWorkflows(options: {
   if (isAgentMode() || isJsonMode() || isDetachedWorker()) {
     const reportedPauses = new Set<string>();
     const reportedSteps = new Map<string, Set<string>>();
+    const reportedRunners = new Set<string>();
     const emit = (msg: string) => process.stderr.write(msg + "\n");
     store.onUpdate((state) => {
       for (const wf of state.workflows) {
         for (const job of wf.jobs) {
+          if (job.status !== "queued" && !reportedRunners.has(job.runnerId)) {
+            reportedRunners.add(job.runnerId);
+            const degradedTag = job.classification === "degraded" ? " [degraded]" : "";
+            emit(`[Agent CI] Starting runner ${job.runnerId}${degradedTag} (${wf.id} > ${job.id})`);
+            if (job.logDir) {
+              emit(`  Logs: ${job.logDir}`);
+            }
+          }
           if (!reportedSteps.has(job.runnerId)) {
             reportedSteps.set(job.runnerId, new Set());
           }
@@ -1076,6 +1092,24 @@ async function handleWorkflow(options: {
     inputDefaults?: Record<string, string>;
     workflowCallOutputDefs?: Record<string, string>;
     callerJobId?: string;
+    runnerName: string;
+    services?: Awaited<ReturnType<typeof parseWorkflowServices>>;
+    container?: Awaited<ReturnType<typeof parseWorkflowContainer>>;
+    classification?: ResourceFidelity;
+    classificationSummary?: string;
+    classificationReasons?: string[];
+  };
+
+  const baseRunNum = options.baseRunNum ?? getNextLogNum("agent-ci");
+  let globalIdx = 0;
+  const nextRunnerName = (matrixContext?: Record<string, string>): string => {
+    const idx = globalIdx++;
+    let suffix = `-j${idx + 1}`;
+    if (matrixContext) {
+      const shardIdx = parseInt(matrixContext.__job_index ?? "0", 10) + 1;
+      suffix += `-m${shardIdx}`;
+    }
+    return `agent-ci-${baseRunNum}${suffix}`;
   };
 
   const expandedJobs: ExpandedJob[] = [];
@@ -1092,6 +1126,11 @@ async function handleWorkflow(options: {
           workflowPath: entry.workflowPath,
           taskName: entry.id,
           sourceTaskName: entry.sourceTaskName,
+          runnerName: nextRunnerName(
+            noMatrix
+              ? combos[ci]
+              : { ...combos[ci], __job_total: String(total), __job_index: String(ci) },
+          ),
           matrixContext: noMatrix
             ? combos[ci]
             : {
@@ -1110,6 +1149,7 @@ async function handleWorkflow(options: {
         workflowPath: entry.workflowPath,
         taskName: entry.id,
         sourceTaskName: entry.sourceTaskName,
+        runnerName: nextRunnerName(),
         inputs: entry.inputs,
         inputDefaults: entry.inputDefaults,
         workflowCallOutputDefs: entry.workflowCallOutputDefs,
@@ -1188,6 +1228,50 @@ async function handleWorkflow(options: {
   };
 
   // For single-job workflows, run directly without extra orchestration
+  const limiter = options.globalLimiter;
+  const hostResources = getHostResources();
+  for (const job of expandedJobs) {
+    const labels = parseJobRunsOnLabels(workflowPath, job.taskName);
+    const matrixDef = await parseMatrixDef(workflowPath, job.taskName);
+    const services = await parseWorkflowServices(workflowPath, job.taskName);
+    const container = await parseWorkflowContainer(workflowPath, job.taskName);
+    const hints = collectJobResourceHints({
+      labels,
+      matrixJobTotal:
+        matrixDef && job.matrixContext
+          ? Number.parseInt(job.matrixContext.__job_total ?? "1", 10)
+          : 1,
+      matrixJobIndex:
+        matrixDef && job.matrixContext
+          ? Number.parseInt(job.matrixContext.__job_index ?? "0", 10)
+          : 0,
+      hasServices: services.length > 0,
+      hasContainer: container !== null,
+    });
+    const classification = classifyJobResources(hints, hostResources);
+
+    job.services = services;
+    job.container = container;
+    job.classification = classification.fidelity;
+    job.classificationSummary =
+      classification.fidelity === "degraded"
+        ? `${classification.summary}. ${classification.action}`
+        : classification.summary;
+    job.classificationReasons = classification.reasons;
+  }
+
+  const degradedWarnings = new Set<string>();
+  const warnDegradedJob = (job: ExpandedJob): void => {
+    if (job.classification !== "degraded" || degradedWarnings.has(job.runnerName)) {
+      return;
+    }
+
+    degradedWarnings.add(job.runnerName);
+    console.warn(
+      `[Agent CI] Running ${path.basename(workflowPath)}:${job.taskName} in degraded mode: ${job.classificationSummary}`,
+    );
+  };
+
   if (expandedJobs.length === 1) {
     const ej = expandedJobs[0];
     const osSkip = maybeSkipUnsupportedOS(ej);
@@ -1235,8 +1319,13 @@ async function handleWorkflow(options: {
       inputsContext,
       vars,
     );
-    const services = await parseWorkflowServices(ej.workflowPath, actualTaskName);
-    const container = await parseWorkflowContainer(ej.workflowPath, actualTaskName);
+
+    store.addJob(ej.workflowPath, actualTaskName, ej.runnerName, {
+      classification: ej.classification,
+      classificationSummary: ej.classificationSummary,
+      classificationReasons: ej.classificationReasons,
+    });
+    warnDegradedJob(ej);
 
     const job: Job = {
       deliveryId: `run-${Date.now()}`,
@@ -1256,20 +1345,18 @@ async function handleWorkflow(options: {
         owner: { login: owner },
         default_branch: "main",
       },
+      runnerName: ej.runnerName,
       steps,
-      services,
-      container: container ?? undefined,
+      services: ej.services,
+      container: ej.container ?? undefined,
       workflowPath: ej.workflowPath,
       parentWorkflowPath: ej.callerJobId ? workflowPath : undefined,
       taskId: ej.taskName,
     };
 
-    const result = await options.globalLimiter.run(() => runJobExecutor(ej, job));
+    const result = await limiter.run(() => runJobExecutor(ej, job));
     return [result];
   }
-
-  // ── Multi-job orchestration ────────────────────────────────────────────────
-  const limiter = options.globalLimiter;
 
   // ── Warm-cache check ───────────────────────────────────────────────────────
   const repoSlug = githubRepo.replace("/", "-");
@@ -1285,9 +1372,6 @@ async function handleWorkflow(options: {
     lockfileHash,
   );
   let warm = isWarmNodeModules(warmModulesDir);
-
-  // Naming convention: agent-ci-<N>[-j<idx>][-m<shardIdx>]
-  const baseRunNum = options.baseRunNum ?? getNextLogNum("agent-ci");
 
   const buildJob = (ej: ExpandedJob): Job => {
     const actualTaskName = ej.sourceTaskName ?? ej.taskName;

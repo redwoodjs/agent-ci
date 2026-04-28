@@ -1,24 +1,33 @@
-name: "Smoke: oven-sh/setup-bun cache collision"
+name: "Smoke: bun project cache + bind-mount fix (#212)"
 
-# Reproduces #212 — oven-sh/setup-bun@v2 fails in bun projects because
-# virtualCachePatterns returns a fake cache hit for setup-bun's binary cache.
+# Regression coverage for #212 / #219. Two distinct bugs in agent-ci broke
+# bun projects, and we exercise both here without depending on the
+# oven-sh/setup-bun action or the GitHub-releases CDN (which made the
+# original smoke flake — see the "pre-fetch" note below):
 #
-# When a project uses bun (bun.lock detected), virtualCachePatterns is set to
-# ["bun"]. The setup-bun action uses cache keys of the form `bun-<sha1>`, and
-# since "bun" is a substring of that key, the DTU returns a synthetic 45-byte
-# cache hit. The action thinks the binary is cached but no bun executable
-# exists, so it fails with:
+# 1. virtualCachePatterns fake hit
+#    When a project uses bun (bun.lock detected), virtualCachePatterns is
+#    set to ["bun"]. Cache keys of the form `bun-<sha1>` collided on a
+#    naive substring check and the DTU returned a synthetic 45-byte hit
+#    for keys that were never saved. The fix tightened pattern matching;
+#    here we re-assert by issuing an actions/cache@v4 lookup against a
+#    randomized `bun-…` key and requiring `cache-hit == false`.
 #
-#   Error: Unable to locate executable file: /home/runner/.bun/bin/bun.
+# 2. /home/runner/.bun bind-mount permissions
+#    A bind mount for `.bun/install/cache` was created as root, so any
+#    later `mkdir /home/runner/.bun/bin` from a runner-uid step failed
+#    with EACCES. We exercise that path by `mkdir -p $HOME/.bun/bin` and
+#    installing the pre-fetched bun binary there.
 #
-# A second issue compounds the failure: the bind mount for
-# .bun/install/cache creates /home/runner/.bun as root, so even if the
-# virtual cache issue were bypassed, setup-bun would fail with EACCES
-# when trying to mkdir /home/runner/.bun/bin.
-#
-# This smoke test creates a temporary bun project (with bun.lock at the
-# repo root so PM detection returns "bun") and runs agent-ci against a
-# workflow that uses oven-sh/setup-bun@v2.
+# Why pre-fetch instead of running setup-bun: the original smoke called
+# oven-sh/setup-bun@v2, which downloads bun-linux-aarch64.zip from
+# github.com/oven-sh/bun/releases on every run with no per-request
+# timeout or retry. The download stalls intermittently inside nested
+# runner containers, which made the smoke flake without revealing
+# anything about agent-ci. Fetching the binary once on the outer host
+# (with `curl --retry`) and feeding it into the inner workflow as a
+# fixture removes that flake while keeping the two real failure modes
+# above under test.
 
 on:
   pull_request_target:
@@ -50,6 +59,21 @@ jobs:
       - name: Build agent-ci
         run: pnpm --filter @redwoodjs/agent-ci... -r build
 
+      - name: Pre-fetch bun binary (avoid GitHub-releases CDN flake)
+        run: |
+          mkdir -p /tmp/bun-repro/.fixture
+          arch="$(uname -m)"
+          case "$arch" in
+            aarch64|arm64) suffix="aarch64" ;;
+            x86_64) suffix="x64" ;;
+            *) echo "unsupported arch: $arch"; exit 1 ;;
+          esac
+          curl -fsSL --retry 5 --retry-delay 2 --max-time 120 -o /tmp/bun.zip \
+            "https://github.com/oven-sh/bun/releases/download/bun-v1.2.12/bun-linux-${suffix}.zip"
+          unzip -q /tmp/bun.zip -d /tmp/bun-extracted
+          cp "/tmp/bun-extracted/bun-linux-${suffix}/bun" /tmp/bun-repro/.fixture/bun
+          chmod +x /tmp/bun-repro/.fixture/bun
+
       - name: Create temp bun project
         run: |
           mkdir -p /tmp/bun-repro/.github/workflows
@@ -69,7 +93,10 @@ jobs:
           { "name": "bun-repro", "private": true }
           PKG
 
-          # Inner workflow: the one agent-ci will execute inside a container
+          # Inner workflow — runs inside the nested agent-ci runner.
+          # Tests both #212 failure modes without pulling bun over the
+          # network: actions/cache@v4 against a `bun-…` key (must miss),
+          # then a manual install at $HOME/.bun/bin from the fixture.
           cat > /tmp/bun-repro/.github/workflows/test.yml << 'WF'
           name: Test
           on: push
@@ -77,9 +104,23 @@ jobs:
             test:
               runs-on: ubuntu-latest
               steps:
-                - uses: oven-sh/setup-bun@v2
+                - name: Probe DTU cache for a synthetic bun-* key (must miss)
+                  id: probe
+                  uses: actions/cache@v4
                   with:
-                    bun-version: "1.2.12"
+                    path: /tmp/probe-empty
+                    key: bun-collision-probe-${{ github.run_id }}-never-saved
+                - name: Assert true cache miss (no virtualCachePatterns fake hit)
+                  if: steps.probe.outputs.cache-hit == 'true'
+                  run: |
+                    echo "❌ DTU returned a hit on a never-saved bun-* key — virtualCachePatterns regressed"
+                    exit 1
+                - name: Install bun from fixture (exercises ~/.bun/bin mkdir)
+                  run: |
+                    mkdir -p "$HOME/.bun/bin"
+                    cp "$GITHUB_WORKSPACE/.fixture/bun" "$HOME/.bun/bin/bun"
+                    chmod +x "$HOME/.bun/bin/bun"
+                    echo "$HOME/.bun/bin" >> "$GITHUB_PATH"
                 - name: Verify bun
                   run: |
                     bun --version

@@ -2,5 +2,6 @@
   "extends": ["@nkzw/oxlint-config"],
   "rules": {
     "curly": "error"
-  }
+  },
+  "ignorePatterns": ["experiments/skill-evals/fixtures/*/repo/"]
 }

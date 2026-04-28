@@ -150,6 +150,7 @@ function resolveExprAtom(
   inputsContext?: Record<string, string>,
   vars?: Record<string, string>,
   runnerContext?: RunnerContext,
+  envContext?: Record<string, string>,
 ): string {
   // hashFiles('glob1', 'glob2', ...)
   const hashFilesMatch = trimmed.match(/^hashFiles\(([\s\S]+)\)$/);
@@ -209,6 +210,7 @@ function resolveExprAtom(
         inputsContext,
         vars,
         runnerContext,
+        envContext,
       );
     }
     try {
@@ -245,6 +247,7 @@ function resolveExprAtom(
         inputsContext,
         vars,
         runnerContext,
+        envContext,
       );
     }
     try {
@@ -272,6 +275,7 @@ function resolveExprAtom(
           inputsContext,
           vars,
           runnerContext,
+          envContext,
         );
       }
       return "";
@@ -292,6 +296,7 @@ function resolveExprAtom(
         inputsContext,
         vars,
         runnerContext,
+        envContext,
       );
       const needle = evaluateExprValue(
         args[1],
@@ -302,6 +307,7 @@ function resolveExprAtom(
         inputsContext,
         vars,
         runnerContext,
+        envContext,
       );
       // Try JSON array first
       try {
@@ -333,6 +339,7 @@ function resolveExprAtom(
         inputsContext,
         vars,
         runnerContext,
+        envContext,
       );
       const prefix = evaluateExprValue(
         args[1],
@@ -343,6 +350,7 @@ function resolveExprAtom(
         inputsContext,
         vars,
         runnerContext,
+        envContext,
       );
       return str.toLowerCase().startsWith(prefix.toLowerCase()) ? "true" : "false";
     }
@@ -363,6 +371,7 @@ function resolveExprAtom(
         inputsContext,
         vars,
         runnerContext,
+        envContext,
       );
       const suffix = evaluateExprValue(
         args[1],
@@ -373,6 +382,7 @@ function resolveExprAtom(
         inputsContext,
         vars,
         runnerContext,
+        envContext,
       );
       return str.toLowerCase().endsWith(suffix.toLowerCase()) ? "true" : "false";
     }
@@ -392,6 +402,7 @@ function resolveExprAtom(
       inputsContext,
       vars,
       runnerContext,
+      envContext,
     );
     const sep =
       args.length >= 2
@@ -404,6 +415,7 @@ function resolveExprAtom(
             inputsContext,
             vars,
             runnerContext,
+            envContext,
           )
         : ", ";
     try {
@@ -510,6 +522,10 @@ function resolveExprAtom(
   if (trimmed.startsWith("needs.")) {
     return "";
   }
+  if (trimmed.startsWith("env.")) {
+    const name = trimmed.slice("env.".length);
+    return envContext?.[name] ?? "";
+  }
 
   // Unknown atoms — return empty string
   return "";
@@ -529,6 +545,7 @@ function evaluateExprValue(
   inputsContext?: Record<string, string>,
   vars?: Record<string, string>,
   runnerContext?: RunnerContext,
+  envContext?: Record<string, string>,
 ): string {
   const trimmed = expr.trim();
   if (!trimmed) {
@@ -567,6 +584,7 @@ function evaluateExprValue(
           inputsContext,
           vars,
           runnerContext,
+          envContext,
         );
       }
       if (depth === 0) {
@@ -589,6 +607,7 @@ function evaluateExprValue(
         inputsContext,
         vars,
         runnerContext,
+        envContext,
       );
       if (isExprTruthy(lastVal)) {
         return lastVal;
@@ -611,6 +630,7 @@ function evaluateExprValue(
         inputsContext,
         vars,
         runnerContext,
+        envContext,
       );
       if (!isExprTruthy(lastVal)) {
         return lastVal;
@@ -633,6 +653,7 @@ function evaluateExprValue(
         inputsContext,
         vars,
         runnerContext,
+        envContext,
       );
       const right = evaluateExprValue(
         cmpParts[1].trim(),
@@ -643,6 +664,7 @@ function evaluateExprValue(
         inputsContext,
         vars,
         runnerContext,
+        envContext,
       );
       const result = compareValues(left, right, op);
       return result ? "true" : "false";
@@ -660,6 +682,7 @@ function evaluateExprValue(
       inputsContext,
       vars,
       runnerContext,
+      envContext,
     );
     return isExprTruthy(inner) ? "false" : "true";
   }
@@ -698,6 +721,7 @@ function evaluateExprValue(
     inputsContext,
     vars,
     runnerContext,
+    envContext,
   );
 }
 
@@ -716,6 +740,7 @@ export function expandExpressions(
   inputsContext?: Record<string, string>,
   vars?: Record<string, string>,
   runnerContext?: RunnerContext,
+  envContext?: Record<string, string>,
 ): string {
   return value.replace(/\$\{\{([\s\S]*?)\}\}/g, (_match, expr: string) => {
     const result = evaluateExprValue(
@@ -727,9 +752,67 @@ export function expandExpressions(
       inputsContext,
       vars,
       runnerContext,
+      envContext,
     );
     return result;
   });
+}
+
+function toStringRecord(value: unknown): Record<string, string> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return {};
+  }
+
+  return Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, String(entry)]));
+}
+
+export function parseJobRunsOnLabels(filePath: string, jobId: string): string[] {
+  try {
+    const rawYaml = parseYaml(fs.readFileSync(filePath, "utf8"));
+    const rawRunsOn = rawYaml?.jobs?.[jobId]?.["runs-on"];
+
+    if (typeof rawRunsOn === "string") {
+      return [rawRunsOn];
+    }
+
+    if (Array.isArray(rawRunsOn)) {
+      return rawRunsOn.map(String);
+    }
+
+    if (rawRunsOn == null) {
+      return [];
+    }
+
+    return [String(rawRunsOn)];
+  } catch {
+    return [];
+  }
+}
+
+export function parseMergedJobEnv(
+  filePath: string,
+  jobId: string,
+  matrixContext?: Record<string, string>,
+): Record<string, string> {
+  try {
+    const rawYaml = parseYaml(fs.readFileSync(filePath, "utf8"));
+    const workflowEnv = toStringRecord(rawYaml?.env);
+    const jobEnv = toStringRecord(rawYaml?.jobs?.[jobId]?.env);
+    const merged = { ...workflowEnv, ...jobEnv };
+
+    if (!matrixContext) {
+      return merged;
+    }
+
+    return Object.fromEntries(
+      Object.entries(merged).map(([key, value]) => [
+        key,
+        expandExpressions(value, undefined, undefined, matrixContext),
+      ]),
+    );
+  } catch {
+    return {};
+  }
 }
 
 /**
@@ -995,7 +1078,22 @@ export async function parseWorkflowSteps(
     .map((step, index) => {
       const stepId = step.id || `step-${index + 1}`;
       const rawStep = rawSteps[index] || {};
-      // Prefer raw YAML name to preserve ${{ }} expressions for our own expansion
+
+      const stepEnv = buildStepEnv(
+        rawYaml,
+        rawJob,
+        rawStep,
+        repoPath,
+        secrets,
+        matrixContext,
+        needsContext,
+        inputsContext,
+        vars,
+        runnerContext,
+      );
+
+      // Prefer raw YAML name to preserve ${{ }} expressions for our own expansion.
+      // Computed after stepEnv so that env.* references in step names resolve correctly.
       const rawName = rawStep.name != null ? String(rawStep.name) : step.name?.toString();
       let stepName = rawName
         ? expandExpressions(
@@ -1007,6 +1105,7 @@ export async function parseWorkflowSteps(
             inputsContext,
             vars,
             runnerContext,
+            stepEnv,
           )
         : stepId;
 
@@ -1041,6 +1140,7 @@ export async function parseWorkflowSteps(
           inputsContext,
           vars,
           runnerContext,
+          stepEnv,
         );
         const shell = resolveStepRunDefault(rawYaml, rawJob, rawStep, "shell");
         const inputs: Record<string, string> = {
@@ -1066,18 +1166,7 @@ export async function parseWorkflowSteps(
             Type: "Script",
           },
           Inputs: inputs,
-          Env: buildStepEnv(
-            rawYaml,
-            rawJob,
-            rawStep,
-            repoPath,
-            secrets,
-            undefined,
-            needsContext,
-            inputsContext,
-            vars,
-            runnerContext,
-          ),
+          Env: stepEnv,
           ...(condition !== undefined ? { condition } : {}),
         };
       } else if ("uses" in step) {
@@ -1126,6 +1215,7 @@ export async function parseWorkflowSteps(
                       inputsContext,
                       vars,
                       runnerContext,
+                      stepEnv,
                     ),
                   ]),
                 )
@@ -1143,6 +1233,7 @@ export async function parseWorkflowSteps(
                   inputsContext,
                   vars,
                   runnerContext,
+                  stepEnv,
                 ),
               ]),
             ),
@@ -1163,6 +1254,7 @@ export async function parseWorkflowSteps(
                         inputsContext,
                         vars,
                         runnerContext,
+                        stepEnv,
                       );
                       // The zero hash is a placeholder for "no SHA available" —
                       // normalize it to empty string so actions/checkout uses the
@@ -1176,18 +1268,7 @@ export async function parseWorkflowSteps(
                 }
               : {}), // Prevent actions/checkout from wiping the rsynced workspace
           },
-          Env: buildStepEnv(
-            rawYaml,
-            rawJob,
-            rawStep,
-            repoPath,
-            secrets,
-            matrixContext,
-            needsContext,
-            inputsContext,
-            vars,
-            runnerContext,
-          ),
+          Env: stepEnv,
           ...(condition !== undefined ? { condition } : {}),
         };
       }
@@ -1311,6 +1392,21 @@ export function getChangedFiles(repoRoot: string): string[] {
   }
 }
 
+type WorkflowEventFilters = {
+  branches?: string[];
+  "branches-ignore"?: string[];
+  paths?: string[];
+  "paths-ignore"?: string[];
+};
+
+interface WorkflowTemplateLike {
+  events?: {
+    pull_request?: WorkflowEventFilters;
+    push?: WorkflowEventFilters;
+    [key: string]: WorkflowEventFilters | undefined;
+  };
+}
+
 /**
  * Check whether the changed files pass the paths / paths-ignore filter for an
  * event definition. Returns true (relevant) when:
@@ -1319,7 +1415,7 @@ export function getChangedFiles(repoRoot: string): string[] {
  *  - At least one changed file matches a `paths` pattern.
  *  - At least one changed file is NOT matched by all `paths-ignore` patterns.
  */
-function matchesPaths(eventDef: Record<string, any>, changedFiles?: string[]): boolean {
+function matchesPaths(eventDef: WorkflowEventFilters, changedFiles?: string[]): boolean {
   if (!changedFiles || changedFiles.length === 0) {
     return true; // No file info → always relevant
   }
@@ -1344,7 +1440,11 @@ function matchesPaths(eventDef: Record<string, any>, changedFiles?: string[]): b
   return true;
 }
 
-export function isWorkflowRelevant(template: any, branch: string, changedFiles?: string[]) {
+export function isWorkflowRelevant(
+  template: WorkflowTemplateLike,
+  branch: string,
+  changedFiles?: string[],
+) {
   const events = template.events;
   if (!events) {
     return false;

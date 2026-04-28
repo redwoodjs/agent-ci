@@ -29,8 +29,31 @@ export const DETACHED_ENV = "AGENT_CI_DETACHED";
 /** Filename written under each run dir so `retry` can locate the worker by runner name. */
 export const DETACHED_MARKER_FILENAME = "detached.json";
 
+/**
+ * Event-stream schema version. Bump when an event shape changes
+ * incompatibly. Consumers receive this on `run.start` and can version-gate.
+ */
+export const EVENT_SCHEMA_VERSION = 1;
+
+export interface RunStartEvent {
+  event: "run.start";
+  ts: string;
+  schemaVersion: number;
+  runId: string;
+  repo?: string;
+  branch?: string;
+}
+
+export interface RunFinishEvent {
+  event: "run.finish";
+  ts?: string;
+  status: "passed" | "failed";
+  durationMs?: number;
+}
+
 export interface RunPausedEvent {
   event: "run.paused";
+  ts?: string;
   runner: string;
   step?: string;
   attempt?: number;
@@ -38,12 +61,71 @@ export interface RunPausedEvent {
   retry_cmd: string;
 }
 
-export interface RunCompletedEvent {
-  event: "run.completed";
-  status: "passed" | "failed";
+export interface JobStartEvent {
+  event: "job.start";
+  ts: string;
+  job: string;
+  runner: string;
+  workflow?: string;
 }
 
-export type LogEvent = RunPausedEvent | RunCompletedEvent;
+export interface JobFinishEvent {
+  event: "job.finish";
+  ts: string;
+  job: string;
+  runner: string;
+  workflow?: string;
+  status: "passed" | "failed";
+  durationMs?: number;
+}
+
+export interface StepStartEvent {
+  event: "step.start";
+  ts: string;
+  job: string;
+  runner: string;
+  step: string;
+  index: number;
+}
+
+export interface StepFinishEvent {
+  event: "step.finish";
+  ts: string;
+  job: string;
+  runner: string;
+  step: string;
+  index: number;
+  status: "passed" | "failed" | "skipped";
+  durationMs?: number;
+}
+
+export interface DiagnosticEvent {
+  event: "diagnostic";
+  ts: string;
+  level: "info" | "warning" | "error";
+  message: string;
+}
+
+export type LogEvent =
+  | RunStartEvent
+  | RunFinishEvent
+  | RunPausedEvent
+  | JobStartEvent
+  | JobFinishEvent
+  | StepStartEvent
+  | StepFinishEvent
+  | DiagnosticEvent;
+
+const KNOWN_EVENTS = new Set<string>([
+  "run.start",
+  "run.finish",
+  "run.paused",
+  "job.start",
+  "job.finish",
+  "step.start",
+  "step.finish",
+  "diagnostic",
+]);
 
 export interface DetachedMarker {
   workerLogPath: string;
@@ -81,10 +163,10 @@ export function parseLogEvent(line: string): LogEvent | null {
     return null;
   }
   const ev = (parsed as { event?: unknown }).event;
-  if (ev === "run.paused" || ev === "run.completed") {
-    return parsed as LogEvent;
+  if (typeof ev !== "string" || !KNOWN_EVENTS.has(ev)) {
+    return null;
   }
-  return null;
+  return parsed as LogEvent;
 }
 
 /** Whether this CLI process is running as a detached worker child. */
@@ -219,7 +301,7 @@ export async function runDetachedLauncher(args: string[]): Promise<LaunchResult>
       } catch {}
       return { exitCode: PAUSED_EXIT_CODE };
     },
-    onCompleted: (e, line) => {
+    onFinish: (e, line) => {
       process.stdout.write(line + "\n");
       return { exitCode: e.status === "passed" ? 0 : 1 };
     },
@@ -246,11 +328,11 @@ export async function tailRetryUntilOutcome(
       writePauseHint(e, marker.workerLogPath);
       return { exitCode: PAUSED_EXIT_CODE };
     },
-    onCompleted: (e, line) => {
+    onFinish: (e, line) => {
       process.stdout.write(line + "\n");
       return { exitCode: e.status === "passed" ? 0 : 1 };
     },
-    // Worker pid gone without emitting a `run.completed` event. Treat as a crash.
+    // Worker pid gone without emitting a `run.finish` event. Treat as a crash.
     onDeath: () => ({ exitCode: 1 }),
   });
 }
@@ -278,7 +360,7 @@ interface TailOpts {
   startOffset: number;
   isAlive: () => boolean;
   onPaused: (e: RunPausedEvent, line: string) => LaunchResult;
-  onCompleted: (e: RunCompletedEvent, line: string) => LaunchResult;
+  onFinish: (e: RunFinishEvent, line: string) => LaunchResult;
   onDeath: () => LaunchResult;
 }
 
@@ -323,8 +405,13 @@ async function tailLog(opts: TailOpts): Promise<LaunchResult> {
       if (event?.event === "run.paused") {
         return opts.onPaused(event, line);
       }
-      if (event?.event === "run.completed") {
-        return opts.onCompleted(event, line);
+      if (event?.event === "run.finish") {
+        return opts.onFinish(event, line);
+      }
+      // Suppress other recognized events — they're consumed in agent mode but
+      // shouldn't appear as raw JSON in the human caller's stdout.
+      if (event !== null) {
+        continue;
       }
       process.stdout.write(line + "\n");
     }

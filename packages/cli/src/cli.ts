@@ -64,18 +64,20 @@ import { syncWorkspaceForRetry } from "./runner/sync.js";
 import { computeDirtySha } from "./runner/dirty-sha.js";
 import { RunStateStore } from "./output/run-state.js";
 import { renderRunState } from "./output/state-renderer.js";
-import { isAgentMode, setQuietMode } from "./output/agent-mode.js";
+import { isAgentMode, isJsonMode, setJsonMode, setQuietMode } from "./output/agent-mode.js";
 import { createDiffRenderer } from "./output/diff-renderer.js";
 import { createFailedJobResult, wrapJobError, isJobError } from "./runner/job-result.js";
 import { postCommitStatus } from "./commit-status.js";
 import { writeRunResult } from "./run-result-writer.js";
 import {
+  EVENT_SCHEMA_VERSION,
   formatEvent,
   isDetachedWorker,
   readDetachedMarker,
   runDetachedLauncher,
   shouldLaunchDetached,
   tailRetryUntilOutcome,
+  type LogEvent,
 } from "./launcher.js";
 
 function findSignalsDir(runnerName: string): string | null {
@@ -138,6 +140,8 @@ async function run() {
         runAll = true;
       } else if (args[i] === "--quiet" || args[i] === "-q") {
         setQuietMode(true);
+      } else if (args[i] === "--json") {
+        setJsonMode(true);
       } else if (args[i] === "--no-matrix") {
         noMatrix = true;
       } else if ((args[i] === "--jobs" || args[i] === "-j") && args[i + 1]) {
@@ -290,7 +294,7 @@ async function run() {
       }
       persistRunResult({ results, repoRoot, startedAt, sha, branch });
       const anyFailed = results.length === 0 || results.some((r) => !r.succeeded);
-      emitDetachedCompletedSentinel(anyFailed ? "failed" : "passed");
+      emitRunFinishSentinel(anyFailed ? "failed" : "passed");
       process.exit(anyFailed ? 1 : 0);
     }
 
@@ -335,7 +339,7 @@ async function run() {
     }
     persistRunResult({ results, repoRoot: repoRootFallback, startedAt, sha });
     const anyFailed = results.length === 0 || results.some((r) => !r.succeeded);
-    emitDetachedCompletedSentinel(anyFailed ? "failed" : "passed");
+    emitRunFinishSentinel(anyFailed ? "failed" : "passed");
     process.exit(anyFailed ? 1 : 0);
   } else if (command === "retry" || command === "abort") {
     let runnerName: string | undefined;
@@ -653,46 +657,142 @@ async function runWorkflows(options: {
   const storeFilePath = path.join(getWorkingDirectory(), "runs", runId, "run-state.json");
   const store = new RunStateStore(runId, storeFilePath);
 
-  // ── Detached-worker pause sentinel (issue #315) ──────────────────────────
-  // The launcher (parent process) tails our stdout looking for this sentinel.
-  // The instant it sees one, it disowns us and exits 77 — freeing the caller's
-  // pipe/redirect — while we keep running and waiting for retry/abort.
-  // Fire once per (runner, attempt) so retries re-emit on subsequent failures.
-  if (isDetachedWorker()) {
-    const sentinelSent = new Set<string>();
+  // ── NDJSON event stream (issues #289 + #315) ─────────────────────────────
+  // Two emit modes share one listener:
+  //   - Full stream (`--json` / `AGENT_CI_JSON=1`): all lifecycle events on
+  //     stdout for agent harnesses. Decoupled from `--quiet` so `-q` doesn't
+  //     silently swap stdout for a JSON stream.
+  //   - Sentinel-only (detached worker, #315): just `run.paused` and
+  //     `run.finish` so the launcher can disown + exit 77 / drive exit code.
+  // The launcher's tailer filters non-sentinel events anyway, so when the
+  // user runs `-p` without `--json` we save the work by gating lifecycle
+  // events on the full-stream check below.
+  const fullEventStream = isJsonMode();
+  if (fullEventStream || isDetachedWorker()) {
+    const emit = (event: LogEvent) => process.stdout.write(formatEvent(event) + "\n");
+    if (fullEventStream) {
+      emit({
+        event: "run.start",
+        ts: new Date().toISOString(),
+        schemaVersion: EVENT_SCHEMA_VERSION,
+        runId,
+      });
+    }
+
+    const pausesEmitted = new Set<string>();
+    const jobsStarted = new Set<string>();
+    const jobsFinished = new Set<string>();
+    const stepsStarted = new Set<string>();
+    const stepsFinished = new Set<string>();
     store.onUpdate((state) => {
       for (const wf of state.workflows) {
         for (const job of wf.jobs) {
-          if (job.status !== "paused") {
-            continue;
+          if (fullEventStream) {
+            if (
+              !jobsStarted.has(job.runnerId) &&
+              (job.status === "running" ||
+                job.status === "paused" ||
+                job.status === "completed" ||
+                job.status === "failed")
+            ) {
+              jobsStarted.add(job.runnerId);
+              emit({
+                event: "job.start",
+                ts: job.startedAt ?? new Date().toISOString(),
+                job: job.id,
+                runner: job.runnerId,
+                workflow: wf.id,
+              });
+            }
+            for (const step of job.steps) {
+              const startKey = `${job.runnerId}:${step.index}:start`;
+              if (
+                !stepsStarted.has(startKey) &&
+                (step.status === "running" ||
+                  step.status === "completed" ||
+                  step.status === "failed" ||
+                  step.status === "skipped")
+              ) {
+                stepsStarted.add(startKey);
+                emit({
+                  event: "step.start",
+                  ts: step.startedAt ?? new Date().toISOString(),
+                  job: job.id,
+                  runner: job.runnerId,
+                  step: step.name,
+                  index: step.index,
+                });
+              }
+              const finishKey = `${job.runnerId}:${step.index}:finish`;
+              if (
+                !stepsFinished.has(finishKey) &&
+                (step.status === "completed" ||
+                  step.status === "failed" ||
+                  step.status === "skipped")
+              ) {
+                stepsFinished.add(finishKey);
+                emit({
+                  event: "step.finish",
+                  ts: step.completedAt ?? new Date().toISOString(),
+                  job: job.id,
+                  runner: job.runnerId,
+                  step: step.name,
+                  index: step.index,
+                  status:
+                    step.status === "completed"
+                      ? "passed"
+                      : step.status === "failed"
+                        ? "failed"
+                        : "skipped",
+                  durationMs: step.durationMs,
+                });
+              }
+            }
           }
-          const key = `${job.runnerId}:${job.attempt ?? 1}`;
-          if (sentinelSent.has(key)) {
-            continue;
+          if (job.status === "paused") {
+            const key = `${job.runnerId}:${job.attempt ?? 1}`;
+            if (!pausesEmitted.has(key)) {
+              pausesEmitted.add(key);
+              emit({
+                event: "run.paused",
+                ts: new Date().toISOString(),
+                runner: job.runnerId,
+                step: job.pausedAtStep,
+                attempt: job.attempt,
+                workflow: wf.id,
+                retry_cmd: `agent-ci retry --name ${job.runnerId}`,
+              });
+            }
           }
-          sentinelSent.add(key);
-          process.stdout.write(
-            formatEvent({
-              event: "run.paused",
+          if (
+            fullEventStream &&
+            !jobsFinished.has(job.runnerId) &&
+            (job.status === "completed" || job.status === "failed")
+          ) {
+            jobsFinished.add(job.runnerId);
+            emit({
+              event: "job.finish",
+              ts: job.completedAt ?? new Date().toISOString(),
+              job: job.id,
               runner: job.runnerId,
-              step: job.pausedAtStep,
-              attempt: job.attempt,
               workflow: wf.id,
-              retry_cmd: `agent-ci retry --name ${job.runnerId}`,
-            }) + "\n",
-          );
+              status: job.status === "completed" ? "passed" : "failed",
+              durationMs: job.durationMs,
+            });
+          }
         }
       }
     });
   }
 
   // Start the render loop — reads from store, never touches execution logic.
-  // In agent mode (AI_AGENT=1 or --quiet), or when running as a detached worker
-  // (whose stdout is a log file, not a terminal), skip animated rendering and
-  // register a synchronous callback that emits structured lines instead.
+  // Skip animated rendering and emit structured stderr lines instead when:
+  //   - agent mode (AI_AGENT=1 or --quiet),
+  //   - --json (ANSI on stdout would collide with the NDJSON stream), or
+  //   - detached worker (stdout is a log file, not a terminal).
   let renderInterval: ReturnType<typeof setInterval> | null = null;
   let renderer: ReturnType<typeof createDiffRenderer> | null = null;
-  if (isAgentMode() || isDetachedWorker()) {
+  if (isAgentMode() || isJsonMode() || isDetachedWorker()) {
     const reportedPauses = new Set<string>();
     const reportedSteps = new Map<string, Set<string>>();
     const emit = (msg: string) => process.stderr.write(msg + "\n");
@@ -1591,6 +1691,9 @@ function printUsage() {
     "  -q, --quiet                   Suppress animated rendering (also enabled by AI_AGENT=1)",
   );
   console.log(
+    "      --json                    Emit NDJSON event stream on stdout (also enabled by AGENT_CI_JSON=1)",
+  );
+  console.log(
     "      --no-matrix               Collapse all matrix combinations into a single job (uses first value of each key)",
   );
   console.log(
@@ -1646,15 +1749,18 @@ function resolveHeadSha(repoRoot: string, sha: string) {
 }
 
 /**
- * When running as a detached worker, emit a final `run.completed` NDJSON event
- * so a sibling `agent-ci retry` (which is tailing this log) can decide whether
- * to exit 0 (passed) or 1 (failed). No-op in normal interactive runs.
+ * Emit the final `run.finish` NDJSON event when running under an agent harness
+ * or as a detached worker. In detached mode the launcher (and a sibling
+ * `agent-ci retry` tailing this log) reads it to drive its own exit code.
+ * No-op in normal interactive runs.
  */
-function emitDetachedCompletedSentinel(status: "passed" | "failed"): void {
-  if (!isDetachedWorker()) {
+function emitRunFinishSentinel(status: "passed" | "failed"): void {
+  if (!isJsonMode() && !isDetachedWorker()) {
     return;
   }
-  process.stdout.write(formatEvent({ event: "run.completed", status }) + "\n");
+  process.stdout.write(
+    formatEvent({ event: "run.finish", ts: new Date().toISOString(), status }) + "\n",
+  );
 }
 
 function persistRunResult(opts: {

@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   DETACHED_ENV,
   DETACHED_MARKER_FILENAME,
+  EVENT_SCHEMA_VERSION,
   formatEvent,
   parseLogEvent,
   PAUSED_EXIT_CODE,
@@ -52,19 +53,93 @@ describe("formatEvent / parseLogEvent — run.paused", () => {
   });
 });
 
-describe("formatEvent / parseLogEvent — run.completed", () => {
+describe("formatEvent / parseLogEvent — run.finish", () => {
   it("round-trips a passed event", () => {
-    expect(parseLogEvent(formatEvent({ event: "run.completed", status: "passed" }))).toEqual({
-      event: "run.completed",
-      status: "passed",
-    });
+    const e = {
+      event: "run.finish" as const,
+      ts: "2026-04-28T00:00:00.000Z",
+      status: "passed" as const,
+    };
+    expect(parseLogEvent(formatEvent(e))).toEqual(e);
   });
 
   it("round-trips a failed event", () => {
-    expect(parseLogEvent(formatEvent({ event: "run.completed", status: "failed" }))).toEqual({
-      event: "run.completed",
-      status: "failed",
-    });
+    const e = { event: "run.finish" as const, status: "failed" as const, durationMs: 18210 };
+    expect(parseLogEvent(formatEvent(e))).toEqual(e);
+  });
+});
+
+describe("formatEvent / parseLogEvent — #289 lifecycle events", () => {
+  it("round-trips run.start with schemaVersion", () => {
+    const e = {
+      event: "run.start" as const,
+      ts: "2026-04-28T00:00:00.000Z",
+      schemaVersion: EVENT_SCHEMA_VERSION,
+      runId: "run-1",
+      repo: "redwoodjs/agent-ci",
+      branch: "main",
+    };
+    expect(parseLogEvent(formatEvent(e))).toEqual(e);
+  });
+
+  it("round-trips job.start / job.finish", () => {
+    const start = {
+      event: "job.start" as const,
+      ts: "2026-04-28T00:00:01.000Z",
+      job: "lint",
+      runner: "agent-ci-1-job",
+      workflow: "ci.yml",
+    };
+    const finish = {
+      event: "job.finish" as const,
+      ts: "2026-04-28T00:00:09.000Z",
+      job: "lint",
+      runner: "agent-ci-1-job",
+      workflow: "ci.yml",
+      status: "passed" as const,
+      durationMs: 8000,
+    };
+    expect(parseLogEvent(formatEvent(start))).toEqual(start);
+    expect(parseLogEvent(formatEvent(finish))).toEqual(finish);
+  });
+
+  it("round-trips step.start / step.finish across all status values", () => {
+    for (const status of ["passed", "failed", "skipped"] as const) {
+      const finish = {
+        event: "step.finish" as const,
+        ts: "2026-04-28T00:00:05.000Z",
+        job: "lint",
+        runner: "agent-ci-1-job",
+        step: "eslint",
+        index: 3,
+        status,
+        durationMs: 4123,
+      };
+      expect(parseLogEvent(formatEvent(finish))).toEqual(finish);
+    }
+    const start = {
+      event: "step.start" as const,
+      ts: "2026-04-28T00:00:04.000Z",
+      job: "lint",
+      runner: "agent-ci-1-job",
+      step: "eslint",
+      index: 3,
+    };
+    expect(parseLogEvent(formatEvent(start))).toEqual(start);
+  });
+
+  it("round-trips diagnostic events", () => {
+    const e = {
+      event: "diagnostic" as const,
+      ts: "2026-04-28T00:00:02.000Z",
+      level: "warning" as const,
+      message: "could not resolve workflow path; falling back to default",
+    };
+    expect(parseLogEvent(formatEvent(e))).toEqual(e);
+  });
+
+  it("EVENT_SCHEMA_VERSION starts at 1", () => {
+    expect(EVENT_SCHEMA_VERSION).toBe(1);
   });
 });
 

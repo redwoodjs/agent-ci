@@ -1,4 +1,5 @@
 import fs from "fs";
+import { isJsonMode } from "./agent-mode.js";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -62,6 +63,12 @@ function formatFailureHeader(f: JobResult): string {
 }
 
 export function printSummary(results: JobResult[], runDir?: string): void {
+  // Under --json the consumer parses NDJSON events on stdout; the human-
+  // facing failure dump and ━━━ SUMMARY ━━━ block would interleave with
+  // the event stream and break parsers.
+  if (isJsonMode()) {
+    return;
+  }
   const failures = results.filter((r) => !r.succeeded);
   const passes = results.filter((r) => r.succeeded);
   const totalMs = results.reduce((sum, r) => sum + r.durationMs, 0);

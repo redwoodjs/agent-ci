@@ -7,6 +7,8 @@ import {
   DETACHED_MARKER_FILENAME,
   EVENT_SCHEMA_VERSION,
   formatEvent,
+  isDetachedWorker,
+  isForceDetachedRequested,
   parseLogEvent,
   PAUSED_EXIT_CODE,
   readDetachedMarker,
@@ -173,6 +175,50 @@ describe("shouldLaunchDetached", () => {
 
   it("never re-launches inside the worker process", () => {
     expect(shouldLaunchDetached({ ...base, alreadyWorker: true })).toBe(false);
+  });
+
+  it("forceDetached overrides the TTY check", () => {
+    expect(shouldLaunchDetached({ ...base, stdoutIsTTY: true, forceDetached: true })).toBe(true);
+  });
+
+  it("forceDetached still respects alreadyWorker / agentMode / no-pause", () => {
+    expect(shouldLaunchDetached({ ...base, alreadyWorker: true, forceDetached: true })).toBe(false);
+    expect(shouldLaunchDetached({ ...base, agentMode: true, forceDetached: true })).toBe(false);
+    expect(shouldLaunchDetached({ ...base, pauseOnFailure: false, forceDetached: true })).toBe(
+      false,
+    );
+  });
+});
+
+describe("AGENT_CI_DETACHED — value distinguishes worker from force-launch", () => {
+  let original: string | undefined;
+  beforeEach(() => {
+    original = process.env[DETACHED_ENV];
+  });
+  afterEach(() => {
+    if (original === undefined) {
+      delete process.env[DETACHED_ENV];
+    } else {
+      process.env[DETACHED_ENV] = original;
+    }
+  });
+
+  it("absolute path means I am the worker", () => {
+    process.env[DETACHED_ENV] = "/tmp/worker.log";
+    expect(isDetachedWorker()).toBe(true);
+    expect(isForceDetachedRequested()).toBe(false);
+  });
+
+  it("`1` means caller wants to force-launch (and is not the worker)", () => {
+    process.env[DETACHED_ENV] = "1";
+    expect(isDetachedWorker()).toBe(false);
+    expect(isForceDetachedRequested()).toBe(true);
+  });
+
+  it("unset means neither", () => {
+    delete process.env[DETACHED_ENV];
+    expect(isDetachedWorker()).toBe(false);
+    expect(isForceDetachedRequested()).toBe(false);
   });
 });
 

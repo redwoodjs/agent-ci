@@ -169,14 +169,32 @@ export function parseLogEvent(line: string): LogEvent | null {
   return parsed as LogEvent;
 }
 
-/** Whether this CLI process is running as a detached worker child. */
+/**
+ * `AGENT_CI_DETACHED` has two roles distinguished by value:
+ *   - `=1` (or any non-absolute value) → caller-side opt-in: force the
+ *     detached launcher even when stdout is a TTY. Useful for testing.
+ *   - `=<absolute path>` → set by the launcher on the worker child; the value
+ *     is the worker's own log file path. Marks "I am the worker."
+ */
 export function isDetachedWorker(): boolean {
-  return process.env[DETACHED_ENV] !== undefined;
+  const v = process.env[DETACHED_ENV];
+  return v !== undefined && v.startsWith("/");
+}
+
+/**
+ * Whether the caller asked us to force-launch the detached launcher (even on
+ * a TTY). Caller-side opt-in only — the worker child sees an absolute path
+ * here, not the `1` sentinel.
+ */
+export function isForceDetachedRequested(): boolean {
+  const v = process.env[DETACHED_ENV];
+  return v !== undefined && !v.startsWith("/");
 }
 
 /** The worker's own log path, as set by the launcher, or null if not detached. */
 export function getDetachedWorkerLogPath(): string | null {
-  return process.env[DETACHED_ENV] ?? null;
+  const v = process.env[DETACHED_ENV];
+  return v !== undefined && v.startsWith("/") ? v : null;
 }
 
 /**
@@ -196,12 +214,16 @@ export function getDetachedWorkerLogPath(): string | null {
  * we exited 77 there, the post-retry output would land in the worker's own
  * log file, not the harness's pipe — breaking the monitor. Plain non-TTY
  * callers (the issue's actual target) have no monitor and need us to exit.
+ *
+ * Override: `AGENT_CI_DETACHED=1` forces the launcher path even on a TTY,
+ * for manual verification of the pause-then-exit flow.
  */
 export function shouldLaunchDetached(opts: {
   pauseOnFailure: boolean;
   stdoutIsTTY: boolean;
   agentMode: boolean;
   alreadyWorker: boolean;
+  forceDetached?: boolean;
 }): boolean {
   if (opts.alreadyWorker) {
     return false;
@@ -209,10 +231,13 @@ export function shouldLaunchDetached(opts: {
   if (!opts.pauseOnFailure) {
     return false;
   }
-  if (opts.stdoutIsTTY) {
+  if (opts.agentMode) {
     return false;
   }
-  return !opts.agentMode;
+  if (opts.forceDetached) {
+    return true;
+  }
+  return !opts.stdoutIsTTY;
 }
 
 interface LaunchResult {

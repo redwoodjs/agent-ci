@@ -162,13 +162,14 @@ Only `AGENT_CI_*`-prefixed keys from `.env.agent-ci` are applied to the CLI proc
 
 ### General
 
-| Variable                | Default                         | Description                                                                                                               |
-| ----------------------- | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| `GITHUB_REPO`           | auto-detected from `git remote` | Override the `owner/repo` used when emulating the GitHub API. Useful when the remote URL can't be detected automatically. |
-| `AI_AGENT`              | unset                           | Set to `1` to enable quiet mode (suppress animated rendering). Same effect as `--quiet`.                                  |
-| `AGENT_CI_JSON`         | unset                           | Set to `1` to emit the NDJSON event stream on stdout. Same effect as `--json`.                                            |
-| `DEBUG`                 | unset                           | Enable verbose debug logging. See [Debugging](#debugging) for supported namespaces.                                       |
-| `AGENT_CI_GITHUB_TOKEN` | unset                           | GitHub token for fetching remote reusable workflows. Alternative to the `--github-token` CLI flag.                        |
+| Variable                | Default                         | Description                                                                                                                                                                                                                                                                                  |
+| ----------------------- | ------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GITHUB_REPO`           | auto-detected from `git remote` | Override the `owner/repo` used when emulating the GitHub API. Useful when the remote URL can't be detected automatically.                                                                                                                                                                    |
+| `AI_AGENT`              | unset                           | Set to `1` to enable quiet mode (suppress animated rendering). Same effect as `--quiet`.                                                                                                                                                                                                     |
+| `AGENT_CI_JSON`         | unset                           | Set to `1` to emit the NDJSON event stream on stdout. Same effect as `--json`.                                                                                                                                                                                                               |
+| `AGENT_CI_DETACHED`     | unset                           | Set to `1` to force `--pause-on-failure` to use the detached launcher even on a TTY (for manual verification of the pause-then-exit-77 flow). The launcher uses this same env var internally to mark its worker child (with the worker's log path as the value), so do not set it to a path. |
+| `DEBUG`                 | unset                           | Enable verbose debug logging. See [Debugging](#debugging) for supported namespaces.                                                                                                                                                                                                          |
+| `AGENT_CI_GITHUB_TOKEN` | unset                           | GitHub token for fetching remote reusable workflows. Alternative to the `--github-token` CLI flag.                                                                                                                                                                                           |
 
 ### Docker
 

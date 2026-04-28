@@ -73,6 +73,7 @@ import {
   EVENT_SCHEMA_VERSION,
   formatEvent,
   isDetachedWorker,
+  isForceDetachedRequested,
   readDetachedMarker,
   runDetachedLauncher,
   shouldLaunchDetached,
@@ -210,6 +211,7 @@ async function run() {
         stdoutIsTTY: Boolean(process.stdout.isTTY),
         agentMode: isAgentMode(),
         alreadyWorker: isDetachedWorker(),
+        forceDetached: isForceDetachedRequested(),
       })
     ) {
       const { exitCode } = await runDetachedLauncher(args);

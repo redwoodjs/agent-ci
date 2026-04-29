@@ -11,32 +11,32 @@ This skill relies on two pi-native tools added by `.pi/extensions/background-she
 
 ## Steps
 
-1. **Start agent-ci in the background** with `bash_background`:
+1. **Start agent-ci in the background** with `bash_background`, with the NDJSON event stream enabled:
 
    ```json
-   { "command": "pnpm agent-ci-dev run --all -q -p" }
+   { "command": "pnpm agent-ci-dev run --all -q -p --json" }
    ```
 
-   This returns `{ taskId, outputFile, pid }` without blocking.
+   This returns `{ taskId, outputFile, pid }` without blocking. Because stdout isn't a TTY, the launcher detaches automatically: the foreground process exits **77** the moment a step pauses, while the worker keeps the container alive for `retry`.
 
-2. **Wait for a failure or completion** with `monitor_wait`, covering both happy and failure paths in one regex (silence is not success — a crash or hang with a success-only filter looks identical to still-running):
+2. **Wait for a pause or completion** with `monitor_wait`, matching the NDJSON event discriminators (silence is not success — a crash or hang with a success-only filter looks identical to still-running):
 
    ```json
    {
      "taskId": "<from step 1>",
-     "pattern": "Step failed|Traceback|Error|FAILED",
+     "pattern": "\"event\":\"(run\\.paused|run\\.finish)\"",
      "timeoutMs": 600000
    }
    ```
 
    `monitor_wait` returns when **any** of the following happens:
-   - the regex matches a new line → `stoppedBecause: "match"`, inspect `matches`
-   - the task exits → `stoppedBecause: "exit"`, inspect `state` (`succeeded` or `failed`) and `exitCode`
+   - the regex matches a new line → `stoppedBecause: "match"`, inspect `matches`. A `run.paused` line carries the `runner` name + `retry_cmd`; a `run.finish` line carries `status: passed|failed`.
+   - the task exits → `stoppedBecause: "exit"`, inspect `state` (`succeeded` or `failed`) and `exitCode`. Exit code **77** means a step paused — treat it like a `run.paused` match.
    - the timeout elapses → `stoppedBecause: "timeout"`, loop back and call `monitor_wait` again (it resumes from the previous byte offset automatically)
 
-3. **On success** (`state: "succeeded"`), you're done.
+3. **On success** (`run.finish` with `status: passed`, or `state: "succeeded"`), you're done.
 
-4. **On failure**, read the full output file for details:
+4. **On failure** (`run.paused` match or `exitCode: 77`), read the full output file for details:
 
    ```bash
    tail -n 200 <outputFile>

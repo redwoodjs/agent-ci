@@ -45,4 +45,5 @@ Repeat **run → fix → retry** until all jobs pass. Do not push to trigger rem
 - **Do not skip running agent-ci** because the fix "looks obvious." The eval is whether agent-ci passes, not whether the code looks right.
 - **Do not disable lint rules, delete failing tests, or remove CI steps** to make CI pass. Fix the underlying issue.
 - **Do not omit `--pause-on-failure`** — it's what makes the retry loop fast.
-- **Do not pipe the output through `tail` or `head`** — it buffers everything until exit and disables pause-on-failure interaction.
+
+Pipes, redirects, and backgrounding are all safe with `--pause-on-failure`: when stdout isn't a TTY the launcher detaches the run and the foreground process exits **77** the instant a step pauses, while the worker keeps the container alive for `retry`. For programmatic monitoring add `--json` (or `AGENT_CI_JSON=1`) to emit an NDJSON event stream — match `"event":"run.paused"` and `"event":"run.finish"` instead of grepping plaintext.

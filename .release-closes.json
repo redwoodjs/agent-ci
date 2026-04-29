@@ -1,7 +1,17 @@
 [
   {
-    "issue": 229,
-    "pr": 320,
-    "changeset": "resource-fidelity-classification.md"
+    "issue": 312,
+    "pr": 328,
+    "changeset": "colocate-logs-with-checks.md"
+  },
+  {
+    "issue": 322,
+    "pr": 328,
+    "changeset": "ssh-docker-host-uri-parsing.md"
+  },
+  {
+    "issue": 315,
+    "pr": 328,
+    "changeset": "swift-clouds-rest.md"
   }
 ]

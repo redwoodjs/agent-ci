@@ -18,15 +18,9 @@ Run the full CI pipeline locally before pushing. CI was green before you started
 npx @redwoodjs/agent-ci run --quiet --all --pause-on-failure
 ```
 
-Run this command **directly**. Do not redirect its output.
+Pipes, redirects, and backgrounding are all safe. When stdout isn't a TTY (any pipe, file redirect, or background process) the launcher detaches the run automatically: the foreground process exits **77** the instant a step pauses, while the worker keeps the container paused so you can `retry`. `| tee log`, `> log.txt`, and `&` work as expected.
 
-Specifically:
-
-- **No pipes.** `| tail -N`, `| head -N`, `| grep`, `| cat`, `| tee`, anything — the shell buffers the whole stream and agent-ci's pause message never reaches you. The run will appear to hang.
-- **No file redirects.** `> log.txt`, `&> log.txt`, `> /dev/null` — same problem. You will see nothing until the process exits, which won't happen until you issue retry.
-- **No backgrounding.** No trailing `&`, no `& sleep 20`. Pause-on-failure needs a live channel back to you.
-
-Bare `2>&1` (merge stderr into stdout) on its own is fine — it doesn't redirect or buffer. Anything _after_ a `2>&1` (a pipe, a file, an `&`) is not.
+For machine-readable monitoring, add `--json` (or set `AGENT_CI_JSON=1`) to emit an NDJSON event stream — one JSON object per line. Watch for `"event":"run.paused"` (carries `runner` and `retry_cmd`) and `"event":"run.finish"` (carries `status: passed|failed`).
 
 If the output is long, let it be long. Read it.
 
@@ -44,7 +38,7 @@ To re-run from an earlier step:
 npx @redwoodjs/agent-ci retry --name <runner-name> --from-step <N>
 ```
 
-Retry the same way — **directly**, no pipes or redirects.
+Retry behaves the same as `run`: it tails the same log, exits 77 if a step re-fails, and is safe to pipe or redirect.
 
 ## Do not
 

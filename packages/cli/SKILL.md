@@ -22,6 +22,10 @@ Cache is bind-mounted (instant). When a step fails, the container pauses — you
 - Retry after fix: `npx @redwoodjs/agent-ci retry --name <runner>`
 - Abort: `npx @redwoodjs/agent-ci abort --name <runner>`
 
+## Agent output mode
+
+Pass `--json` (or set `AGENT_CI_JSON=1`) to emit an NDJSON event stream on stdout — one JSON object per line, with `run.start`/`paused`/`finish`, `job.start`/`finish`, `step.start`/`finish`, and `diagnostic` events. `run.start` carries `schemaVersion: 1`. Pair with `--pause-on-failure`: when stdout isn't a TTY the launcher detaches and the foreground process exits **77** the instant a `run.paused` event fires, so callers can react cleanly without parsing plaintext.
+
 ## Common mistakes
 
 - Don't push to remote CI to test changes — use `npx @redwoodjs/agent-ci run` locally first

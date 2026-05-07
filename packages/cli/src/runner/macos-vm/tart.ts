@@ -222,8 +222,11 @@ export function runBackground(
 
 export async function getIp(name: string): Promise<string | null> {
   const [cmd, args] = tartIpArgs(name);
-  const r = await runCommand(cmd, args, { timeoutMs: 5000 });
-  if (r.code !== 0) {
+  // On cold boot the VM hasn't grabbed a DHCP lease yet, so `tart ip` hangs
+  // until the runCommand timeout fires and rejects. Treat that the same as a
+  // non-zero exit — return null so waitForIp can keep polling. (#329)
+  const r = await runCommand(cmd, args, { timeoutMs: 5000 }).catch(() => null);
+  if (!r || r.code !== 0) {
     return null;
   }
   const ip = r.stdout.trim();

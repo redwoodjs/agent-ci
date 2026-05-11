@@ -1,0 +1,5 @@
+{
+  "$schema": "https://docs.fallow.tools/schemas/fallow.json",
+  "ignorePatterns": [".github/fixtures/**", "experiments/**", "third-party-workflows/**"],
+  "dynamicallyLoaded": ["apps/website/**", "packages/cli/src/hooks/json-loader.ts"]
+}

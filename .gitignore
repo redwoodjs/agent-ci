@@ -78,3 +78,6 @@ ui/build
 # Ephemeral agent devcontainer configs
 .devcontainer/agent-*/
 .devcontainer/kindling/
+
+# Local fallow analysis reports
+.fallow-reports/

@@ -138,366 +138,240 @@ function compareValues(left: string, right: string, op: string): boolean {
 }
 
 /**
- * Resolve a single atomic expression (function call or context variable).
- * Does not handle boolean operators, parentheses, or string literals.
+ * Bundle for the per-call expansion context. Used by the expression
+ * evaluator so each helper takes one argument instead of eight. The
+ * public `expandExpressions` keeps its positional signature for callers.
  */
-function resolveExprAtom(
-  trimmed: string,
-  repoPath?: string,
-  secrets?: Record<string, string>,
-  matrixContext?: Record<string, string>,
-  needsContext?: Record<string, Record<string, string>>,
-  inputsContext?: Record<string, string>,
-  vars?: Record<string, string>,
-  runnerContext?: RunnerContext,
-  envContext?: Record<string, string>,
-): string {
-  // hashFiles('glob1', 'glob2', ...)
-  const hashFilesMatch = trimmed.match(/^hashFiles\(([\s\S]+)\)$/);
-  if (hashFilesMatch) {
-    if (!repoPath) {
-      return "0000000000000000000000000000000000000000";
-    }
-    try {
-      // Parse the argument list: quoted strings separated by commas
-      const args = hashFilesMatch[1].match(/['"][^'"]*['"]/g) ?? [];
-      const patterns = args.map((a) => a.replace(/^['"]|['"]$/g, ""));
-      const hash = crypto.createHash("sha256");
-      let hasAny = false;
-      for (const pattern of patterns) {
-        let files: string[];
-        try {
-          files = findFiles(repoPath, pattern);
-        } catch {
-          files = [];
-        }
-        for (const f of files.sort()) {
-          try {
-            const content = fs.readFileSync(f);
-            hash.update(content);
-            hasAny = true;
-          } catch {
-            // File not readable, skip
-          }
-        }
-      }
-      if (!hasAny) {
-        return "0000000000000000000000000000000000000000";
-      }
-      return hash.digest("hex");
-    } catch {
-      return "0000000000000000000000000000000000000000";
-    }
-  }
+type ExprContext = {
+  repoPath?: string;
+  secrets?: Record<string, string>;
+  matrixContext?: Record<string, string>;
+  needsContext?: Record<string, Record<string, string>>;
+  inputsContext?: Record<string, string>;
+  vars?: Record<string, string>;
+  runnerContext?: RunnerContext;
+  envContext?: Record<string, string>;
+};
 
-  // fromJSON(expr) — parse JSON from a string (or inner expression)
-  const fromJsonMatch = trimmed.match(/^fromJSON\(([\s\S]+)\)$/);
-  if (fromJsonMatch) {
-    const inner = fromJsonMatch[1].trim();
-    let rawValue: string;
-    if (
-      (inner.startsWith("'") && inner.endsWith("'")) ||
-      (inner.startsWith('"') && inner.endsWith('"'))
-    ) {
-      rawValue = inner.slice(1, -1);
-    } else {
-      rawValue = evaluateExprValue(
-        inner,
-        repoPath,
-        secrets,
-        matrixContext,
-        needsContext,
-        inputsContext,
-        vars,
-        runnerContext,
-        envContext,
-      );
-    }
-    try {
-      const parsed = JSON.parse(rawValue);
-      if (typeof parsed === "string") {
-        return parsed;
-      }
-      return JSON.stringify(parsed);
-    } catch {
-      return "";
-    }
-  }
+const ZERO_SHA = "0000000000000000000000000000000000000000";
 
-  // toJSON(expr) — serialize a value to JSON with 2-space indentation,
-  // matching GitHub Actions' pretty-printing behavior. Parse rawValue first
-  // so that toJSON(fromJSON(...)) round-trips with pretty-printing instead
-  // of re-quoting a compact-JSON string.
-  const toJsonMatch = trimmed.match(/^toJSON\(([\s\S]+)\)$/);
-  if (toJsonMatch) {
-    const inner = toJsonMatch[1].trim();
-    let rawValue: string;
-    if (
-      (inner.startsWith("'") && inner.endsWith("'")) ||
-      (inner.startsWith('"') && inner.endsWith('"'))
-    ) {
-      rawValue = inner.slice(1, -1);
-    } else {
-      rawValue = evaluateExprValue(
-        inner,
-        repoPath,
-        secrets,
-        matrixContext,
-        needsContext,
-        inputsContext,
-        vars,
-        runnerContext,
-        envContext,
-      );
-    }
-    try {
-      return JSON.stringify(JSON.parse(rawValue), null, 2);
-    } catch {
-      return JSON.stringify(rawValue, null, 2);
-    }
+/**
+ * Evaluate a function argument that may be a quoted string literal or a
+ * full expression. Used by single-arg functions (fromJSON, toJSON).
+ */
+function evalArgOrLiteral(inner: string, ctx: ExprContext): string {
+  const t = inner.trim();
+  if ((t.startsWith("'") && t.endsWith("'")) || (t.startsWith('"') && t.endsWith('"'))) {
+    return t.slice(1, -1);
   }
+  return evaluateExprValue(t, ctx);
+}
 
-  // format('template {0} {1}', arg0, arg1)
-  const formatMatch = trimmed.match(/^format\(([\s\S]+)\)$/);
-  if (formatMatch) {
-    const formatArgs = splitFunctionArgs(formatMatch[1]);
-    const template = unquote(formatArgs[0] || "");
-    const args = formatArgs.slice(1);
-    return template.replace(/\{(\d+)\}/g, (_m, idx) => {
-      const i = parseInt(idx, 10);
-      if (i < args.length) {
-        return evaluateExprValue(
-          args[i],
-          repoPath,
-          secrets,
-          matrixContext,
-          needsContext,
-          inputsContext,
-          vars,
-          runnerContext,
-          envContext,
-        );
-      }
-      return "";
-    });
+function evalHashFiles(rawArgs: string, ctx: ExprContext): string {
+  if (!ctx.repoPath) {
+    return ZERO_SHA;
   }
-
-  // contains(search, item) — case-insensitive string search or array inclusion
-  const containsMatch = trimmed.match(/^contains\(([\s\S]+)\)$/);
-  if (containsMatch) {
-    const args = splitFunctionArgs(containsMatch[1]);
-    if (args.length >= 2) {
-      const haystack = evaluateExprValue(
-        args[0],
-        repoPath,
-        secrets,
-        matrixContext,
-        needsContext,
-        inputsContext,
-        vars,
-        runnerContext,
-        envContext,
-      );
-      const needle = evaluateExprValue(
-        args[1],
-        repoPath,
-        secrets,
-        matrixContext,
-        needsContext,
-        inputsContext,
-        vars,
-        runnerContext,
-        envContext,
-      );
-      // Try JSON array first
+  try {
+    // Parse the argument list: quoted strings separated by commas
+    const args = rawArgs.match(/['"][^'"]*['"]/g) ?? [];
+    const patterns = args.map((a) => a.replace(/^['"]|['"]$/g, ""));
+    const hash = crypto.createHash("sha256");
+    let hasAny = false;
+    for (const pattern of patterns) {
+      let files: string[];
       try {
-        const arr = JSON.parse(haystack);
-        if (Array.isArray(arr)) {
-          return arr.some((item) => String(item).toLowerCase() === needle.toLowerCase())
-            ? "true"
-            : "false";
-        }
+        files = findFiles(ctx.repoPath, pattern);
       } catch {
-        // Not JSON — fall through to string search
+        files = [];
       }
-      return haystack.toLowerCase().includes(needle.toLowerCase()) ? "true" : "false";
-    }
-    return "false";
-  }
-
-  // startsWith(searchString, searchValue)
-  const startsWithMatch = trimmed.match(/^startsWith\(([\s\S]+)\)$/);
-  if (startsWithMatch) {
-    const args = splitFunctionArgs(startsWithMatch[1]);
-    if (args.length >= 2) {
-      const str = evaluateExprValue(
-        args[0],
-        repoPath,
-        secrets,
-        matrixContext,
-        needsContext,
-        inputsContext,
-        vars,
-        runnerContext,
-        envContext,
-      );
-      const prefix = evaluateExprValue(
-        args[1],
-        repoPath,
-        secrets,
-        matrixContext,
-        needsContext,
-        inputsContext,
-        vars,
-        runnerContext,
-        envContext,
-      );
-      return str.toLowerCase().startsWith(prefix.toLowerCase()) ? "true" : "false";
-    }
-    return "false";
-  }
-
-  // endsWith(searchString, searchValue)
-  const endsWithMatch = trimmed.match(/^endsWith\(([\s\S]+)\)$/);
-  if (endsWithMatch) {
-    const args = splitFunctionArgs(endsWithMatch[1]);
-    if (args.length >= 2) {
-      const str = evaluateExprValue(
-        args[0],
-        repoPath,
-        secrets,
-        matrixContext,
-        needsContext,
-        inputsContext,
-        vars,
-        runnerContext,
-        envContext,
-      );
-      const suffix = evaluateExprValue(
-        args[1],
-        repoPath,
-        secrets,
-        matrixContext,
-        needsContext,
-        inputsContext,
-        vars,
-        runnerContext,
-        envContext,
-      );
-      return str.toLowerCase().endsWith(suffix.toLowerCase()) ? "true" : "false";
-    }
-    return "false";
-  }
-
-  // join(array, separator) or join(string, separator)
-  const joinMatch = trimmed.match(/^join\(([\s\S]+)\)$/);
-  if (joinMatch) {
-    const args = splitFunctionArgs(joinMatch[1]);
-    const val = evaluateExprValue(
-      args[0],
-      repoPath,
-      secrets,
-      matrixContext,
-      needsContext,
-      inputsContext,
-      vars,
-      runnerContext,
-      envContext,
-    );
-    const sep =
-      args.length >= 2
-        ? evaluateExprValue(
-            args[1],
-            repoPath,
-            secrets,
-            matrixContext,
-            needsContext,
-            inputsContext,
-            vars,
-            runnerContext,
-            envContext,
-          )
-        : ", ";
-    try {
-      const arr = JSON.parse(val);
-      if (Array.isArray(arr)) {
-        return arr.map(String).join(sep);
+      for (const f of files.sort()) {
+        try {
+          hash.update(fs.readFileSync(f));
+          hasAny = true;
+        } catch {
+          // File not readable, skip
+        }
       }
-    } catch {
-      // Not an array — return as-is
     }
-    return val;
+    return hasAny ? hash.digest("hex") : ZERO_SHA;
+  } catch {
+    return ZERO_SHA;
   }
+}
 
-  // Status functions — in expression context these return their string name
-  if (trimmed === "success()") {
-    return "true";
-  }
-  if (trimmed === "failure()") {
+function evalContains(rawArgs: string, ctx: ExprContext): string {
+  const args = splitFunctionArgs(rawArgs);
+  if (args.length < 2) {
     return "false";
   }
-  if (trimmed === "always()") {
-    return "true";
+  const haystack = evaluateExprValue(args[0], ctx);
+  const needle = evaluateExprValue(args[1], ctx);
+  try {
+    const arr = JSON.parse(haystack);
+    if (Array.isArray(arr)) {
+      return arr.some((item) => String(item).toLowerCase() === needle.toLowerCase())
+        ? "true"
+        : "false";
+    }
+  } catch {
+    // Not JSON — fall through to string search
   }
-  if (trimmed === "cancelled()") {
+  return haystack.toLowerCase().includes(needle.toLowerCase()) ? "true" : "false";
+}
+
+function evalStartsWith(rawArgs: string, ctx: ExprContext): string {
+  const args = splitFunctionArgs(rawArgs);
+  if (args.length < 2) {
     return "false";
   }
+  const str = evaluateExprValue(args[0], ctx);
+  const prefix = evaluateExprValue(args[1], ctx);
+  return str.toLowerCase().startsWith(prefix.toLowerCase()) ? "true" : "false";
+}
 
-  // Context variable substitutions
+function evalEndsWith(rawArgs: string, ctx: ExprContext): string {
+  const args = splitFunctionArgs(rawArgs);
+  if (args.length < 2) {
+    return "false";
+  }
+  const str = evaluateExprValue(args[0], ctx);
+  const suffix = evaluateExprValue(args[1], ctx);
+  return str.toLowerCase().endsWith(suffix.toLowerCase()) ? "true" : "false";
+}
+
+function evalJoin(rawArgs: string, ctx: ExprContext): string {
+  const args = splitFunctionArgs(rawArgs);
+  const val = evaluateExprValue(args[0], ctx);
+  const sep = args.length >= 2 ? evaluateExprValue(args[1], ctx) : ", ";
+  try {
+    const arr = JSON.parse(val);
+    if (Array.isArray(arr)) {
+      return arr.map(String).join(sep);
+    }
+  } catch {
+    // Not an array — return as-is
+  }
+  return val;
+}
+
+function evalFormat(rawArgs: string, ctx: ExprContext): string {
+  const formatArgs = splitFunctionArgs(rawArgs);
+  const template = unquote(formatArgs[0] || "");
+  const args = formatArgs.slice(1);
+  return template.replace(/\{(\d+)\}/g, (_m, idx) => {
+    const i = parseInt(idx, 10);
+    return i < args.length ? evaluateExprValue(args[i], ctx) : "";
+  });
+}
+
+function evalFromJson(rawArgs: string, ctx: ExprContext): string {
+  const rawValue = evalArgOrLiteral(rawArgs, ctx);
+  try {
+    const parsed = JSON.parse(rawValue);
+    return typeof parsed === "string" ? parsed : JSON.stringify(parsed);
+  } catch {
+    return "";
+  }
+}
+
+// toJSON pretty-prints with 2-space indentation, matching GitHub Actions.
+// We parse rawValue first so `toJSON(fromJSON(...))` round-trips with
+// pretty-printing instead of re-quoting a compact-JSON string.
+function evalToJson(rawArgs: string, ctx: ExprContext): string {
+  const rawValue = evalArgOrLiteral(rawArgs, ctx);
+  try {
+    return JSON.stringify(JSON.parse(rawValue), null, 2);
+  } catch {
+    return JSON.stringify(rawValue, null, 2);
+  }
+}
+
+const FUNCTION_HANDLERS: Record<string, (rawArgs: string, ctx: ExprContext) => string> = {
+  hashFiles: evalHashFiles,
+  fromJSON: evalFromJson,
+  toJSON: evalToJson,
+  format: evalFormat,
+  contains: evalContains,
+  startsWith: evalStartsWith,
+  endsWith: evalEndsWith,
+  join: evalJoin,
+};
+
+const FUNCTION_CALL_RE = /^([A-Za-z][A-Za-z0-9_]*)\(([\s\S]+)\)$/;
+
+// In expression context, status functions resolve to their string name.
+const STATUS_FUNCTIONS: Record<string, string> = {
+  "success()": "true",
+  "failure()": "false",
+  "always()": "true",
+  "cancelled()": "false",
+};
+
+// Constant `github.*` context refs that don't depend on ctx state.
+const CONST_CONTEXT_REFS: Record<string, string> = {
+  "github.run_id": "1",
+  "github.run_number": "1",
+  "github.sha": ZERO_SHA,
+  "github.head_sha": ZERO_SHA,
+  "github.ref_name": "main",
+  "github.head_ref": "main",
+  "github.repository": "local/repo",
+  "github.actor": "local",
+  "github.event.pull_request.number": "",
+  "github.event.pull_request.title": "",
+  "github.event.pull_request.user.login": "",
+};
+
+function resolveNeedsRef(
+  trimmed: string,
+  needsContext: Record<string, Record<string, string>> | undefined,
+): string {
+  if (!needsContext) {
+    return "";
+  }
+  const parts = trimmed.split(".");
+  const jobOutputs = needsContext[parts[1]];
+  if (parts[2] === "outputs" && parts[3]) {
+    return jobOutputs?.[parts[3]] ?? "";
+  }
+  if (parts[2] === "result") {
+    return jobOutputs ? (jobOutputs["__result"] ?? "success") : "";
+  }
+  return "";
+}
+
+/**
+ * Resolve a context-variable reference (runner.os, matrix.foo, secrets.X,
+ * needs.X.outputs.Y, …). Returns `undefined` when the atom is not a known
+ * context ref so the caller can fall through to "unknown atom".
+ */
+function resolveContextRef(trimmed: string, ctx: ExprContext): string | undefined {
   if (trimmed === "runner.os") {
-    return runnerContext?.os ?? "Linux";
+    return ctx.runnerContext?.os ?? "Linux";
   }
   if (trimmed === "runner.arch") {
-    return runnerContext?.arch ?? "X64";
-  }
-  if (trimmed === "github.run_id") {
-    return "1";
-  }
-  if (trimmed === "github.run_number") {
-    return "1";
-  }
-  if (trimmed === "github.sha" || trimmed === "github.head_sha") {
-    return "0000000000000000000000000000000000000000";
-  }
-  if (trimmed === "github.ref_name" || trimmed === "github.head_ref") {
-    return "main";
-  }
-  if (trimmed === "github.repository") {
-    return "local/repo";
-  }
-  if (trimmed === "github.actor") {
-    return "local";
-  }
-  if (trimmed === "github.event.pull_request.number") {
-    return "";
-  }
-  if (trimmed === "github.event.pull_request.title") {
-    return "";
-  }
-  if (trimmed === "github.event.pull_request.user.login") {
-    return "";
+    return ctx.runnerContext?.arch ?? "X64";
   }
   if (trimmed === "strategy.job-total") {
-    return matrixContext?.["__job_total"] ?? "1";
+    return ctx.matrixContext?.["__job_total"] ?? "1";
   }
   if (trimmed === "strategy.job-index") {
-    return matrixContext?.["__job_index"] ?? "0";
+    return ctx.matrixContext?.["__job_index"] ?? "0";
+  }
+  if (trimmed in CONST_CONTEXT_REFS) {
+    return CONST_CONTEXT_REFS[trimmed];
   }
   if (trimmed.startsWith("matrix.")) {
-    const key = trimmed.slice("matrix.".length);
-    return matrixContext?.[key] ?? "";
+    return ctx.matrixContext?.[trimmed.slice("matrix.".length)] ?? "";
   }
   if (trimmed.startsWith("secrets.")) {
-    const name = trimmed.slice("secrets.".length);
-    return secrets?.[name] ?? "";
+    return ctx.secrets?.[trimmed.slice("secrets.".length)] ?? "";
   }
   if (trimmed.startsWith("vars.")) {
-    const name = trimmed.slice("vars.".length);
-    return vars?.[name] ?? "";
+    return ctx.vars?.[trimmed.slice("vars.".length)] ?? "";
   }
   if (trimmed.startsWith("inputs.")) {
-    const name = trimmed.slice("inputs.".length);
-    return inputsContext?.[name] ?? "";
+    return ctx.inputsContext?.[trimmed.slice("inputs.".length)] ?? "";
   }
   if (trimmed.startsWith("steps.")) {
     // Step-output references can't be resolved at parse time — the producing
@@ -507,24 +381,35 @@ function resolveExprAtom(
     // Per the compatibility contract, resolve to an empty string at parse time.
     return "";
   }
-  if (trimmed.startsWith("needs.") && needsContext) {
-    const parts = trimmed.split(".");
-    const jobId = parts[1];
-    const jobOutputs = needsContext[jobId];
-    if (parts[2] === "outputs" && parts[3]) {
-      return jobOutputs?.[parts[3]] ?? "";
-    }
-    if (parts[2] === "result") {
-      return jobOutputs ? (jobOutputs["__result"] ?? "success") : "";
-    }
-    return "";
-  }
   if (trimmed.startsWith("needs.")) {
-    return "";
+    return resolveNeedsRef(trimmed, ctx.needsContext);
   }
   if (trimmed.startsWith("env.")) {
-    const name = trimmed.slice("env.".length);
-    return envContext?.[name] ?? "";
+    return ctx.envContext?.[trimmed.slice("env.".length)] ?? "";
+  }
+  return undefined;
+}
+
+/**
+ * Resolve a single atomic expression (function call or context variable).
+ * Does not handle boolean operators, parentheses, or string literals.
+ */
+function resolveExprAtom(trimmed: string, ctx: ExprContext): string {
+  const fnMatch = trimmed.match(FUNCTION_CALL_RE);
+  if (fnMatch) {
+    const handler = FUNCTION_HANDLERS[fnMatch[1]];
+    if (handler) {
+      return handler(fnMatch[2], ctx);
+    }
+  }
+
+  if (trimmed in STATUS_FUNCTIONS) {
+    return STATUS_FUNCTIONS[trimmed];
+  }
+
+  const ctxRef = resolveContextRef(trimmed, ctx);
+  if (ctxRef !== undefined) {
+    return ctxRef;
   }
 
   // Unknown atoms — return empty string
@@ -532,83 +417,77 @@ function resolveExprAtom(
 }
 
 /**
+ * If `trimmed` is wrapped in matching outer parentheses, return the inner
+ * string. Otherwise return null. Quotes are skipped so parens inside string
+ * literals don't fool the matcher.
+ */
+function stripOuterParens(trimmed: string): string | null {
+  if (!trimmed.startsWith("(")) {
+    return null;
+  }
+  let depth = 0;
+  let inQuote: string | null = null;
+  for (let i = 0; i < trimmed.length; i++) {
+    const ch = trimmed[i];
+    if (inQuote) {
+      if (ch === inQuote) {
+        inQuote = null;
+      }
+      continue;
+    }
+    if (ch === "'" || ch === '"') {
+      inQuote = ch;
+      continue;
+    }
+    if (ch === "(") {
+      depth++;
+    } else if (ch === ")") {
+      depth--;
+    }
+    if (depth === 0) {
+      return i === trimmed.length - 1 ? trimmed.slice(1, -1) : null;
+    }
+  }
+  return null;
+}
+
+/**
+ * Evaluate the left/right operands and apply the comparison if `trimmed`
+ * splits cleanly on `op`. Returns null when the operator isn't a top-level
+ * split point.
+ */
+function evalComparison(trimmed: string, op: string, ctx: ExprContext): string | null {
+  const parts = splitOnOperator(trimmed, op);
+  if (parts.length !== 2) {
+    return null;
+  }
+  const left = evaluateExprValue(parts[0].trim(), ctx);
+  const right = evaluateExprValue(parts[1].trim(), ctx);
+  return compareValues(left, right, op) ? "true" : "false";
+}
+
+/**
  * Evaluate an expression that may contain ||, &&, !, parentheses,
  * string literals, function calls, and context variable references.
  * Returns the string result following GitHub Actions expression semantics.
  */
-function evaluateExprValue(
-  expr: string,
-  repoPath?: string,
-  secrets?: Record<string, string>,
-  matrixContext?: Record<string, string>,
-  needsContext?: Record<string, Record<string, string>>,
-  inputsContext?: Record<string, string>,
-  vars?: Record<string, string>,
-  runnerContext?: RunnerContext,
-  envContext?: Record<string, string>,
-): string {
+function evaluateExprValue(expr: string, ctx: ExprContext): string {
   const trimmed = expr.trim();
   if (!trimmed) {
     return "";
   }
 
-  // Strip matching outer parentheses
-  if (trimmed.startsWith("(")) {
-    let depth = 0;
-    let inQuote: string | null = null;
-    for (let i = 0; i < trimmed.length; i++) {
-      const ch = trimmed[i];
-      if (inQuote) {
-        if (ch === inQuote) {
-          inQuote = null;
-        }
-        continue;
-      }
-      if (ch === "'" || ch === '"') {
-        inQuote = ch;
-        continue;
-      }
-      if (ch === "(") {
-        depth++;
-      }
-      if (ch === ")") {
-        depth--;
-      }
-      if (depth === 0 && i === trimmed.length - 1) {
-        return evaluateExprValue(
-          trimmed.slice(1, -1),
-          repoPath,
-          secrets,
-          matrixContext,
-          needsContext,
-          inputsContext,
-          vars,
-          runnerContext,
-          envContext,
-        );
-      }
-      if (depth === 0) {
-        break;
-      }
-    }
+  const stripped = stripOuterParens(trimmed);
+  if (stripped !== null) {
+    return evaluateExprValue(stripped, ctx);
   }
 
-  // Handle || (lowest precedence)
+  // || (lowest precedence) — return first truthy, else the last value.
   const orParts = splitOnOperator(trimmed, "||");
   if (orParts.length > 1) {
     let lastVal = "";
     for (const part of orParts) {
-      lastVal = evaluateExprValue(
-        part.trim(),
-        repoPath,
-        secrets,
-        matrixContext,
-        needsContext,
-        inputsContext,
-        vars,
-        runnerContext,
-        envContext,
-      );
+      lastVal = evaluateExprValue(part.trim(), ctx);
       if (isExprTruthy(lastVal)) {
         return lastVal;
       }
@@ -616,22 +495,12 @@ function evaluateExprValue(
     return lastVal;
   }
 
-  // Handle && (higher precedence than ||)
+  // && (higher precedence than ||) — return first falsy, else the last value.
   const andParts = splitOnOperator(trimmed, "&&");
   if (andParts.length > 1) {
     let lastVal = "";
     for (const part of andParts) {
-      lastVal = evaluateExprValue(
-        part.trim(),
-        repoPath,
-        secrets,
-        matrixContext,
-        needsContext,
-        inputsContext,
-        vars,
-        runnerContext,
-        envContext,
-      );
+      lastVal = evaluateExprValue(part.trim(), ctx);
       if (!isExprTruthy(lastVal)) {
         return lastVal;
       }
@@ -639,51 +508,17 @@ function evaluateExprValue(
     return lastVal;
   }
 
-  // Handle comparison operators (==, !=, <=, >=, <, >)
-  // Check longer operators first to avoid matching <= as < then =
+  // Comparison operators. Longer operators first so `<=` doesn't get split as `<`.
   for (const op of ["!=", "==", "<=", ">=", "<", ">"]) {
-    const cmpParts = splitOnOperator(trimmed, op);
-    if (cmpParts.length === 2) {
-      const left = evaluateExprValue(
-        cmpParts[0].trim(),
-        repoPath,
-        secrets,
-        matrixContext,
-        needsContext,
-        inputsContext,
-        vars,
-        runnerContext,
-        envContext,
-      );
-      const right = evaluateExprValue(
-        cmpParts[1].trim(),
-        repoPath,
-        secrets,
-        matrixContext,
-        needsContext,
-        inputsContext,
-        vars,
-        runnerContext,
-        envContext,
-      );
-      const result = compareValues(left, right, op);
-      return result ? "true" : "false";
+    const result = evalComparison(trimmed, op, ctx);
+    if (result !== null) {
+      return result;
     }
   }
 
-  // Handle ! prefix (negation)
+  // ! prefix (negation)
   if (trimmed.startsWith("!")) {
-    const inner = evaluateExprValue(
-      trimmed.slice(1).trim(),
-      repoPath,
-      secrets,
-      matrixContext,
-      needsContext,
-      inputsContext,
-      vars,
-      runnerContext,
-      envContext,
-    );
+    const inner = evaluateExprValue(trimmed.slice(1).trim(), ctx);
     return isExprTruthy(inner) ? "false" : "true";
   }
 
@@ -712,17 +547,7 @@ function evaluateExprValue(
   }
 
   // Atom: function call or context variable
-  return resolveExprAtom(
-    trimmed,
-    repoPath,
-    secrets,
-    matrixContext,
-    needsContext,
-    inputsContext,
-    vars,
-    runnerContext,
-    envContext,
-  );
+  return resolveExprAtom(trimmed, ctx);
 }
 
 /**
@@ -742,20 +567,19 @@ export function expandExpressions(
   runnerContext?: RunnerContext,
   envContext?: Record<string, string>,
 ): string {
-  return value.replace(/\$\{\{([\s\S]*?)\}\}/g, (_match, expr: string) => {
-    const result = evaluateExprValue(
-      expr,
-      repoPath,
-      secrets,
-      matrixContext,
-      needsContext,
-      inputsContext,
-      vars,
-      runnerContext,
-      envContext,
-    );
-    return result;
-  });
+  const ctx: ExprContext = {
+    repoPath,
+    secrets,
+    matrixContext,
+    needsContext,
+    inputsContext,
+    vars,
+    runnerContext,
+    envContext,
+  };
+  return value.replace(/\$\{\{([\s\S]*?)\}\}/g, (_match, expr: string) =>
+    evaluateExprValue(expr, ctx),
+  );
 }
 
 function toStringRecord(value: unknown): Record<string, string> {

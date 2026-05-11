@@ -20,6 +20,9 @@ importers:
       '@typescript/native-preview':
         specifier: 7.0.0-dev.20260219.1
         version: 7.0.0-dev.20260219.1
+      fallow:
+        specifier: ^2.63.0
+        version: 2.63.0
       husky:
         specifier: ^9.1.7
         version: 9.1.7
@@ -1004,6 +1007,46 @@ packages:
   '@eslint/plugin-kit@0.4.1':
     resolution: {integrity: sha512-43/qtrDUokr7LJqoF2c3+RInu/t4zfrpYdoSDfYyhg52rwLV6TnOvdG4fXm7IkSB3wErkcmJS9iEhjVtOSEjjA==}
     engines: {node: ^18.18.0 || ^20.9.0 || >=21.1.0}
+
+  '@fallow-cli/darwin-arm64@2.63.0':
+    resolution: {integrity: sha512-e8qVmPIYqufuCXLl+nC7Zn5QQ9finGbKlNuoWkLqhMYDebzE2X9vT6ahZEsM/58+MedA2hVonoYWh6XAFMdJPQ==}
+    cpu: [arm64]
+    os: [darwin]
+
+  '@fallow-cli/darwin-x64@2.63.0':
+    resolution: {integrity: sha512-M6hpadV7VzYtZPePPnGVzK/jJTVbke0+PnpUW4QEQUy0FD/V43+RMrWmhwSbOc4UZjRhcdZGq9GnlkG6WJn3EQ==}
+    cpu: [x64]
+    os: [darwin]
+
+  '@fallow-cli/linux-arm64-gnu@2.63.0':
+    resolution: {integrity: sha512-ycBptRpO4yUgGX1KvZXcu9MWiDQDE3guSYQuzMhD1hC/eXn90rirnrv+ewq38SKCJ+x7CzAaeXEEX9NApsejTg==}
+    cpu: [arm64]
+    os: [linux]
+
+  '@fallow-cli/linux-arm64-musl@2.63.0':
+    resolution: {integrity: sha512-GkCc6txsi8UqNN64zif0BwBjj9wNQgbwmQsJD132+PxOuko52hVifkLoqLxKEN9s7iz+AQHqITB8E4eZ1nKtFg==}
+    cpu: [arm64]
+    os: [linux]
+
+  '@fallow-cli/linux-x64-gnu@2.63.0':
+    resolution: {integrity: sha512-itrofEERla6AO2UpgV/YPCnm6mfHbnV6tv+TSpBM+BDuCZM/Q5lIG0fbiVv/FzrFKmfzVPujODfg1Od1QdcJMg==}
+    cpu: [x64]
+    os: [linux]
+
+  '@fallow-cli/linux-x64-musl@2.63.0':
+    resolution: {integrity: sha512-ZnC2yOKQnmild0yZwDxoORQHETPGKeFJMv0Jbwz784SjqmyhO+ZAChHX3N7N34smF5Q8QvW+GvLJsKNvoRQHIQ==}
+    cpu: [x64]
+    os: [linux]
+
+  '@fallow-cli/win32-arm64-msvc@2.63.0':
+    resolution: {integrity: sha512-V9fbBcctT6ieG3jf9e6H9xKdbzKx5YG7kJkKFO5M/z6CQMrQL5AcZ+kKmBvL+QrEuDVI669e/3tdKtl9alnEDA==}
+    cpu: [arm64]
+    os: [win32]
+
+  '@fallow-cli/win32-x64-msvc@2.63.0':
+    resolution: {integrity: sha512-JChdoy7SwBWmsL+l532j5lceoTQtP0hm1t0u/HqLPY/CAK7vM7Rz9ufzek1RAYpJhSJ+0dcIYLQiyWXLZ9RevQ==}
+    cpu: [x64]
+    os: [win32]
 
   '@grpc/grpc-js@1.14.3':
     resolution: {integrity: sha512-Iq8QQQ/7X3Sac15oB6p0FmUg/klxQvXLeileoqrTRGJYLV+/9tubbr9ipz0GKHjmXVsgFPo/+W+2cA8eNcR+XA==}
@@ -2899,6 +2942,11 @@ packages:
   extract-zip@2.0.1:
     resolution: {integrity: sha512-GDhU9ntwuKyGXdZBUgTIe+vXnWj0fppUEtMDL0+idd5Sta8TGpHssn/eusA9mrPr9qNDym6SxAYZjNvCn/9RBg==}
     engines: {node: '>= 10.17.0'}
+    hasBin: true
+
+  fallow@2.63.0:
+    resolution: {integrity: sha512-2+6JbFK7xEct35u9t63nDx2RwvIYOh8Y5zfAtxQy4P4Z9f4FbzYDGFkoucXIo6eTPxn8dqo2iLSRSeOZtGs57Q==}
+    engines: {node: '>=16'}
     hasBin: true
 
   fast-deep-equal@3.1.3:
@@ -5559,6 +5607,30 @@ snapshots:
       '@eslint/core': 0.17.0
       levn: 0.4.1
 
+  '@fallow-cli/darwin-arm64@2.63.0':
+    optional: true
+
+  '@fallow-cli/darwin-x64@2.63.0':
+    optional: true
+
+  '@fallow-cli/linux-arm64-gnu@2.63.0':
+    optional: true
+
+  '@fallow-cli/linux-arm64-musl@2.63.0':
+    optional: true
+
+  '@fallow-cli/linux-x64-gnu@2.63.0':
+    optional: true
+
+  '@fallow-cli/linux-x64-musl@2.63.0':
+    optional: true
+
+  '@fallow-cli/win32-arm64-msvc@2.63.0':
+    optional: true
+
+  '@fallow-cli/win32-x64-msvc@2.63.0':
+    optional: true
+
   '@grpc/grpc-js@1.14.3':
     dependencies:
       '@grpc/proto-loader': 0.8.0
@@ -6480,14 +6552,6 @@ snapshots:
       chai: 6.2.2
       tinyrainbow: 3.0.3
 
-  '@vitest/mocker@4.0.18(vite@7.3.2(@types/node@22.19.11)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.46.2)(tsx@4.21.0)(yaml@2.8.2))':
-    dependencies:
-      '@vitest/spy': 4.0.18
-      estree-walker: 3.0.3
-      magic-string: 0.30.21
-    optionalDependencies:
-      vite: 7.3.2(@types/node@22.19.11)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.46.2)(tsx@4.21.0)(yaml@2.8.2)
-
   '@vitest/mocker@4.0.18(vite@7.3.2(@types/node@25.3.0)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.46.2)(tsx@4.21.0)(yaml@2.8.2))':
     dependencies:
       '@vitest/spy': 4.0.18
@@ -7379,6 +7443,19 @@ snapshots:
       '@types/yauzl': 2.10.3
     transitivePeerDependencies:
       - supports-color
+
+  fallow@2.63.0:
+    dependencies:
+      detect-libc: 2.1.2
+    optionalDependencies:
+      '@fallow-cli/darwin-arm64': 2.63.0
+      '@fallow-cli/darwin-x64': 2.63.0
+      '@fallow-cli/linux-arm64-gnu': 2.63.0
+      '@fallow-cli/linux-arm64-musl': 2.63.0
+      '@fallow-cli/linux-x64-gnu': 2.63.0
+      '@fallow-cli/linux-x64-musl': 2.63.0
+      '@fallow-cli/win32-arm64-msvc': 2.63.0
+      '@fallow-cli/win32-x64-msvc': 2.63.0
 
   fast-deep-equal@3.1.3: {}
 
@@ -9570,7 +9647,7 @@ snapshots:
   vitest@4.0.18(@opentelemetry/api@1.9.0)(@types/node@22.19.11)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.46.2)(tsx@4.21.0)(yaml@2.8.2):
     dependencies:
       '@vitest/expect': 4.0.18
-      '@vitest/mocker': 4.0.18(vite@7.3.2(@types/node@22.19.11)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.46.2)(tsx@4.21.0)(yaml@2.8.2))
+      '@vitest/mocker': 4.0.18(vite@7.3.2(@types/node@25.3.0)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.46.2)(tsx@4.21.0)(yaml@2.8.2))
       '@vitest/pretty-format': 4.0.18
       '@vitest/runner': 4.0.18
       '@vitest/snapshot': 4.0.18

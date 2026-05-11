@@ -57,7 +57,7 @@ import {
   pruneStaleWorkspaces,
 } from "../docker/shutdown.js";
 import { topoSort } from "../workflow/job-scheduler.js";
-import { expandReusableJobs } from "../workflow/reusable-workflow.js";
+import { expandReusableJobs, type ExpandedJobEntry } from "../workflow/reusable-workflow.js";
 import { prefetchRemoteWorkflows } from "../workflow/remote-workflow-fetch.js";
 import { printSummary, type JobResult } from "../output/reporter.js";
 import { computeDirtySha } from "../runner/dirty-sha.js";
@@ -85,83 +85,202 @@ import {
   type LogEvent,
 } from "../launcher.js";
 
-export default async function runCmd(args: string[]): Promise<never> {
-  let sha: string | undefined;
-  let workflow: string | undefined;
-  let pauseOnFailure = false;
-  let runAll = false;
-  let noMatrix = false;
-  let githubToken: string | undefined;
-  let commitStatus = false;
-  let maxJobs: number | undefined;
-  const cliVars: Record<string, string> = {};
+type ParsedRunArgs = {
+  sha?: string;
+  workflow?: string;
+  pauseOnFailure: boolean;
+  runAll: boolean;
+  noMatrix: boolean;
+  githubToken?: string;
+  commitStatus: boolean;
+  maxJobs?: number;
+  cliVars: Record<string, string>;
+};
 
+function exitWithError(msg: string): never {
+  console.error(msg);
+  process.exit(1);
+}
+
+function parseJobsFlag(raw: string): number {
+  const n = parseInt(raw, 10);
+  if (!Number.isFinite(n) || n < 1) {
+    exitWithError("[Agent CI] Error: --jobs must be a positive integer");
+  }
+  return n;
+}
+
+function parseVarFlag(raw: string): [string, string] {
+  const eqIdx = raw.indexOf("=");
+  if (eqIdx < 1) {
+    exitWithError(`[Agent CI] Error: --var expects KEY=VALUE, got: ${raw}`);
+  }
+  const key = raw.slice(0, eqIdx).trim();
+  if (!key) {
+    exitWithError(`[Agent CI] Error: --var expects KEY=VALUE, got: ${raw}`);
+  }
+  return [key, raw.slice(eqIdx + 1)];
+}
+
+function resolveGithubTokenFlag(
+  args: string[],
+  i: number,
+): { token: string; consumedNext: boolean } {
+  // If the next arg looks like a token value (not another flag), use it.
+  // Otherwise, auto-resolve via `gh auth token`.
+  const next = args[i + 1];
+  if (next && !next.startsWith("-")) {
+    return { token: next, consumedNext: true };
+  }
+  try {
+    const token = execSync("gh auth token", {
+      encoding: "utf-8",
+      stdio: ["pipe", "pipe", "pipe"],
+    }).trim();
+    return { token, consumedNext: false };
+  } catch {
+    exitWithError(
+      "[Agent CI] Error: --github-token requires `gh` CLI to be installed and authenticated, or pass a token value: --github-token <value>",
+    );
+  }
+}
+
+function parseRunArgs(args: string[]): ParsedRunArgs {
+  const parsed: ParsedRunArgs = {
+    pauseOnFailure: false,
+    runAll: false,
+    noMatrix: false,
+    commitStatus: false,
+    cliVars: {},
+  };
   for (let i = 1; i < args.length; i++) {
-    if ((args[i] === "--workflow" || args[i] === "-w") && args[i + 1]) {
-      workflow = args[i + 1];
-      i++;
-    } else if (args[i] === "--pause-on-failure" || args[i] === "-p") {
-      pauseOnFailure = true;
-    } else if (args[i] === "--all" || args[i] === "-a") {
-      runAll = true;
-    } else if (args[i] === "--quiet" || args[i] === "-q") {
+    const arg = args[i];
+    if ((arg === "--workflow" || arg === "-w") && args[i + 1]) {
+      parsed.workflow = args[++i];
+    } else if (arg === "--pause-on-failure" || arg === "-p") {
+      parsed.pauseOnFailure = true;
+    } else if (arg === "--all" || arg === "-a") {
+      parsed.runAll = true;
+    } else if (arg === "--quiet" || arg === "-q") {
       setQuietMode(true);
-    } else if (args[i] === "--json") {
+    } else if (arg === "--json") {
       setJsonMode(true);
-    } else if (args[i] === "--no-matrix") {
-      noMatrix = true;
-    } else if ((args[i] === "--jobs" || args[i] === "-j") && args[i + 1]) {
-      maxJobs = parseInt(args[i + 1], 10);
-      if (!Number.isFinite(maxJobs) || maxJobs < 1) {
-        console.error("[Agent CI] Error: --jobs must be a positive integer");
-        process.exit(1);
-      }
-      i++;
-    } else if (args[i] === "--commit-status") {
-      commitStatus = true;
-    } else if (args[i] === "--var" && args[i + 1]) {
-      const raw = args[i + 1];
-      const eqIdx = raw.indexOf("=");
-      if (eqIdx < 1) {
-        console.error(`[Agent CI] Error: --var expects KEY=VALUE, got: ${raw}`);
-        process.exit(1);
-      }
-      const key = raw.slice(0, eqIdx).trim();
-      const value = raw.slice(eqIdx + 1);
-      if (!key) {
-        console.error(`[Agent CI] Error: --var expects KEY=VALUE, got: ${raw}`);
-        process.exit(1);
-      }
-      cliVars[key] = value;
-      i++;
-    } else if (args[i] === "--github-token") {
-      // If the next arg looks like a token value (not another flag), use it.
-      // Otherwise, auto-resolve via `gh auth token`.
-      if (args[i + 1] && !args[i + 1].startsWith("-")) {
-        githubToken = args[i + 1];
+    } else if (arg === "--no-matrix") {
+      parsed.noMatrix = true;
+    } else if ((arg === "--jobs" || arg === "-j") && args[i + 1]) {
+      parsed.maxJobs = parseJobsFlag(args[++i]);
+    } else if (arg === "--commit-status") {
+      parsed.commitStatus = true;
+    } else if (arg === "--var" && args[i + 1]) {
+      const [key, value] = parseVarFlag(args[++i]);
+      parsed.cliVars[key] = value;
+    } else if (arg === "--github-token") {
+      const { token, consumedNext } = resolveGithubTokenFlag(args, i);
+      parsed.githubToken = token;
+      if (consumedNext) {
         i++;
-      } else {
-        try {
-          githubToken = execSync("gh auth token", {
-            encoding: "utf-8",
-            stdio: ["pipe", "pipe", "pipe"],
-          }).trim();
-        } catch {
-          console.error(
-            "[Agent CI] Error: --github-token requires `gh` CLI to be installed and authenticated, or pass a token value: --github-token <value>",
-          );
-          process.exit(1);
-        }
       }
-    } else if (!args[i].startsWith("-")) {
-      sha = args[i];
+    } else if (!arg.startsWith("-")) {
+      parsed.sha = arg;
     }
   }
 
   // Also accept AGENT_CI_GITHUB_TOKEN env var (CLI flag takes precedence)
-  if (!githubToken && process.env.AGENT_CI_GITHUB_TOKEN) {
-    githubToken = process.env.AGENT_CI_GITHUB_TOKEN;
+  if (!parsed.githubToken && process.env.AGENT_CI_GITHUB_TOKEN) {
+    parsed.githubToken = process.env.AGENT_CI_GITHUB_TOKEN;
   }
+  return parsed;
+}
+
+/**
+ * Discover every workflow under `<repoRoot>/.github/workflows` whose
+ * trigger filters would fire for the current branch and changed-file set.
+ */
+async function discoverRelevantWorkflows(
+  repoRoot: string,
+  branch: string,
+  changedFiles: string[],
+): Promise<string[]> {
+  const workflowsDir = path.resolve(repoRoot, ".github", "workflows");
+  if (!fs.existsSync(workflowsDir)) {
+    exitWithError(`[Agent CI] No .github/workflows directory found in ${repoRoot}`);
+  }
+  const files = fs
+    .readdirSync(workflowsDir)
+    .filter((f) => f.endsWith(".yml") || f.endsWith(".yaml"))
+    .map((f) => path.join(workflowsDir, f));
+  const { parse: parseYaml } = await import("yaml");
+
+  const relevant: string[] = [];
+  for (const file of files) {
+    try {
+      const raw = parseYaml(fs.readFileSync(file, "utf8"));
+      const onDef = raw?.on || raw?.true;
+      if (!onDef) {
+        continue;
+      }
+      const events: Record<string, any> = {};
+      if (Array.isArray(onDef)) {
+        for (const e of onDef) {
+          events[e] = {};
+        }
+      } else if (typeof onDef === "string") {
+        events[onDef] = {};
+      } else {
+        Object.assign(events, onDef);
+      }
+      if (isWorkflowRelevant({ events }, branch, changedFiles)) {
+        relevant.push(file);
+      }
+    } catch {
+      // Skip unparsable workflows
+    }
+  }
+  return relevant;
+}
+
+/** Resolve a possibly relative workflow path against cwd, repo root, and the workflows dir. */
+function resolveWorkflowArgPath(workflow: string, repoRoot: string): string {
+  if (path.isAbsolute(workflow)) {
+    return workflow;
+  }
+  const cwd = process.cwd();
+  const workflowsDir = path.resolve(repoRoot, ".github", "workflows");
+  const pathsToTry = [
+    path.resolve(cwd, workflow),
+    path.resolve(repoRoot, workflow),
+    path.resolve(workflowsDir, workflow),
+  ];
+  return pathsToTry.find((p) => fs.existsSync(p)) || pathsToTry[1];
+}
+
+/**
+ * Print the summary, post a commit status, persist the run, emit the
+ * finish sentinel, and exit. Used by both the --all and single-workflow
+ * code paths so they share the same shutdown sequence.
+ */
+function finalizeRun(opts: {
+  results: JobResult[];
+  parsed: ParsedRunArgs;
+  repoRoot: string;
+  startedAt: Date;
+  branch?: string;
+}): never {
+  const { results, parsed, repoRoot, startedAt, branch } = opts;
+  if (results.length > 0) {
+    printSummary(results);
+  }
+  if (parsed.commitStatus) {
+    postCommitStatus(results, parsed.sha, parsed.githubToken);
+  }
+  persistRunResult({ results, repoRoot, startedAt, sha: parsed.sha, branch });
+  const anyFailed = results.length === 0 || results.some((r) => !r.succeeded);
+  emitRunFinishSentinel(anyFailed ? "failed" : "passed");
+  process.exit(anyFailed ? 1 : 0);
+}
+
+export default async function runCmd(args: string[]): Promise<never> {
+  const parsed = parseRunArgs(args);
 
   // ── Detached-worker dispatch (issue #315) ────────────────────────────────
   // When --pause-on-failure is set and stdout is a pipe/redirect (and we're
@@ -172,7 +291,7 @@ export default async function runCmd(args: string[]): Promise<never> {
   // moment the worker emits the pause sentinel.
   if (
     shouldLaunchDetached({
-      pauseOnFailure,
+      pauseOnFailure: parsed.pauseOnFailure,
       stdoutIsTTY: Boolean(process.stdout.isTTY),
       agentMode: isAgentMode(),
       alreadyWorker: isDetachedWorker(),
@@ -198,121 +317,40 @@ export default async function runCmd(args: string[]): Promise<never> {
     /* noop */
   }
 
-  if (runAll) {
-    // Discover all relevant workflows for the current branch
+  const startedAt = new Date();
+  const runWorkflowsOpts = {
+    sha: parsed.sha,
+    pauseOnFailure: parsed.pauseOnFailure,
+    noMatrix: parsed.noMatrix,
+    githubToken: parsed.githubToken,
+    maxJobs: parsed.maxJobs,
+    vars: parsed.cliVars,
+  };
+
+  if (parsed.runAll) {
     const repoRoot = resolveRepoRoot();
-    const workflowsDir = path.resolve(repoRoot, ".github", "workflows");
-    if (!fs.existsSync(workflowsDir)) {
-      console.error(`[Agent CI] No .github/workflows directory found in ${repoRoot}`);
-      process.exit(1);
-    }
-
     const branch = execSync("git rev-parse --abbrev-ref HEAD", { cwd: repoRoot }).toString().trim();
-
     const changedFiles = getChangedFiles(repoRoot);
-
-    const files = fs
-      .readdirSync(workflowsDir)
-      .filter((f) => f.endsWith(".yml") || f.endsWith(".yaml"))
-      .map((f) => path.join(workflowsDir, f));
-
-    const relevant: string[] = [];
-    for (const file of files) {
-      try {
-        const { parse: parseYaml } = await import("yaml");
-        const raw = parseYaml(fs.readFileSync(file, "utf8"));
-        const onDef = raw?.on || raw?.true;
-        if (!onDef) {
-          continue;
-        }
-        const events: Record<string, any> = {};
-        if (Array.isArray(onDef)) {
-          for (const e of onDef) {
-            events[e] = {};
-          }
-        } else if (typeof onDef === "string") {
-          events[onDef] = {};
-        } else {
-          Object.assign(events, onDef);
-        }
-        if (isWorkflowRelevant({ events }, branch, changedFiles)) {
-          relevant.push(file);
-        }
-      } catch {
-        // Skip unparsable workflows
-      }
-    }
-
+    const relevant = await discoverRelevantWorkflows(repoRoot, branch, changedFiles);
     if (relevant.length === 0) {
       console.log(`[Agent CI] No relevant workflows found for branch '${branch}'.`);
       process.exit(0);
     }
-
-    const startedAt = new Date();
-    const results = await runWorkflows({
-      workflowPaths: relevant,
-      sha,
-      pauseOnFailure,
-      noMatrix,
-      githubToken,
-      maxJobs,
-      vars: cliVars,
-    });
-    if (results.length > 0) {
-      printSummary(results);
-    }
-    if (commitStatus) {
-      postCommitStatus(results, sha, githubToken);
-    }
-    persistRunResult({ results, repoRoot, startedAt, sha, branch });
-    const anyFailed = results.length === 0 || results.some((r) => !r.succeeded);
-    emitRunFinishSentinel(anyFailed ? "failed" : "passed");
-    process.exit(anyFailed ? 1 : 0);
+    const results = await runWorkflows({ workflowPaths: relevant, ...runWorkflowsOpts });
+    finalizeRun({ results, parsed, repoRoot, startedAt, branch });
   }
 
-  if (!workflow) {
+  if (!parsed.workflow) {
     console.error("[Agent CI] Error: You must specify --workflow <path> or --all");
     console.log("");
     printUsageMinimal();
     process.exit(1);
   }
 
-  // Resolve workflow path before calling runWorkflows
-  let workflowPath: string;
-  const repoRootFallback = resolveRepoRoot();
-  if (path.isAbsolute(workflow)) {
-    workflowPath = workflow;
-  } else {
-    const cwd = process.cwd();
-    const workflowsDir = path.resolve(repoRootFallback, ".github", "workflows");
-    const pathsToTry = [
-      path.resolve(cwd, workflow),
-      path.resolve(repoRootFallback, workflow),
-      path.resolve(workflowsDir, workflow),
-    ];
-    workflowPath = pathsToTry.find((p) => fs.existsSync(p)) || pathsToTry[1];
-  }
-
-  const startedAt = new Date();
-  const results = await runWorkflows({
-    workflowPaths: [workflowPath],
-    sha,
-    pauseOnFailure,
-    noMatrix,
-    githubToken,
-    maxJobs,
-    vars: cliVars,
-  });
-  if (results.length > 0) {
-    printSummary(results);
-  }
-  if (commitStatus) {
-    postCommitStatus(results, sha, githubToken);
-  }
-  persistRunResult({ results, repoRoot: repoRootFallback, startedAt, sha });
-  const anyFailed = results.length === 0 || results.some((r) => !r.succeeded);
-  emitRunFinishSentinel(anyFailed ? "failed" : "passed");
-  process.exit(anyFailed ? 1 : 0);
+  const repoRoot = resolveRepoRoot();
+  const workflowPath = resolveWorkflowArgPath(parsed.workflow, repoRoot);
+  const results = await runWorkflows({ workflowPaths: [workflowPath], ...runWorkflowsOpts });
+  finalizeRun({ results, parsed, repoRoot, startedAt });
 }
 
 // ─── prefetchRunnerImages ──────────────────────────────────────────────────
@@ -906,6 +944,152 @@ async function runWorkflows(options: {
   }
 }
 
+type ExpandedJob = {
+  workflowPath: string;
+  taskName: string;
+  sourceTaskName?: string;
+  matrixContext?: Record<string, string>;
+  inputs?: Record<string, string>;
+  inputDefaults?: Record<string, string>;
+  workflowCallOutputDefs?: Record<string, string>;
+  callerJobId?: string;
+  runnerName: string;
+  services?: Awaited<ReturnType<typeof parseWorkflowServices>>;
+  container?: Awaited<ReturnType<typeof parseWorkflowContainer>>;
+  classification?: ResourceFidelity;
+  classificationSummary?: string;
+  classificationReasons?: string[];
+};
+
+/**
+ * Expand each reusable-job entry into one ExpandedJob per matrix combination,
+ * or a single ExpandedJob when the entry has no matrix. `nextRunnerName`
+ * assigns the deterministic `agent-ci-<run>-jN[-mM]` runner id.
+ */
+async function expandJobs(
+  expandedEntries: ExpandedJobEntry[],
+  noMatrix: boolean,
+  nextRunnerName: (matrixContext?: Record<string, string>) => string,
+): Promise<ExpandedJob[]> {
+  const out: ExpandedJob[] = [];
+  for (const entry of expandedEntries) {
+    const matrixDef = await parseMatrixDef(entry.workflowPath, entry.sourceTaskName);
+    if (!matrixDef) {
+      out.push({
+        workflowPath: entry.workflowPath,
+        taskName: entry.id,
+        sourceTaskName: entry.sourceTaskName,
+        runnerName: nextRunnerName(),
+        inputs: entry.inputs,
+        inputDefaults: entry.inputDefaults,
+        workflowCallOutputDefs: entry.workflowCallOutputDefs,
+        callerJobId: entry.callerJobId,
+      });
+      continue;
+    }
+    const combos = noMatrix
+      ? collapseMatrixToSingle(matrixDef)
+      : expandMatrixCombinations(matrixDef);
+    const total = combos.length;
+    for (let ci = 0; ci < combos.length; ci++) {
+      const matrixContext = noMatrix
+        ? combos[ci]
+        : { ...combos[ci], __job_total: String(total), __job_index: String(ci) };
+      out.push({
+        workflowPath: entry.workflowPath,
+        taskName: entry.id,
+        sourceTaskName: entry.sourceTaskName,
+        runnerName: nextRunnerName(matrixContext),
+        matrixContext,
+        inputs: entry.inputs,
+        inputDefaults: entry.inputDefaults,
+        workflowCallOutputDefs: entry.workflowCallOutputDefs,
+        callerJobId: entry.callerJobId,
+      });
+    }
+  }
+  return out;
+}
+
+/**
+ * Classify every job's resource needs against the host. Mutates each job in
+ * place with `services`, `container`, `classification`, `classificationSummary`,
+ * and `classificationReasons`.
+ */
+async function classifyJobsResources(
+  jobs: ExpandedJob[],
+  workflowPath: string,
+  hostResources: ReturnType<typeof getHostResources>,
+): Promise<void> {
+  for (const job of jobs) {
+    const labels = parseJobRunsOnLabels(workflowPath, job.taskName);
+    const matrixDef = await parseMatrixDef(workflowPath, job.taskName);
+    const services = await parseWorkflowServices(workflowPath, job.taskName);
+    const container = await parseWorkflowContainer(workflowPath, job.taskName);
+    const hints = collectJobResourceHints({
+      labels,
+      matrixJobTotal:
+        matrixDef && job.matrixContext
+          ? Number.parseInt(job.matrixContext.__job_total ?? "1", 10)
+          : 1,
+      matrixJobIndex:
+        matrixDef && job.matrixContext
+          ? Number.parseInt(job.matrixContext.__job_index ?? "0", 10)
+          : 0,
+      hasServices: services.length > 0,
+      hasContainer: container !== null,
+    });
+    const classification = classifyJobResources(hints, hostResources);
+    job.services = services;
+    job.container = container;
+    job.classification = classification.fidelity;
+    job.classificationSummary =
+      classification.fidelity === "degraded"
+        ? `${classification.summary}. ${classification.action}`
+        : classification.summary;
+    job.classificationReasons = classification.reasons;
+  }
+}
+
+/**
+ * Run every job in a wave through the concurrency limiter, collect results,
+ * and convert rejections into failed JobResults. `seenErrorMessages` is shared
+ * across waves so duplicate error lines are not printed.
+ */
+async function runWaveJobs(
+  waveJobs: ExpandedJob[],
+  limiter: ReturnType<typeof createConcurrencyLimiter>,
+  runOrSkipJob: (ej: ExpandedJob) => Promise<JobResult>,
+  workflowPath: string,
+  seenErrorMessages: Set<string>,
+): Promise<JobResult[]> {
+  const settled = await Promise.allSettled(
+    waveJobs.map((ej) =>
+      limiter.run(() =>
+        runOrSkipJob(ej).catch((error) => {
+          throw wrapJobError(ej.taskName, error);
+        }),
+      ),
+    ),
+  );
+  const out: JobResult[] = [];
+  for (const r of settled) {
+    if (r.status === "fulfilled") {
+      out.push(r.value);
+      continue;
+    }
+    const taskName = isJobError(r.reason) ? r.reason.taskName : "unknown";
+    const errorMessage = isJobError(r.reason) ? r.reason.message : String(r.reason);
+    if (!seenErrorMessages.has(errorMessage)) {
+      seenErrorMessages.add(errorMessage);
+      console.error(`\n[Agent CI] Job failed with error: ${taskName}`);
+      console.error(`  Error: ${errorMessage}`);
+    }
+    out.push(createFailedJobResult(taskName, workflowPath, r.reason));
+  }
+  return out;
+}
+
 // ─── handleWorkflow ───────────────────────────────────────────────────────────
 // Processes a single workflow file: parses jobs, handles matrix expansion,
 // wave scheduling, warm-cache serialization, and concurrency limiting.
@@ -960,23 +1144,6 @@ async function handleWorkflow(options: {
   }
 
   // ── Collect expanded jobs (with matrix expansion) ─────────────────────────
-  type ExpandedJob = {
-    workflowPath: string;
-    taskName: string;
-    sourceTaskName?: string;
-    matrixContext?: Record<string, string>;
-    inputs?: Record<string, string>;
-    inputDefaults?: Record<string, string>;
-    workflowCallOutputDefs?: Record<string, string>;
-    callerJobId?: string;
-    runnerName: string;
-    services?: Awaited<ReturnType<typeof parseWorkflowServices>>;
-    container?: Awaited<ReturnType<typeof parseWorkflowContainer>>;
-    classification?: ResourceFidelity;
-    classificationSummary?: string;
-    classificationReasons?: string[];
-  };
-
   const baseRunNum = options.baseRunNum ?? getNextLogNum("agent-ci");
   let globalIdx = 0;
   const nextRunnerName = (matrixContext?: Record<string, string>): string => {
@@ -989,51 +1156,7 @@ async function handleWorkflow(options: {
     return `agent-ci-${baseRunNum}${suffix}`;
   };
 
-  const expandedJobs: ExpandedJob[] = [];
-
-  for (const entry of expandedEntries) {
-    const matrixDef = await parseMatrixDef(entry.workflowPath, entry.sourceTaskName);
-    if (matrixDef) {
-      const combos = noMatrix
-        ? collapseMatrixToSingle(matrixDef)
-        : expandMatrixCombinations(matrixDef);
-      const total = combos.length;
-      for (let ci = 0; ci < combos.length; ci++) {
-        expandedJobs.push({
-          workflowPath: entry.workflowPath,
-          taskName: entry.id,
-          sourceTaskName: entry.sourceTaskName,
-          runnerName: nextRunnerName(
-            noMatrix
-              ? combos[ci]
-              : { ...combos[ci], __job_total: String(total), __job_index: String(ci) },
-          ),
-          matrixContext: noMatrix
-            ? combos[ci]
-            : {
-                ...combos[ci],
-                __job_total: String(total),
-                __job_index: String(ci),
-              },
-          inputs: entry.inputs,
-          inputDefaults: entry.inputDefaults,
-          workflowCallOutputDefs: entry.workflowCallOutputDefs,
-          callerJobId: entry.callerJobId,
-        });
-      }
-    } else {
-      expandedJobs.push({
-        workflowPath: entry.workflowPath,
-        taskName: entry.id,
-        sourceTaskName: entry.sourceTaskName,
-        runnerName: nextRunnerName(),
-        inputs: entry.inputs,
-        inputDefaults: entry.inputDefaults,
-        workflowCallOutputDefs: entry.workflowCallOutputDefs,
-        callerJobId: entry.callerJobId,
-      });
-    }
-  }
+  const expandedJobs = await expandJobs(expandedEntries, noMatrix, nextRunnerName);
 
   // Pre-register all jobs so they appear as "queued" in the render loop
   // before execution starts. Uses the same naming convention as buildJob.
@@ -1106,36 +1229,7 @@ async function handleWorkflow(options: {
 
   // For single-job workflows, run directly without extra orchestration
   const limiter = options.globalLimiter;
-  const hostResources = getHostResources();
-  for (const job of expandedJobs) {
-    const labels = parseJobRunsOnLabels(workflowPath, job.taskName);
-    const matrixDef = await parseMatrixDef(workflowPath, job.taskName);
-    const services = await parseWorkflowServices(workflowPath, job.taskName);
-    const container = await parseWorkflowContainer(workflowPath, job.taskName);
-    const hints = collectJobResourceHints({
-      labels,
-      matrixJobTotal:
-        matrixDef && job.matrixContext
-          ? Number.parseInt(job.matrixContext.__job_total ?? "1", 10)
-          : 1,
-      matrixJobIndex:
-        matrixDef && job.matrixContext
-          ? Number.parseInt(job.matrixContext.__job_index ?? "0", 10)
-          : 0,
-      hasServices: services.length > 0,
-      hasContainer: container !== null,
-    });
-    const classification = classifyJobResources(hints, hostResources);
-
-    job.services = services;
-    job.container = container;
-    job.classification = classification.fidelity;
-    job.classificationSummary =
-      classification.fidelity === "degraded"
-        ? `${classification.summary}. ${classification.action}`
-        : classification.summary;
-    job.classificationReasons = classification.reasons;
-  }
+  await classifyJobsResources(expandedJobs, workflowPath, getHostResources());
 
   const degradedWarnings = new Set<string>();
   const warnDegradedJob = (job: ExpandedJob): void => {
@@ -1551,55 +1645,24 @@ async function handleWorkflow(options: {
       debugCli("Cold cache — running first job to populate warm modules...");
       const firstResult = await limiter.run(() => runOrSkipJob(waveJobs[0]));
       allResults.push(firstResult);
-
-      const results = await Promise.allSettled(
-        waveJobs.slice(1).map((ej) =>
-          limiter.run(() =>
-            runOrSkipJob(ej).catch((error) => {
-              throw wrapJobError(ej.taskName, error);
-            }),
-          ),
-        ),
+      const rest = await runWaveJobs(
+        waveJobs.slice(1),
+        limiter,
+        runOrSkipJob,
+        workflowPath,
+        seenErrorMessages,
       );
-      for (const r of results) {
-        if (r.status === "fulfilled") {
-          allResults.push(r.value);
-        } else {
-          const taskName = isJobError(r.reason) ? r.reason.taskName : "unknown";
-          const errorMessage = isJobError(r.reason) ? r.reason.message : String(r.reason);
-          if (!seenErrorMessages.has(errorMessage)) {
-            seenErrorMessages.add(errorMessage);
-            console.error(`\n[Agent CI] Job failed with error: ${taskName}`);
-            console.error(`  Error: ${errorMessage}`);
-          }
-          allResults.push(createFailedJobResult(taskName, workflowPath, r.reason));
-        }
-      }
+      allResults.push(...rest);
       warm = true;
     } else {
-      const results = await Promise.allSettled(
-        waveJobs.map((ej) =>
-          limiter.run(() =>
-            runOrSkipJob(ej).catch((error) => {
-              throw wrapJobError(ej.taskName, error);
-            }),
-          ),
-        ),
+      const results = await runWaveJobs(
+        waveJobs,
+        limiter,
+        runOrSkipJob,
+        workflowPath,
+        seenErrorMessages,
       );
-      for (const r of results) {
-        if (r.status === "fulfilled") {
-          allResults.push(r.value);
-        } else {
-          const taskName = isJobError(r.reason) ? r.reason.taskName : "unknown";
-          const errorMessage = isJobError(r.reason) ? r.reason.message : String(r.reason);
-          if (!seenErrorMessages.has(errorMessage)) {
-            seenErrorMessages.add(errorMessage);
-            console.error(`\n[Agent CI] Job failed with error: ${taskName}`);
-            console.error(`  Error: ${errorMessage}`);
-          }
-          allResults.push(createFailedJobResult(taskName, workflowPath, r.reason));
-        }
-      }
+      allResults.push(...results);
     }
 
     // After each wave, resolve workflow_call outputs for completed caller jobs

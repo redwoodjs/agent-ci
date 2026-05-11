@@ -1,7 +1,7 @@
 import fs from "fs";
 import fsp from "fs/promises";
 import path from "path";
-import type { ResourceFidelity } from "../workflow/resource-classifier.js";
+import type { ResourceFidelity } from "../workflow/resource-classifier.ts";
 
 // ─── Status types ─────────────────────────────────────────────────────────────
 

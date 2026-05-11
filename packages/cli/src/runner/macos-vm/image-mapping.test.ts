@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { resolveMacosVmImage, DEFAULT_MACOS_IMAGE } from "./image-mapping.js";
+import { resolveMacosVmImage, DEFAULT_MACOS_IMAGE } from "./image-mapping.ts";
 
 const ORIG = process.env.AGENT_CI_MACOS_VM_IMAGE;
 

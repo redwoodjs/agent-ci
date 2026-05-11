@@ -1,4 +1,4 @@
-import { pruneLogs } from "../log-prune.js";
+import { pruneLogs } from "../log-prune.ts";
 
 export default function clean(): never {
   const result = pruneLogs({ force: true });

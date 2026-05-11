@@ -9,7 +9,7 @@ afterEach(() => {
 
 describe("buildContainerEnv", () => {
   it("builds the standard env array", async () => {
-    const { buildContainerEnv } = await import("./container-config.js");
+    const { buildContainerEnv } = await import("./container-config.ts");
     const env = buildContainerEnv({
       containerName: "runner-1",
       registrationToken: "tok",
@@ -31,7 +31,7 @@ describe("buildContainerEnv", () => {
   });
 
   it("adds root-mode env vars for direct container injection", async () => {
-    const { buildContainerEnv } = await import("./container-config.js");
+    const { buildContainerEnv } = await import("./container-config.ts");
     const env = buildContainerEnv({
       containerName: "runner-1",
       registrationToken: "tok",
@@ -51,7 +51,7 @@ describe("buildContainerEnv", () => {
 
 describe("buildContainerBinds", () => {
   it("builds standard bind mounts with all PM caches", async () => {
-    const { buildContainerBinds } = await import("./container-config.js");
+    const { buildContainerBinds } = await import("./container-config.ts");
     const binds = buildContainerBinds({
       hostWorkDir: "/tmp/work",
       shimsDir: "/tmp/shims",
@@ -79,7 +79,7 @@ describe("buildContainerBinds", () => {
   });
 
   it("omits PM bind mounts when cache dirs are not provided", async () => {
-    const { buildContainerBinds } = await import("./container-config.js");
+    const { buildContainerBinds } = await import("./container-config.ts");
     const binds = buildContainerBinds({
       hostWorkDir: "/tmp/work",
       shimsDir: "/tmp/shims",
@@ -99,7 +99,7 @@ describe("buildContainerBinds", () => {
   });
 
   it("includes only the npm bind mount when only npmCacheDir is provided", async () => {
-    const { buildContainerBinds } = await import("./container-config.js");
+    const { buildContainerBinds } = await import("./container-config.ts");
     const binds = buildContainerBinds({
       hostWorkDir: "/tmp/work",
       shimsDir: "/tmp/shims",
@@ -119,7 +119,7 @@ describe("buildContainerBinds", () => {
   });
 
   it("uses the given dockerSocketPath as the bind-mount source", async () => {
-    const { buildContainerBinds } = await import("./container-config.js");
+    const { buildContainerBinds } = await import("./container-config.ts");
     const binds = buildContainerBinds({
       hostWorkDir: "/tmp/work",
       shimsDir: "/tmp/shims",
@@ -138,7 +138,7 @@ describe("buildContainerBinds", () => {
   });
 
   it("includes runner bind mount for direct container", async () => {
-    const { buildContainerBinds } = await import("./container-config.js");
+    const { buildContainerBinds } = await import("./container-config.ts");
     const binds = buildContainerBinds({
       hostWorkDir: "/tmp/work",
       shimsDir: "/tmp/shims",
@@ -162,7 +162,7 @@ describe("buildContainerBinds", () => {
 
 describe("buildContainerCmd", () => {
   it("starts with bash -c for standard containers", async () => {
-    const { buildContainerCmd } = await import("./container-config.js");
+    const { buildContainerCmd } = await import("./container-config.ts");
     const cmd = buildContainerCmd({
       svcPortForwardSnippet: "",
       dtuPort: "3000",
@@ -178,7 +178,7 @@ describe("buildContainerCmd", () => {
   });
 
   it("starts with -c for direct containers", async () => {
-    const { buildContainerCmd } = await import("./container-config.js");
+    const { buildContainerCmd } = await import("./container-config.ts");
     const cmd = buildContainerCmd({
       svcPortForwardSnippet: "",
       dtuPort: "3000",
@@ -192,7 +192,7 @@ describe("buildContainerCmd", () => {
   });
 
   it("includes service port forwarding snippet", async () => {
-    const { buildContainerCmd } = await import("./container-config.js");
+    const { buildContainerCmd } = await import("./container-config.ts");
     const cmd = buildContainerCmd({
       svcPortForwardSnippet: "socat TCP-LISTEN:5432,fork TCP:svc-db:5432 & \nsleep 0.3 && ",
       dtuPort: "3000",
@@ -210,7 +210,7 @@ describe("buildContainerCmd", () => {
   // talks to the Docker socket (buildx, compose, docker login, ...) fails
   // with "permission denied".
   it("chmods the docker socket via MAYBE_SUDO so it works on native Linux Docker (#257)", async () => {
-    const { buildContainerCmd } = await import("./container-config.js");
+    const { buildContainerCmd } = await import("./container-config.ts");
     const cmd = buildContainerCmd({
       svcPortForwardSnippet: "",
       dtuPort: "3000",
@@ -228,7 +228,7 @@ describe("buildContainerCmd", () => {
   // through the VM mount layer), so the runner user (uid 1001) hits
   // UnauthorizedAccessException when writing its diag logs and workspace.
   it("chmods /home/runner/_diag and /home/runner/_work via MAYBE_SUDO (#263)", async () => {
-    const { buildContainerCmd } = await import("./container-config.js");
+    const { buildContainerCmd } = await import("./container-config.ts");
     const cmd = buildContainerCmd({
       svcPortForwardSnippet: "",
       dtuPort: "3000",
@@ -245,35 +245,35 @@ describe("buildContainerCmd", () => {
 
 describe("resolveDockerApiUrl", () => {
   it("replaces localhost with the DTU host", async () => {
-    const { resolveDockerApiUrl } = await import("./container-config.js");
+    const { resolveDockerApiUrl } = await import("./container-config.ts");
     expect(resolveDockerApiUrl("http://localhost:3000", "172.17.0.2")).toBe(
       "http://172.17.0.2:3000",
     );
   });
 
   it("replaces 127.0.0.1 with the DTU host", async () => {
-    const { resolveDockerApiUrl } = await import("./container-config.js");
+    const { resolveDockerApiUrl } = await import("./container-config.ts");
     expect(resolveDockerApiUrl("http://127.0.0.1:3000", "host.docker.internal")).toBe(
       "http://host.docker.internal:3000",
     );
   });
 
   it("preserves path and query components", async () => {
-    const { resolveDockerApiUrl } = await import("./container-config.js");
+    const { resolveDockerApiUrl } = await import("./container-config.ts");
     expect(resolveDockerApiUrl("http://localhost:8910/api/v1?foo=bar", "10.0.0.8")).toBe(
       "http://10.0.0.8:8910/api/v1?foo=bar",
     );
   });
 
   it("keeps implicit https default port behavior", async () => {
-    const { resolveDockerApiUrl } = await import("./container-config.js");
+    const { resolveDockerApiUrl } = await import("./container-config.ts");
     expect(resolveDockerApiUrl("https://localhost", "host.docker.internal")).toBe(
       "https://host.docker.internal",
     );
   });
 
   it("does not rewrite non-loopback hosts", async () => {
-    const { resolveDockerApiUrl } = await import("./container-config.js");
+    const { resolveDockerApiUrl } = await import("./container-config.ts");
     expect(
       resolveDockerApiUrl("https://dtu.internal.example.com:8910", "host.docker.internal"),
     ).toBe("https://dtu.internal.example.com:8910");
@@ -303,7 +303,7 @@ describe("resolveDtuHost", () => {
 
   it("uses host alias when available outside Docker", async () => {
     delete process.env.AGENT_CI_DTU_HOST;
-    const { resolveDtuHost } = await import("./container-config.js");
+    const { resolveDtuHost } = await import("./container-config.ts");
     const originalExistsSync = fs.existsSync;
 
     vi.spyOn(fs, "existsSync").mockImplementation((filePath: fs.PathLike) => {
@@ -318,7 +318,7 @@ describe("resolveDtuHost", () => {
 
   it("uses configured bridge gateway outside Docker when provided", async () => {
     delete process.env.AGENT_CI_DTU_HOST;
-    const { resolveDtuHost } = await import("./container-config.js");
+    const { resolveDtuHost } = await import("./container-config.ts");
     const originalExistsSync = fs.existsSync;
 
     vi.spyOn(fs, "existsSync").mockImplementation((filePath: fs.PathLike) => {
@@ -334,7 +334,7 @@ describe("resolveDtuHost", () => {
 
   it("uses host alias outside Docker when no gateway override is configured", async () => {
     delete process.env.AGENT_CI_DTU_HOST;
-    const { resolveDtuHost } = await import("./container-config.js");
+    const { resolveDtuHost } = await import("./container-config.ts");
     const originalExistsSync = fs.existsSync;
 
     vi.spyOn(fs, "existsSync").mockImplementation((filePath: fs.PathLike) => {
@@ -378,7 +378,7 @@ describe("resolveDockerExtraHosts", () => {
     delete process.env.AGENT_CI_DOCKER_DISABLE_DEFAULT_EXTRA_HOSTS;
     delete process.env.AGENT_CI_DOCKER_HOST_GATEWAY;
 
-    const { resolveDockerExtraHosts } = await import("./container-config.js");
+    const { resolveDockerExtraHosts } = await import("./container-config.ts");
     expect(resolveDockerExtraHosts("host.docker.internal")).toEqual([
       "host.docker.internal:host-gateway",
     ]);
@@ -388,7 +388,7 @@ describe("resolveDockerExtraHosts", () => {
     process.env.AGENT_CI_DOCKER_EXTRA_HOSTS = "host.docker.internal:172.17.0.1,api.local:10.0.0.2";
     delete process.env.AGENT_CI_DOCKER_DISABLE_DEFAULT_EXTRA_HOSTS;
 
-    const { resolveDockerExtraHosts } = await import("./container-config.js");
+    const { resolveDockerExtraHosts } = await import("./container-config.ts");
     expect(resolveDockerExtraHosts("host.docker.internal")).toEqual([
       "host.docker.internal:172.17.0.1",
       "api.local:10.0.0.2",
@@ -399,7 +399,7 @@ describe("resolveDockerExtraHosts", () => {
     delete process.env.AGENT_CI_DOCKER_EXTRA_HOSTS;
     process.env.AGENT_CI_DOCKER_DISABLE_DEFAULT_EXTRA_HOSTS = "1";
 
-    const { resolveDockerExtraHosts } = await import("./container-config.js");
+    const { resolveDockerExtraHosts } = await import("./container-config.ts");
     expect(resolveDockerExtraHosts("host.docker.internal")).toBeUndefined();
   });
 
@@ -407,7 +407,7 @@ describe("resolveDockerExtraHosts", () => {
     delete process.env.AGENT_CI_DOCKER_EXTRA_HOSTS;
     delete process.env.AGENT_CI_DOCKER_DISABLE_DEFAULT_EXTRA_HOSTS;
 
-    const { resolveDockerExtraHosts } = await import("./container-config.js");
+    const { resolveDockerExtraHosts } = await import("./container-config.ts");
     expect(resolveDockerExtraHosts("10.10.10.10")).toBeUndefined();
   });
 });
@@ -428,13 +428,13 @@ describe("buildContainerBinds with dockerSocketPath", () => {
   };
 
   it("uses default /var/run/docker.sock when no dockerSocketPath is provided", async () => {
-    const { buildContainerBinds } = await import("./container-config.js");
+    const { buildContainerBinds } = await import("./container-config.ts");
     const binds = buildContainerBinds(baseOpts);
     expect(binds).toContain("/var/run/docker.sock:/var/run/docker.sock");
   });
 
   it("uses custom host socket path from dockerSocketPath", async () => {
-    const { buildContainerBinds } = await import("./container-config.js");
+    const { buildContainerBinds } = await import("./container-config.ts");
     const binds = buildContainerBinds({
       ...baseOpts,
       dockerSocketPath: "/Users/foo/.docker/run/docker.sock",
@@ -463,13 +463,13 @@ describe("buildContainerBinds with signalsDir", () => {
   };
 
   it("includes signals bind-mount when signalsDir is provided", async () => {
-    const { buildContainerBinds } = await import("./container-config.js");
+    const { buildContainerBinds } = await import("./container-config.ts");
     const binds = buildContainerBinds({ ...baseOpts, signalsDir: "/tmp/signals" });
     expect(binds).toContain("/tmp/signals:/tmp/agent-ci-signals");
   });
 
   it("omits signals bind-mount when signalsDir is undefined", async () => {
-    const { buildContainerBinds } = await import("./container-config.js");
+    const { buildContainerBinds } = await import("./container-config.ts");
     const binds = buildContainerBinds(baseOpts);
     expect(binds.some((b) => b.includes("agent-ci-signals"))).toBe(false);
   });

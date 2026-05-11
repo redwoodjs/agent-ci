@@ -5,7 +5,7 @@ import {
   type HostResources,
   parseRunnerSpecs,
   parseRequestedCpuCount,
-} from "./resource-classifier.js";
+} from "./resource-classifier.ts";
 
 describe("parseRequestedCpuCount", () => {
   it("parses explicit larger-runner labels ending in -cores", () => {

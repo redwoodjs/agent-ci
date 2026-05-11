@@ -1,7 +1,7 @@
 import path from "path";
 import fs from "fs";
-import { getWorkingDirectory } from "./working-directory.js";
-import { getLogsDirectory } from "./logs-directory.js";
+import { getWorkingDirectory } from "./working-directory.ts";
+import { getLogsDirectory } from "./logs-directory.ts";
 
 /** Root of all run directories: `<workingDir>/runs/` */
 function getRunsDir(): string {

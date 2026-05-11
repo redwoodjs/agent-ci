@@ -31,13 +31,12 @@
   "scripts": {
     "build": "tsgo",
     "typecheck": "tsgo",
-    "ts-runner": "tsx src/cli.ts"
+    "ts-runner": "node src/cli.ts"
   },
   "devDependencies": {
-    "@types/node": "^22.10.2",
-    "tsx": "^4.21.0"
+    "@types/node": "^22.10.2"
   },
   "engines": {
-    "node": ">=22"
+    "node": ">=24"
   }
 }

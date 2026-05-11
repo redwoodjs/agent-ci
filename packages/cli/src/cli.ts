@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import fs from "node:fs";
 import path from "node:path";
-import { applyAgentCiEnv } from "./config.js";
+import { applyAgentCiEnv } from "./config.ts";
 
 function resolveRepoRoot() {
   let repoRoot = process.cwd();
@@ -37,13 +37,13 @@ async function main() {
   // don't pay the cost of loading dockerode/grpc-js/protobufjs/ssh2 and the
   // full workflow parser. See issue #334.
   if (command === "run") {
-    const { default: runCmd } = await import("./commands/run.js");
+    const { default: runCmd } = await import("./commands/run.ts");
     await runCmd(args);
   } else if (command === "retry" || command === "abort") {
-    const { default: retryAbort } = await import("./commands/retry-abort.js");
+    const { default: retryAbort } = await import("./commands/retry-abort.ts");
     await retryAbort(command, args);
   } else if (command === "clean") {
-    const { default: clean } = await import("./commands/clean.js");
+    const { default: clean } = await import("./commands/clean.ts");
     clean();
   } else {
     printUsage();

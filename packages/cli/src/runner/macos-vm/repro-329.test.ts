@@ -46,7 +46,7 @@ describe("issue-329 reproduction: getIp swallows runCommand rejection", () => {
     const child = makeFakeChild();
     vi.mocked(childProcess.spawn).mockReturnValue(child as never);
 
-    const { getIp } = await import("./tart.js");
+    const { getIp } = await import("./tart.ts");
     const promise = getIp("agent-ci-macos-cold-boot");
 
     // Same code path runCommand hits when its timer fires and the SIGKILL
@@ -60,7 +60,7 @@ describe("issue-329 reproduction: getIp swallows runCommand rejection", () => {
     const child = makeFakeChild();
     vi.mocked(childProcess.spawn).mockReturnValue(child as never);
 
-    const { getIp } = await import("./tart.js");
+    const { getIp } = await import("./tart.ts");
     const promise = getIp("vm-not-yet-leased");
 
     queueMicrotask(() => child.emit("close", 1));
@@ -72,7 +72,7 @@ describe("issue-329 reproduction: getIp swallows runCommand rejection", () => {
     const child = makeFakeChild();
     vi.mocked(childProcess.spawn).mockReturnValue(child as never);
 
-    const { getIp } = await import("./tart.js");
+    const { getIp } = await import("./tart.ts");
     const promise = getIp("vm-ready");
 
     queueMicrotask(() => {

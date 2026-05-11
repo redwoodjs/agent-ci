@@ -1,4 +1,4 @@
-import { Polka } from "polka";
+import type { Polka } from "polka";
 import { execSync } from "node:child_process";
 import crypto from "node:crypto";
 import fs from "node:fs";
@@ -6,9 +6,9 @@ import https from "node:https";
 import http from "node:http";
 import os from "node:os";
 import path from "node:path";
-import { state, getActionTarballsDir } from "../../store.js";
-import { getBaseUrl } from "../dtu.js";
-import { createJobResponse } from "./generators.js";
+import { state, getActionTarballsDir } from "../../store.ts";
+import { getBaseUrl } from "../dtu.ts";
+import { createJobResponse } from "./generators.ts";
 
 // ─── Action tarball cache ──────────────────────────────────────────────────────
 // Downloads action tarballs from GitHub on first use and serves them from disk

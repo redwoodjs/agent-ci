@@ -1,7 +1,7 @@
 import { exec, execSync } from "child_process";
 import { promisify } from "util";
-import { copyWorkspace } from "../output/cleanup.js";
-import { findRepoRoot } from "./metadata.js";
+import { copyWorkspace } from "../output/cleanup.ts";
+import { findRepoRoot } from "./metadata.ts";
 
 const execAsync = promisify(exec);
 

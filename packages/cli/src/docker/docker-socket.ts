@@ -2,7 +2,7 @@ import fs from "fs";
 import os from "os";
 import path from "path";
 import { execSync } from "child_process";
-import { debugRunner } from "../output/debug.js";
+import { debugRunner } from "../output/debug.ts";
 
 const DEFAULT_SOCKET = "/var/run/docker.sock";
 const DOCS_URL =

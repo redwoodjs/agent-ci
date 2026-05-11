@@ -9,7 +9,7 @@ import {
   tartListArgs,
   sshArgs,
   rsyncArgs,
-} from "./tart.js";
+} from "./tart.ts";
 
 describe("tart argv builders", () => {
   it("tartPullArgs", () => {

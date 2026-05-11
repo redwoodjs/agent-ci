@@ -20,7 +20,7 @@
 import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
-import { resolveStateDir } from "./run-result-writer.js";
+import { resolveStateDir } from "./run-result-writer.ts";
 
 export const PAUSED_EXIT_CODE = 77;
 /** Set by the launcher on the worker child. Presence = detached; value = worker log path. */

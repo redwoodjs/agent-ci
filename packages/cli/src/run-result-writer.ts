@@ -2,7 +2,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import type { JobResult } from "./output/reporter.js";
+import type { JobResult } from "./output/reporter.ts";
 
 export const RUN_RESULT_SCHEMA_VERSION = 1;
 

@@ -1,4 +1,4 @@
-import { resolveLogsDir } from "../run-result-writer.js";
+import { resolveLogsDir } from "../run-result-writer.ts";
 
 let override: string | null = null;
 

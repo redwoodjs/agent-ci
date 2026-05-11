@@ -5,20 +5,20 @@ import path from "node:path";
 import type { ChildProcess } from "node:child_process";
 import { startEphemeralDtu } from "dtu-github-actions/ephemeral";
 
-import { Job } from "../../types.js";
-import { getWorkingDirectory } from "../../output/working-directory.js";
-import { createLogContext } from "../../output/logger.js";
-import { debugRunner, debugBoot } from "../../output/debug.js";
-import { type JobResult } from "../../output/reporter.js";
-import { buildJobResult, isJobSuccessful } from "../result-builder.js";
-import { writeJobMetadata } from "../metadata.js";
-import { appendOutputCaptureStep } from "../step-wrapper.js";
-import { writeRunnerCredentials } from "../runner-credentials.js";
-import { classifyRunsOn } from "../runs-on-compat.js";
-import { parseJobRunsOn } from "../../workflow/workflow-parser.js";
+import type { Job } from "../../types.ts";
+import { getWorkingDirectory } from "../../output/working-directory.ts";
+import { createLogContext } from "../../output/logger.ts";
+import { debugRunner, debugBoot } from "../../output/debug.ts";
+import { type JobResult } from "../../output/reporter.ts";
+import { buildJobResult, isJobSuccessful } from "../result-builder.ts";
+import { writeJobMetadata } from "../metadata.ts";
+import { appendOutputCaptureStep } from "../step-wrapper.ts";
+import { writeRunnerCredentials } from "../runner-credentials.ts";
+import { classifyRunsOn } from "../runs-on-compat.ts";
+import { parseJobRunsOn } from "../../workflow/workflow-parser.ts";
 
-import { checkMacosVmHost } from "./host-capability.js";
-import { createSemaphore } from "./semaphore.js";
+import { checkMacosVmHost } from "./host-capability.ts";
+import { createSemaphore } from "./semaphore.ts";
 import {
   listImages,
   pullImage,
@@ -32,9 +32,9 @@ import {
   stop as vmStop,
   destroy as vmDestroy,
   type SshCreds,
-} from "./tart.js";
-import { ensureMacosRunnerBinary } from "./runner-binary.js";
-import { resolveMacosVmImage } from "./image-mapping.js";
+} from "./tart.ts";
+import { ensureMacosRunnerBinary } from "./runner-binary.ts";
+import { resolveMacosVmImage } from "./image-mapping.ts";
 
 // ─── Tunables (env-overridable) ───────────────────────────────────────────────
 

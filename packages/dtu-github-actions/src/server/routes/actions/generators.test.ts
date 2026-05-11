@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { createJobResponse } from "./generators.js";
+import { createJobResponse } from "./generators.ts";
 
 describe("createJobResponse", () => {
   const basePayload = {

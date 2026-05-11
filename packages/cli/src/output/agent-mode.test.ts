@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from "vitest";
-import { isAgentMode, setQuietMode } from "./agent-mode.js";
+import { isAgentMode, setQuietMode } from "./agent-mode.ts";
 
 describe("isAgentMode", () => {
   const originalEnv = process.env.AI_AGENT;

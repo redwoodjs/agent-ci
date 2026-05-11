@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { renderTree, type TreeNode } from "./tree-renderer.js";
+import { renderTree, type TreeNode } from "./tree-renderer.ts";
 
 describe("renderTree", () => {
   it("renders a single root node", () => {

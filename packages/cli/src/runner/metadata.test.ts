@@ -17,7 +17,7 @@ describe("findRepoRoot", () => {
   });
 
   it("finds the .git root from a deeply nested path", async () => {
-    const { findRepoRoot } = await import("./metadata.js");
+    const { findRepoRoot } = await import("./metadata.ts");
     // Create .git at root level
     fs.mkdirSync(path.join(tmpDir, ".git"));
     // Create a deeply nested file
@@ -29,7 +29,7 @@ describe("findRepoRoot", () => {
   });
 
   it("returns undefined when no .git exists", async () => {
-    const { findRepoRoot } = await import("./metadata.js");
+    const { findRepoRoot } = await import("./metadata.ts");
     const file = path.join(tmpDir, "file.txt");
     fs.writeFileSync(file, "test");
 
@@ -41,7 +41,7 @@ describe("findRepoRoot", () => {
 
 describe("deriveWorkflowRunId", () => {
   it("strips job/matrix/retry suffixes", async () => {
-    const { deriveWorkflowRunId } = await import("./metadata.js");
+    const { deriveWorkflowRunId } = await import("./metadata.ts");
 
     expect(deriveWorkflowRunId("agent-ci-redwoodjssdk-14-j1-m2-r2")).toBe(
       "agent-ci-redwoodjssdk-14",
@@ -51,7 +51,7 @@ describe("deriveWorkflowRunId", () => {
   });
 
   it("handles names without suffixes", async () => {
-    const { deriveWorkflowRunId } = await import("./metadata.js");
+    const { deriveWorkflowRunId } = await import("./metadata.ts");
 
     expect(deriveWorkflowRunId("simple-runner")).toBe("simple-runner");
   });
@@ -76,7 +76,7 @@ describe("writeJobMetadata", () => {
   });
 
   it("writes metadata.json with expected fields", async () => {
-    const { writeJobMetadata } = await import("./metadata.js");
+    const { writeJobMetadata } = await import("./metadata.ts");
     const logDir = path.join(tmpDir, "logs");
     fs.mkdirSync(logDir, { recursive: true });
     const workflowPath = path.join(repoDir, ".github", "workflows", "ci.yml");
@@ -106,7 +106,7 @@ describe("writeJobMetadata", () => {
   });
 
   it("preserves orchestrator-written fields on merge", async () => {
-    const { writeJobMetadata } = await import("./metadata.js");
+    const { writeJobMetadata } = await import("./metadata.ts");
     const logDir = path.join(tmpDir, "logs");
     fs.mkdirSync(logDir, { recursive: true });
     const workflowPath = path.join(repoDir, ".github", "workflows", "ci.yml");
@@ -144,7 +144,7 @@ describe("writeJobMetadata", () => {
   });
 
   it("does nothing when workflowPath is not set", async () => {
-    const { writeJobMetadata } = await import("./metadata.js");
+    const { writeJobMetadata } = await import("./metadata.ts");
     const logDir = path.join(tmpDir, "logs");
     fs.mkdirSync(logDir, { recursive: true });
 

@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import fs from "fs";
 import os from "os";
 import path from "path";
-import { RunStateStore, type RunState } from "./run-state.js";
+import { RunStateStore, type RunState } from "./run-state.ts";
 
 let tmpDir: string;
 

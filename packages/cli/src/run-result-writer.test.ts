@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import type { JobResult } from "./output/reporter.js";
+import type { JobResult } from "./output/reporter.ts";
 import {
   buildRunResultJson,
   resolveRunResultPath,
@@ -10,7 +10,7 @@ import {
   RUN_RESULT_SCHEMA_VERSION,
   worktreePathHash,
   writeRunResult,
-} from "./run-result-writer.js";
+} from "./run-result-writer.ts";
 
 function job(overrides: Partial<JobResult> = {}): JobResult {
   return {

@@ -1,9 +1,9 @@
 import { execSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
-import { getWorkingDirectory } from "../output/working-directory.js";
-import { syncWorkspaceForRetry } from "../runner/sync.js";
-import { readDetachedMarker, tailRetryUntilOutcome } from "../launcher.js";
+import { getWorkingDirectory } from "../output/working-directory.ts";
+import { syncWorkspaceForRetry } from "../runner/sync.ts";
+import { readDetachedMarker, tailRetryUntilOutcome } from "../launcher.ts";
 
 function findSignalsDir(runnerName: string): string | null {
   const workDir = getWorkingDirectory();

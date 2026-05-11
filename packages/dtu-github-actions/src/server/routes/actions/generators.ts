@@ -11,13 +11,13 @@ function createMockJwt(planId: string, jobId: string): string {
   ).toString("base64url");
   return `${header}.${payload}.mock-signature`;
 }
-import {
+import type {
   MessageResponse,
   JobStep,
   JobVariable,
   ContextData,
   PipelineAgentJobRequest,
-} from "../../../types.js";
+} from "../../../types.ts";
 
 // Helper to convert JS objects to ContextData
 function toContextData(obj: any): any {

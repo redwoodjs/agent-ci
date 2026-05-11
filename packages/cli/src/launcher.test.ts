@@ -14,7 +14,7 @@ import {
   readDetachedMarker,
   shouldLaunchDetached,
   writeDetachedMarker,
-} from "./launcher.js";
+} from "./launcher.ts";
 
 describe("formatEvent / parseLogEvent — run.paused", () => {
   it("round-trips a paused event", () => {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import Docker from "dockerode";
-import type { DockerSocket } from "../docker/docker-socket.js";
+import type { DockerSocket } from "../docker/docker-socket.ts";
 
 // End-to-end reproduction for #322: when AGENT_CI_DOCKER_HOST is an ssh:// URI,
 // the Docker client must be wired so docker-modem ends up with the parsed
@@ -11,7 +11,7 @@ import type { DockerSocket } from "../docker/docker-socket.js";
 // the literal URI and fail with `getaddrinfo ENOTFOUND`.
 describe("getDocker SSH wiring (#322)", () => {
   it("constructs a Docker client whose modem has the parsed hostname, not the URI", async () => {
-    const mod = await import("./local-job.js");
+    const mod = await import("./local-job.ts");
     const socket: DockerSocket = {
       socketPath: "",
       uri: "ssh://user@remote-host",

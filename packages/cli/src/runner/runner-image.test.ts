@@ -8,7 +8,7 @@ import {
   detectToolcacheHint,
   UPSTREAM_RUNNER_IMAGE,
   type ResolvedRunnerImage,
-} from "./runner-image.js";
+} from "./runner-image.ts";
 
 describe("discoverRunnerImage", () => {
   let repoDir: string;

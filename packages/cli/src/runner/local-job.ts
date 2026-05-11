@@ -5,27 +5,27 @@ import fsp from "fs/promises";
 import { exec, execSync } from "child_process";
 import { promisify } from "util";
 import { createInterface } from "readline";
-import { config } from "../config.js";
-import { Job } from "../types.js";
-import { createLogContext } from "../output/logger.js";
-import { getWorkingDirectory } from "../output/working-directory.js";
+import { config } from "../config.ts";
+import type { Job } from "../types.ts";
+import { createLogContext } from "../output/logger.ts";
+import { getWorkingDirectory } from "../output/working-directory.ts";
 
-import { debugRunner, debugBoot } from "../output/debug.js";
+import { debugRunner, debugBoot } from "../output/debug.ts";
 import {
   startServiceContainers,
   cleanupServiceContainers,
   type ServiceContext,
-} from "../docker/service-containers.js";
-import { killRunnerContainers } from "../docker/shutdown.js";
+} from "../docker/service-containers.ts";
+import { killRunnerContainers } from "../docker/shutdown.ts";
 import { startEphemeralDtu } from "dtu-github-actions/ephemeral";
-import { type JobResult, tailLogFile } from "../output/reporter.js";
-import { RunStateStore, type StepState } from "../output/run-state.js";
+import { type JobResult, tailLogFile } from "../output/reporter.ts";
+import { RunStateStore, type StepState } from "../output/run-state.ts";
 
-import { writeJobMetadata } from "./metadata.js";
-import { writeGitShim } from "./git-shim.js";
-import { prepareWorkspace } from "./workspace.js";
-import { createRunDirectories } from "./directory-setup.js";
-import { writeDetachedMarker } from "../launcher.js";
+import { writeJobMetadata } from "./metadata.ts";
+import { writeGitShim } from "./git-shim.ts";
+import { prepareWorkspace } from "./workspace.ts";
+import { createRunDirectories } from "./directory-setup.ts";
+import { writeDetachedMarker } from "../launcher.ts";
 import {
   buildContainerEnv,
   buildContainerBinds,
@@ -34,18 +34,18 @@ import {
   resolveDtuHost,
   resolveDockerApiUrl,
   resolveDockerExtraHosts,
-} from "../docker/container-config.js";
-import { buildJobResult, isJobSuccessful } from "./result-builder.js";
-import { ensureImagePulled } from "../docker/image-pull.js";
-import { wrapJobSteps, appendOutputCaptureStep } from "./step-wrapper.js";
-import { syncWorkspaceForRetry } from "./sync.js";
+} from "../docker/container-config.ts";
+import { buildJobResult, isJobSuccessful } from "./result-builder.ts";
+import { ensureImagePulled } from "../docker/image-pull.ts";
+import { wrapJobSteps, appendOutputCaptureStep } from "./step-wrapper.ts";
+import { syncWorkspaceForRetry } from "./sync.ts";
 import {
   discoverRunnerImage,
   ensureRunnerImage,
   UPSTREAM_RUNNER_IMAGE,
   type ResolvedRunnerImage,
-} from "./runner-image.js";
-import { findRepoRoot } from "./metadata.js";
+} from "./runner-image.ts";
+import { findRepoRoot } from "./metadata.ts";
 
 // Fix permissions after extracting runner from container.
 // docker cp and cp -a copy files with restrictive permissions (often root-owned),
@@ -76,7 +76,7 @@ function ensureRunnerWriteable(rootDir: string): void {
 
 // ─── Docker setup ─────────────────────────────────────────────────────────────
 
-import { resolveDockerSocket, type DockerSocket } from "../docker/docker-socket.js";
+import { resolveDockerSocket, type DockerSocket } from "../docker/docker-socket.ts";
 
 let _resolvedSocket: DockerSocket | null = null;
 let _docker: Docker | null = null;
@@ -128,7 +128,7 @@ export function __test_createDockerClient(socket: DockerSocket): Docker {
 // discoverRunnerImage() and may be a user-provided Dockerfile build.
 const SEED_IMAGE = UPSTREAM_RUNNER_IMAGE;
 
-import { writeRunnerCredentials } from "./runner-credentials.js";
+import { writeRunnerCredentials } from "./runner-credentials.ts";
 
 const CONTAINER_EXIT_TIMEOUT_MS = 30_000;
 

@@ -1,9 +1,9 @@
-import { Polka } from "polka";
+import type { Polka } from "polka";
 import fs from "node:fs";
 import path from "node:path";
-import { state } from "../store.js";
-import { getBaseUrl } from "./dtu.js";
-import { config } from "../../config.js";
+import { state } from "../store.ts";
+import { getBaseUrl } from "./dtu.ts";
+import { config } from "../../config.ts";
 
 const ARTIFACT_DIR = path.join(config.DTU_CACHE_DIR, "artifacts");
 if (!fs.existsSync(ARTIFACT_DIR)) {

@@ -1,5 +1,5 @@
 import fs from "fs";
-import { isJsonMode } from "./agent-mode.js";
+import { isJsonMode } from "./agent-mode.ts";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 

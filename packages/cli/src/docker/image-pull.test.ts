@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll } from "vitest";
 import Docker from "dockerode";
-import { ensureImagePulled } from "./image-pull.js";
-import { resolveDockerSocket } from "./docker-socket.js";
+import { ensureImagePulled } from "./image-pull.ts";
+import { resolveDockerSocket } from "./docker-socket.ts";
 
 // Integration test: requires a running Docker daemon and network access.
 // Uses hello-world (~13 KB) to keep pull time minimal.

@@ -29,7 +29,7 @@ afterEach(() => {
 
 async function importFreshSocket() {
   vi.resetModules();
-  return import("./docker-socket.js");
+  return import("./docker-socket.ts");
 }
 
 describe("issue-197 reproduction: Docker Desktop bind mount path", () => {
@@ -68,7 +68,7 @@ describe("issue-197 reproduction: Docker Desktop bind mount path", () => {
     vi.spyOn(fs, "accessSync").mockReturnValue(undefined);
 
     const { resolveDockerSocket } = await importFreshSocket();
-    const { buildContainerBinds } = await import("./container-config.js");
+    const { buildContainerBinds } = await import("./container-config.ts");
 
     const socket = resolveDockerSocket();
 

@@ -1,7 +1,7 @@
 import { execSync } from "node:child_process";
-import { Polka } from "polka";
-import { state } from "../store.js";
-import { getBaseUrl } from "./dtu.js";
+import type { Polka } from "polka";
+import { state } from "../store.ts";
+import { getBaseUrl } from "./dtu.ts";
 
 const EMPTY_TARBALL = execSync("tar czf - -T /dev/null");
 

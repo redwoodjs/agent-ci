@@ -49,7 +49,7 @@ describe("copyWorkspace", () => {
   });
 
   it("copies tracked files", async () => {
-    const { copyWorkspace } = await import("./cleanup.js");
+    const { copyWorkspace } = await import("./cleanup.ts");
     copyWorkspace(repoDir, destDir);
 
     expect(fs.existsSync(path.join(destDir, "README.md"))).toBe(true);
@@ -59,7 +59,7 @@ describe("copyWorkspace", () => {
   });
 
   it("copies untracked-but-not-ignored files", async () => {
-    const { copyWorkspace } = await import("./cleanup.js");
+    const { copyWorkspace } = await import("./cleanup.ts");
     copyWorkspace(repoDir, destDir);
 
     expect(fs.existsSync(path.join(destDir, "newfile.txt"))).toBe(true);
@@ -69,7 +69,7 @@ describe("copyWorkspace", () => {
   });
 
   it("excludes gitignored files", async () => {
-    const { copyWorkspace } = await import("./cleanup.js");
+    const { copyWorkspace } = await import("./cleanup.ts");
     copyWorkspace(repoDir, destDir);
 
     expect(fs.existsSync(path.join(destDir, "node_modules"))).toBe(false);
@@ -78,7 +78,7 @@ describe("copyWorkspace", () => {
   });
 
   it("preserves nested directory structure", async () => {
-    const { copyWorkspace } = await import("./cleanup.js");
+    const { copyWorkspace } = await import("./cleanup.ts");
     copyWorkspace(repoDir, destDir);
 
     expect(fs.readFileSync(path.join(destDir, "src", "index.ts"), "utf-8")).toBe(
@@ -96,7 +96,7 @@ describe("copyWorkspace", () => {
     execSync("git add .", { cwd: repoDir, stdio: "pipe" });
     execSync('git commit -m "add symlink"', { cwd: repoDir, stdio: "pipe" });
 
-    const { copyWorkspace } = await import("./cleanup.js");
+    const { copyWorkspace } = await import("./cleanup.ts");
     copyWorkspace(repoDir, destDir);
 
     const copiedLink = path.join(destDir, "packages", "pkg-a", "types");
@@ -123,7 +123,7 @@ describe("computeLockfileHash", () => {
   });
 
   it("returns a hex string for a repo with a tracked lockfile", async () => {
-    const { computeLockfileHash } = await import("./cleanup.js");
+    const { computeLockfileHash } = await import("./cleanup.ts");
     fs.writeFileSync(path.join(repoDir, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n");
     execSync("git add .", { cwd: repoDir, stdio: "pipe" });
     execSync('git commit -m "init"', { cwd: repoDir, stdio: "pipe" });
@@ -133,7 +133,7 @@ describe("computeLockfileHash", () => {
   });
 
   it("returns the same hash for the same lockfile content", async () => {
-    const { computeLockfileHash } = await import("./cleanup.js");
+    const { computeLockfileHash } = await import("./cleanup.ts");
     fs.writeFileSync(path.join(repoDir, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n");
     execSync("git add .", { cwd: repoDir, stdio: "pipe" });
     execSync('git commit -m "init"', { cwd: repoDir, stdio: "pipe" });
@@ -142,7 +142,7 @@ describe("computeLockfileHash", () => {
   });
 
   it("returns a different hash when lockfile content changes", async () => {
-    const { computeLockfileHash } = await import("./cleanup.js");
+    const { computeLockfileHash } = await import("./cleanup.ts");
     fs.writeFileSync(path.join(repoDir, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n");
     execSync("git add .", { cwd: repoDir, stdio: "pipe" });
     execSync('git commit -m "init"', { cwd: repoDir, stdio: "pipe" });
@@ -157,7 +157,7 @@ describe("computeLockfileHash", () => {
   });
 
   it("returns 'no-lockfile' when no lockfile exists", async () => {
-    const { computeLockfileHash } = await import("./cleanup.js");
+    const { computeLockfileHash } = await import("./cleanup.ts");
     // Empty repo, no lockfile
     fs.writeFileSync(path.join(repoDir, "README.md"), "hi");
     execSync("git add .", { cwd: repoDir, stdio: "pipe" });
@@ -167,7 +167,7 @@ describe("computeLockfileHash", () => {
   });
 
   it("detects package-lock.json (npm)", async () => {
-    const { computeLockfileHash } = await import("./cleanup.js");
+    const { computeLockfileHash } = await import("./cleanup.ts");
     fs.writeFileSync(path.join(repoDir, "package-lock.json"), '{"lockfileVersion": 3}');
     execSync("git add .", { cwd: repoDir, stdio: "pipe" });
     execSync('git commit -m "init"', { cwd: repoDir, stdio: "pipe" });
@@ -177,7 +177,7 @@ describe("computeLockfileHash", () => {
   });
 
   it("detects yarn.lock", async () => {
-    const { computeLockfileHash } = await import("./cleanup.js");
+    const { computeLockfileHash } = await import("./cleanup.ts");
     fs.writeFileSync(path.join(repoDir, "yarn.lock"), "# yarn lockfile v1");
     execSync("git add .", { cwd: repoDir, stdio: "pipe" });
     execSync('git commit -m "init"', { cwd: repoDir, stdio: "pipe" });
@@ -187,7 +187,7 @@ describe("computeLockfileHash", () => {
   });
 
   it("detects bun.lock", async () => {
-    const { computeLockfileHash } = await import("./cleanup.js");
+    const { computeLockfileHash } = await import("./cleanup.ts");
     fs.writeFileSync(path.join(repoDir, "bun.lock"), '{"lockfileVersion": 0}');
     execSync("git add .", { cwd: repoDir, stdio: "pipe" });
     execSync('git commit -m "init"', { cwd: repoDir, stdio: "pipe" });
@@ -211,42 +211,42 @@ describe("detectPackageManager", () => {
   });
 
   it("detects pnpm from pnpm-lock.yaml", async () => {
-    const { detectPackageManager } = await import("./cleanup.js");
+    const { detectPackageManager } = await import("./cleanup.ts");
     fs.writeFileSync(path.join(repoDir, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n");
     expect(detectPackageManager(repoDir)).toBe("pnpm");
   });
 
   it("detects npm from package-lock.json", async () => {
-    const { detectPackageManager } = await import("./cleanup.js");
+    const { detectPackageManager } = await import("./cleanup.ts");
     fs.writeFileSync(path.join(repoDir, "package-lock.json"), '{"lockfileVersion": 3}');
     expect(detectPackageManager(repoDir)).toBe("npm");
   });
 
   it("detects yarn from yarn.lock", async () => {
-    const { detectPackageManager } = await import("./cleanup.js");
+    const { detectPackageManager } = await import("./cleanup.ts");
     fs.writeFileSync(path.join(repoDir, "yarn.lock"), "# yarn lockfile v1");
     expect(detectPackageManager(repoDir)).toBe("yarn");
   });
 
   it("detects bun from bun.lock", async () => {
-    const { detectPackageManager } = await import("./cleanup.js");
+    const { detectPackageManager } = await import("./cleanup.ts");
     fs.writeFileSync(path.join(repoDir, "bun.lock"), '{"lockfileVersion": 0}');
     expect(detectPackageManager(repoDir)).toBe("bun");
   });
 
   it("detects bun from bun.lockb", async () => {
-    const { detectPackageManager } = await import("./cleanup.js");
+    const { detectPackageManager } = await import("./cleanup.ts");
     fs.writeFileSync(path.join(repoDir, "bun.lockb"), Buffer.from([0x00]));
     expect(detectPackageManager(repoDir)).toBe("bun");
   });
 
   it("returns null when no lockfile exists", async () => {
-    const { detectPackageManager } = await import("./cleanup.js");
+    const { detectPackageManager } = await import("./cleanup.ts");
     expect(detectPackageManager(repoDir)).toBeNull();
   });
 
   it("prefers pnpm over npm when both lockfiles exist", async () => {
-    const { detectPackageManager } = await import("./cleanup.js");
+    const { detectPackageManager } = await import("./cleanup.ts");
     fs.writeFileSync(path.join(repoDir, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n");
     fs.writeFileSync(path.join(repoDir, "package-lock.json"), '{"lockfileVersion": 3}');
     expect(detectPackageManager(repoDir)).toBe("pnpm");
@@ -267,19 +267,19 @@ describe("isWarmNodeModules", () => {
   });
 
   it("returns false for a non-existent directory", async () => {
-    const { isWarmNodeModules } = await import("./cleanup.js");
+    const { isWarmNodeModules } = await import("./cleanup.ts");
     expect(isWarmNodeModules(path.join(tmpDir, "does-not-exist"))).toBe(false);
   });
 
   it("returns false for an empty directory", async () => {
-    const { isWarmNodeModules } = await import("./cleanup.js");
+    const { isWarmNodeModules } = await import("./cleanup.ts");
     const emptyDir = path.join(tmpDir, "empty");
     fs.mkdirSync(emptyDir);
     expect(isWarmNodeModules(emptyDir)).toBe(false);
   });
 
   it("returns false when directory has files but no .modules.yaml (corrupted)", async () => {
-    const { isWarmNodeModules } = await import("./cleanup.js");
+    const { isWarmNodeModules } = await import("./cleanup.ts");
     const warmDir = path.join(tmpDir, "warm");
     fs.mkdirSync(warmDir);
     fs.writeFileSync(path.join(warmDir, "some-package"), "content");
@@ -287,7 +287,7 @@ describe("isWarmNodeModules", () => {
   });
 
   it("returns true when directory has .modules.yaml (pnpm)", async () => {
-    const { isWarmNodeModules } = await import("./cleanup.js");
+    const { isWarmNodeModules } = await import("./cleanup.ts");
     const warmDir = path.join(tmpDir, "warm");
     fs.mkdirSync(warmDir);
     fs.writeFileSync(path.join(warmDir, ".modules.yaml"), "hoistedDependencies: {}");
@@ -296,7 +296,7 @@ describe("isWarmNodeModules", () => {
   });
 
   it("returns true when directory has .package-lock.json (npm)", async () => {
-    const { isWarmNodeModules } = await import("./cleanup.js");
+    const { isWarmNodeModules } = await import("./cleanup.ts");
     const warmDir = path.join(tmpDir, "warm-npm");
     fs.mkdirSync(warmDir);
     fs.writeFileSync(path.join(warmDir, ".package-lock.json"), "{}");
@@ -305,7 +305,7 @@ describe("isWarmNodeModules", () => {
   });
 
   it("returns true when directory has .yarn-integrity (yarn)", async () => {
-    const { isWarmNodeModules } = await import("./cleanup.js");
+    const { isWarmNodeModules } = await import("./cleanup.ts");
     const warmDir = path.join(tmpDir, "warm-yarn");
     fs.mkdirSync(warmDir);
     fs.writeFileSync(path.join(warmDir, ".yarn-integrity"), "{}");
@@ -314,7 +314,7 @@ describe("isWarmNodeModules", () => {
   });
 
   it("returns true when directory has .cache (bun)", async () => {
-    const { isWarmNodeModules } = await import("./cleanup.js");
+    const { isWarmNodeModules } = await import("./cleanup.ts");
     const warmDir = path.join(tmpDir, "warm-bun");
     fs.mkdirSync(warmDir);
     fs.mkdirSync(path.join(warmDir, ".cache"));
@@ -337,19 +337,19 @@ describe("repairWarmCache", () => {
   });
 
   it("returns 'cold' for a non-existent directory", async () => {
-    const { repairWarmCache } = await import("./cleanup.js");
+    const { repairWarmCache } = await import("./cleanup.ts");
     expect(repairWarmCache(path.join(tmpDir, "nope"))).toBe("cold");
   });
 
   it("returns 'cold' for an empty directory", async () => {
-    const { repairWarmCache } = await import("./cleanup.js");
+    const { repairWarmCache } = await import("./cleanup.ts");
     const emptyDir = path.join(tmpDir, "empty");
     fs.mkdirSync(emptyDir);
     expect(repairWarmCache(emptyDir)).toBe("cold");
   });
 
   it("returns 'warm' when .modules.yaml exists (pnpm)", async () => {
-    const { repairWarmCache } = await import("./cleanup.js");
+    const { repairWarmCache } = await import("./cleanup.ts");
     const warmDir = path.join(tmpDir, "warm");
     fs.mkdirSync(warmDir);
     fs.writeFileSync(path.join(warmDir, ".modules.yaml"), "ok");
@@ -357,7 +357,7 @@ describe("repairWarmCache", () => {
   });
 
   it("returns 'warm' when .package-lock.json exists (npm)", async () => {
-    const { repairWarmCache } = await import("./cleanup.js");
+    const { repairWarmCache } = await import("./cleanup.ts");
     const warmDir = path.join(tmpDir, "warm-npm");
     fs.mkdirSync(warmDir);
     fs.writeFileSync(path.join(warmDir, ".package-lock.json"), "{}");
@@ -365,7 +365,7 @@ describe("repairWarmCache", () => {
   });
 
   it("returns 'repaired' and nukes a corrupted cache (files but no sentinel)", async () => {
-    const { repairWarmCache } = await import("./cleanup.js");
+    const { repairWarmCache } = await import("./cleanup.ts");
     const brokenDir = path.join(tmpDir, "broken");
     fs.mkdirSync(path.join(brokenDir, ".pnpm", "yaml@2.8.2"), { recursive: true });
     fs.writeFileSync(path.join(brokenDir, ".pnpm", "yaml@2.8.2", "Pair.js"), "broken");

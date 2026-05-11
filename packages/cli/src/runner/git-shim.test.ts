@@ -17,7 +17,7 @@ describe("writeGitShim", () => {
   });
 
   it("creates an executable git shim with the correct SHA", async () => {
-    const { writeGitShim } = await import("./git-shim.js");
+    const { writeGitShim } = await import("./git-shim.ts");
     const sha = "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef";
     writeGitShim(tmpDir, sha);
 
@@ -36,7 +36,7 @@ describe("writeGitShim", () => {
   });
 
   it("includes all required interception clauses", async () => {
-    const { writeGitShim } = await import("./git-shim.js");
+    const { writeGitShim } = await import("./git-shim.ts");
     writeGitShim(tmpDir, "abc");
 
     const content = fs.readFileSync(path.join(tmpDir, "git"), "utf-8");

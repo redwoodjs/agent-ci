@@ -1,6 +1,6 @@
 import http from "node:http";
-import { setCacheDir } from "./server/store.js";
-import { bootstrapAndReturnApp } from "./server/index.js";
+import { setCacheDir } from "./server/store.ts";
+import { bootstrapAndReturnApp } from "./server/index.ts";
 
 export interface EphemeralDtu {
   /** Full URL including port for CLI access (127.0.0.1), e.g. "http://127.0.0.1:49823" */

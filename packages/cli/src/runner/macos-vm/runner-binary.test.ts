@@ -3,7 +3,7 @@ import {
   DEFAULT_MACOS_RUNNER_VERSION,
   macosRunnerTarballUrl,
   resolveMacosRunnerVersion,
-} from "./runner-binary.js";
+} from "./runner-binary.ts";
 
 describe("macosRunnerTarballUrl", () => {
   it("builds the GitHub release URL for the given version", () => {

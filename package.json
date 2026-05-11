@@ -29,6 +29,7 @@
     "@nkzw/oxlint-config": "1.0.1",
     "@types/node": "^25.3.0",
     "@typescript/native-preview": "7.0.0-dev.20260219.1",
+    "fallow": "^2.63.0",
     "husky": "^9.1.7",
     "lint-staged": "^16.2.7",
     "npm-run-all2": "8.0.4",

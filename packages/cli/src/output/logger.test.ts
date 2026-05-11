@@ -20,8 +20,8 @@ describe("Logger utilities", () => {
 
   describe("ensureLogDirs", () => {
     it("creates the runs/ directory", async () => {
-      const { setWorkingDirectory } = await import("./working-directory.js");
-      const { ensureLogDirs } = await import("./logger.js");
+      const { setWorkingDirectory } = await import("./working-directory.ts");
+      const { ensureLogDirs } = await import("./logger.ts");
       setWorkingDirectory(tmpDir);
       ensureLogDirs();
       expect(fs.existsSync(path.join(tmpDir, "runs"))).toBe(true);
@@ -30,15 +30,15 @@ describe("Logger utilities", () => {
 
   describe("getNextLogNum", () => {
     it("returns 1 when runs/ dir is empty or absent", async () => {
-      const { setWorkingDirectory } = await import("./working-directory.js");
-      const { getNextLogNum } = await import("./logger.js");
+      const { setWorkingDirectory } = await import("./working-directory.ts");
+      const { getNextLogNum } = await import("./logger.ts");
       setWorkingDirectory(tmpDir);
       expect(getNextLogNum("agent-ci")).toBe(1);
     });
 
     it("returns next number after existing agent-ci-* entries", async () => {
-      const { setWorkingDirectory } = await import("./working-directory.js");
-      const { getNextLogNum } = await import("./logger.js");
+      const { setWorkingDirectory } = await import("./working-directory.ts");
+      const { getNextLogNum } = await import("./logger.ts");
       setWorkingDirectory(tmpDir);
       fs.mkdirSync(path.join(tmpDir, "runs", "agent-ci-1"), { recursive: true });
       fs.mkdirSync(path.join(tmpDir, "runs", "agent-ci-2"), { recursive: true });
@@ -46,8 +46,8 @@ describe("Logger utilities", () => {
     });
 
     it("counts only the base run number from multi-job names", async () => {
-      const { setWorkingDirectory } = await import("./working-directory.js");
-      const { getNextLogNum } = await import("./logger.js");
+      const { setWorkingDirectory } = await import("./working-directory.ts");
+      const { getNextLogNum } = await import("./logger.ts");
       setWorkingDirectory(tmpDir);
       // Multi-job run: agent-ci-15 with -j1-m2 suffix — base is 15
       fs.mkdirSync(path.join(tmpDir, "runs", "agent-ci-redwoodjssdk-14"), { recursive: true });
@@ -61,9 +61,9 @@ describe("Logger utilities", () => {
 
   describe("createLogContext", () => {
     it("creates runDir under workingDir and logDir under logsDir", async () => {
-      const { setWorkingDirectory } = await import("./working-directory.js");
-      const { setLogsDirectory } = await import("./logs-directory.js");
-      const { createLogContext } = await import("./logger.js");
+      const { setWorkingDirectory } = await import("./working-directory.ts");
+      const { setLogsDirectory } = await import("./logs-directory.ts");
+      const { createLogContext } = await import("./logger.ts");
       setWorkingDirectory(tmpDir);
       setLogsDirectory(logsDir);
 
@@ -78,9 +78,9 @@ describe("Logger utilities", () => {
     });
 
     it("uses preferredName when provided", async () => {
-      const { setWorkingDirectory } = await import("./working-directory.js");
-      const { setLogsDirectory } = await import("./logs-directory.js");
-      const { createLogContext } = await import("./logger.js");
+      const { setWorkingDirectory } = await import("./working-directory.ts");
+      const { setLogsDirectory } = await import("./logs-directory.ts");
+      const { createLogContext } = await import("./logger.ts");
       setWorkingDirectory(tmpDir);
       setLogsDirectory(logsDir);
 
@@ -91,9 +91,9 @@ describe("Logger utilities", () => {
     });
 
     it("auto-increments when no preferredName given", async () => {
-      const { setWorkingDirectory } = await import("./working-directory.js");
-      const { setLogsDirectory } = await import("./logs-directory.js");
-      const { createLogContext } = await import("./logger.js");
+      const { setWorkingDirectory } = await import("./working-directory.ts");
+      const { setLogsDirectory } = await import("./logs-directory.ts");
+      const { createLogContext } = await import("./logger.ts");
       setWorkingDirectory(tmpDir);
       setLogsDirectory(logsDir);
 
@@ -103,9 +103,9 @@ describe("Logger utilities", () => {
     });
 
     it("skips over a directory that already exists (race condition)", async () => {
-      const { setWorkingDirectory } = await import("./working-directory.js");
-      const { setLogsDirectory } = await import("./logs-directory.js");
-      const { createLogContext } = await import("./logger.js");
+      const { setWorkingDirectory } = await import("./working-directory.ts");
+      const { setLogsDirectory } = await import("./logs-directory.ts");
+      const { createLogContext } = await import("./logger.ts");
       setWorkingDirectory(tmpDir);
       setLogsDirectory(logsDir);
 
@@ -120,9 +120,9 @@ describe("Logger utilities", () => {
     });
 
     it("handles multiple consecutive collisions", async () => {
-      const { setWorkingDirectory } = await import("./working-directory.js");
-      const { setLogsDirectory } = await import("./logs-directory.js");
-      const { createLogContext } = await import("./logger.js");
+      const { setWorkingDirectory } = await import("./working-directory.ts");
+      const { setLogsDirectory } = await import("./logs-directory.ts");
+      const { createLogContext } = await import("./logger.ts");
       setWorkingDirectory(tmpDir);
       setLogsDirectory(logsDir);
 
@@ -138,9 +138,9 @@ describe("Logger utilities", () => {
     });
 
     it("concurrent calls each get a unique directory", async () => {
-      const { setWorkingDirectory } = await import("./working-directory.js");
-      const { setLogsDirectory } = await import("./logs-directory.js");
-      const { createLogContext } = await import("./logger.js");
+      const { setWorkingDirectory } = await import("./working-directory.ts");
+      const { setLogsDirectory } = await import("./logs-directory.ts");
+      const { createLogContext } = await import("./logger.ts");
       setWorkingDirectory(tmpDir);
       setLogsDirectory(logsDir);
 

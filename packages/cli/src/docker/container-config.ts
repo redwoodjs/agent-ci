@@ -232,7 +232,7 @@ export function buildContainerCmd(opts: ContainerCmdOpts): string[] {
 
 import fs from "fs";
 import { execSync } from "child_process";
-import { debugRunner } from "../output/debug.js";
+import { debugRunner } from "../output/debug.ts";
 
 const DEFAULT_DTU_HOST_ALIAS = "host.docker.internal";
 const DEFAULT_DOCKER_BRIDGE_GATEWAY = "172.17.0.1";

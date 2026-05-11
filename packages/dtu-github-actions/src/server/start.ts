@@ -1,6 +1,6 @@
-import { config } from "../config.js";
-import { bootstrapAndReturnApp } from "./index.js";
-import { getDtuLogPath, setWorkingDirectory, DTU_ROOT } from "./logger.js";
+import { config } from "../config.ts";
+import { bootstrapAndReturnApp } from "./index.ts";
+import { getDtuLogPath, setWorkingDirectory, DTU_ROOT } from "./logger.ts";
 import path from "node:path";
 
 let workingDir = process.env.AGENT_CI_WORKING_DIR;

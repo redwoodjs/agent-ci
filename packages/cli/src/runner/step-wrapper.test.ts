@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { wrapStepScript, wrapJobSteps } from "./step-wrapper.js";
+import { wrapStepScript, wrapJobSteps } from "./step-wrapper.ts";
 
 // ── wrapStepScript ────────────────────────────────────────────────────────────
 

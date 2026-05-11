@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { DockerSocket } from "../docker/docker-socket.js";
+import type { DockerSocket } from "../docker/docker-socket.ts";
 
 const dockerCtor = vi.fn();
 
@@ -17,7 +17,7 @@ afterEach(() => {
 
 describe("getDocker client construction", () => {
   it("uses socketPath for unix sockets", async () => {
-    const mod = await import("./local-job.js");
+    const mod = await import("./local-job.ts");
     const socket: DockerSocket = {
       socketPath: "/tmp/docker.sock",
       uri: "unix:///tmp/docker.sock",
@@ -30,7 +30,7 @@ describe("getDocker client construction", () => {
   });
 
   it("parses ssh URIs into host/username/port (#322)", async () => {
-    const mod = await import("./local-job.js");
+    const mod = await import("./local-job.ts");
     const socket: DockerSocket = {
       socketPath: "",
       uri: "ssh://user@remote-host",
@@ -51,7 +51,7 @@ describe("getDocker client construction", () => {
   });
 
   it("parses ssh URIs with explicit port", async () => {
-    const mod = await import("./local-job.js");
+    const mod = await import("./local-job.ts");
     const socket: DockerSocket = {
       socketPath: "",
       uri: "ssh://deploy@remote-host:2222",
@@ -70,7 +70,7 @@ describe("getDocker client construction", () => {
   });
 
   it("parses ssh URIs without an explicit username", async () => {
-    const mod = await import("./local-job.js");
+    const mod = await import("./local-job.ts");
     const socket: DockerSocket = {
       socketPath: "",
       uri: "ssh://remote-host",
@@ -89,7 +89,7 @@ describe("getDocker client construction", () => {
   });
 
   it("falls back to dockerode environment parsing for tcp URIs", async () => {
-    const mod = await import("./local-job.js");
+    const mod = await import("./local-job.ts");
     const socket: DockerSocket = {
       socketPath: "",
       uri: "tcp://192.168.110.1:2375",

@@ -11,7 +11,7 @@ afterEach(() => {
 // Fresh import each test so module-level DEFAULT_WORKING_DIR is recomputed
 async function importFresh() {
   vi.resetModules();
-  return import("./working-directory.js");
+  return import("./working-directory.ts");
 }
 
 describe("DEFAULT_WORKING_DIR", () => {

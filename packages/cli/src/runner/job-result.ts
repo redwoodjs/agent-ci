@@ -1,5 +1,5 @@
 import path from "path";
-import type { JobResult } from "../output/reporter.js";
+import type { JobResult } from "../output/reporter.ts";
 
 export interface JobError {
   taskName: string;

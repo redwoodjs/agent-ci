@@ -1,10 +1,10 @@
 import path from "path";
 import fs from "fs";
-import { getWorkingDirectory } from "../output/working-directory.js";
-import { computeLockfileHash, detectPackageManager, repairWarmCache } from "../output/cleanup.js";
-import type { PackageManager } from "../output/cleanup.js";
-import { findRepoRoot } from "./metadata.js";
-import { debugRunner } from "../output/debug.js";
+import { getWorkingDirectory } from "../output/working-directory.ts";
+import { computeLockfileHash, detectPackageManager, repairWarmCache } from "../output/cleanup.ts";
+import type { PackageManager } from "../output/cleanup.ts";
+import { findRepoRoot } from "./metadata.ts";
+import { debugRunner } from "../output/debug.ts";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 

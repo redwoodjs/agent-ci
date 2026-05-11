@@ -10,7 +10,7 @@ import {
   loadMachineSecrets,
   parseRepoSlug,
   resolveRepoSlug,
-} from "./config.js";
+} from "./config.ts";
 
 describe("parseRepoSlug", () => {
   it.each([

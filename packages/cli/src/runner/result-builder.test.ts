@@ -17,7 +17,7 @@ describe("parseTimelineSteps", () => {
   });
 
   it("parses succeeded, failed, and skipped steps", async () => {
-    const { parseTimelineSteps } = await import("./result-builder.js");
+    const { parseTimelineSteps } = await import("./result-builder.ts");
     const timelinePath = path.join(tmpDir, "timeline.json");
     fs.writeFileSync(
       timelinePath,
@@ -39,12 +39,12 @@ describe("parseTimelineSteps", () => {
   });
 
   it("returns empty array when file does not exist", async () => {
-    const { parseTimelineSteps } = await import("./result-builder.js");
+    const { parseTimelineSteps } = await import("./result-builder.ts");
     expect(parseTimelineSteps(path.join(tmpDir, "nope.json"))).toEqual([]);
   });
 
   it("filters out non-Task records", async () => {
-    const { parseTimelineSteps } = await import("./result-builder.js");
+    const { parseTimelineSteps } = await import("./result-builder.ts");
     const timelinePath = path.join(tmpDir, "timeline.json");
     fs.writeFileSync(
       timelinePath,
@@ -60,7 +60,7 @@ describe("parseTimelineSteps", () => {
   });
 
   it("attaches per-step logPath when logDir is given and the file exists", async () => {
-    const { parseTimelineSteps } = await import("./result-builder.js");
+    const { parseTimelineSteps } = await import("./result-builder.ts");
     const stepsDir = path.join(tmpDir, "steps");
     fs.mkdirSync(stepsDir, { recursive: true });
     // Sanitized name match
@@ -85,7 +85,7 @@ describe("parseTimelineSteps", () => {
   });
 
   it("leaves logPath undefined when logDir is omitted", async () => {
-    const { parseTimelineSteps } = await import("./result-builder.js");
+    const { parseTimelineSteps } = await import("./result-builder.ts");
     const timelinePath = path.join(tmpDir, "timeline.json");
     fs.writeFileSync(
       timelinePath,
@@ -100,22 +100,22 @@ describe("parseTimelineSteps", () => {
 
 describe("sanitizeStepName", () => {
   it("replaces special characters with hyphens", async () => {
-    const { sanitizeStepName } = await import("./result-builder.js");
+    const { sanitizeStepName } = await import("./result-builder.ts");
     expect(sanitizeStepName("Run npm test (shard 1/3)")).toBe("Run-npm-test-shard-1-3");
   });
 
   it("collapses multiple hyphens", async () => {
-    const { sanitizeStepName } = await import("./result-builder.js");
+    const { sanitizeStepName } = await import("./result-builder.ts");
     expect(sanitizeStepName("a   b---c")).toBe("a-b-c");
   });
 
   it("strips leading and trailing hyphens", async () => {
-    const { sanitizeStepName } = await import("./result-builder.js");
+    const { sanitizeStepName } = await import("./result-builder.ts");
     expect(sanitizeStepName("--test--")).toBe("test");
   });
 
   it("truncates to 80 characters", async () => {
-    const { sanitizeStepName } = await import("./result-builder.js");
+    const { sanitizeStepName } = await import("./result-builder.ts");
     const long = "a".repeat(100);
     expect(sanitizeStepName(long).length).toBe(80);
   });
@@ -135,7 +135,7 @@ describe("extractFailureDetails", () => {
   });
 
   it("extracts exit code from the issues array", async () => {
-    const { extractFailureDetails } = await import("./result-builder.js");
+    const { extractFailureDetails } = await import("./result-builder.ts");
     const timelinePath = path.join(tmpDir, "timeline.json");
     fs.writeFileSync(
       timelinePath,
@@ -154,7 +154,7 @@ describe("extractFailureDetails", () => {
   });
 
   it("finds the step log file via sanitized name", async () => {
-    const { extractFailureDetails } = await import("./result-builder.js");
+    const { extractFailureDetails } = await import("./result-builder.ts");
     const stepsDir = path.join(tmpDir, "steps");
     fs.mkdirSync(stepsDir, { recursive: true });
     fs.writeFileSync(path.join(stepsDir, "Run-tests.log"), "error line 1\nerror line 2\n");
@@ -178,7 +178,7 @@ describe("extractFailureDetails", () => {
   });
 
   it("returns empty object when no matching record exists", async () => {
-    const { extractFailureDetails } = await import("./result-builder.js");
+    const { extractFailureDetails } = await import("./result-builder.ts");
     const timelinePath = path.join(tmpDir, "timeline.json");
     fs.writeFileSync(timelinePath, JSON.stringify([]));
 
@@ -191,28 +191,28 @@ describe("extractFailureDetails", () => {
 
 describe("isJobSuccessful", () => {
   it("succeeds when no failed step, exit code 0, and not booting", async () => {
-    const { isJobSuccessful } = await import("./result-builder.js");
+    const { isJobSuccessful } = await import("./result-builder.ts");
     expect(isJobSuccessful({ lastFailedStep: null, containerExitCode: 0, isBooting: false })).toBe(
       true,
     );
   });
 
   it("fails when a step failed", async () => {
-    const { isJobSuccessful } = await import("./result-builder.js");
+    const { isJobSuccessful } = await import("./result-builder.ts");
     expect(
       isJobSuccessful({ lastFailedStep: "Build", containerExitCode: 0, isBooting: false }),
     ).toBe(false);
   });
 
   it("fails when container exit code is non-zero", async () => {
-    const { isJobSuccessful } = await import("./result-builder.js");
+    const { isJobSuccessful } = await import("./result-builder.ts");
     expect(isJobSuccessful({ lastFailedStep: null, containerExitCode: 1, isBooting: false })).toBe(
       false,
     );
   });
 
   it("fails when runner never contacted DTU (isBooting=true)", async () => {
-    const { isJobSuccessful } = await import("./result-builder.js");
+    const { isJobSuccessful } = await import("./result-builder.ts");
     // This is the bug from #102: container exits 0 with no failed steps,
     // but the runner never sent any timeline entries (isBooting stayed true).
     expect(isJobSuccessful({ lastFailedStep: null, containerExitCode: 0, isBooting: true })).toBe(
@@ -235,7 +235,7 @@ describe("buildJobResult", () => {
   });
 
   it("builds a successful result", async () => {
-    const { buildJobResult } = await import("./result-builder.js");
+    const { buildJobResult } = await import("./result-builder.ts");
     const timelinePath = path.join(tmpDir, "timeline.json");
     fs.writeFileSync(
       timelinePath,
@@ -262,7 +262,7 @@ describe("buildJobResult", () => {
   });
 
   it("builds a failed result with failure details", async () => {
-    const { buildJobResult } = await import("./result-builder.js");
+    const { buildJobResult } = await import("./result-builder.ts");
     const timelinePath = path.join(tmpDir, "timeline.json");
     const stepsDir = path.join(tmpDir, "steps");
     fs.mkdirSync(stepsDir, { recursive: true });
@@ -313,7 +313,7 @@ describe("extractStepOutputs", () => {
   });
 
   it("extracts simple key=value outputs from set_output files", async () => {
-    const { extractStepOutputs } = await import("./result-builder.js");
+    const { extractStepOutputs } = await import("./result-builder.ts");
     // Simulate the runner's file_commands directory structure
     const fileCommandsDir = path.join(tmpDir, "_runner_file_commands");
     fs.mkdirSync(fileCommandsDir, { recursive: true });
@@ -330,7 +330,7 @@ describe("extractStepOutputs", () => {
   });
 
   it("extracts multiline (heredoc) values", async () => {
-    const { extractStepOutputs } = await import("./result-builder.js");
+    const { extractStepOutputs } = await import("./result-builder.ts");
     const fileCommandsDir = path.join(tmpDir, "_runner_file_commands");
     fs.mkdirSync(fileCommandsDir, { recursive: true });
     fs.writeFileSync(
@@ -345,7 +345,7 @@ describe("extractStepOutputs", () => {
   });
 
   it("merges outputs from multiple set_output files", async () => {
-    const { extractStepOutputs } = await import("./result-builder.js");
+    const { extractStepOutputs } = await import("./result-builder.ts");
     const fileCommandsDir = path.join(tmpDir, "_runner_file_commands");
     fs.mkdirSync(fileCommandsDir, { recursive: true });
     fs.writeFileSync(path.join(fileCommandsDir, "set_output_aaa"), "key1=val1\n");
@@ -357,13 +357,13 @@ describe("extractStepOutputs", () => {
   });
 
   it("returns empty object when no _runner_file_commands directory exists", async () => {
-    const { extractStepOutputs } = await import("./result-builder.js");
+    const { extractStepOutputs } = await import("./result-builder.ts");
     const outputs = extractStepOutputs(tmpDir);
     expect(outputs).toEqual({});
   });
 
   it("returns empty object when directory has no set_output files", async () => {
-    const { extractStepOutputs } = await import("./result-builder.js");
+    const { extractStepOutputs } = await import("./result-builder.ts");
     const fileCommandsDir = path.join(tmpDir, "_runner_file_commands");
     fs.mkdirSync(fileCommandsDir, { recursive: true });
     fs.writeFileSync(path.join(fileCommandsDir, "add_path_xyz"), "/usr/local/bin\n");
@@ -373,7 +373,7 @@ describe("extractStepOutputs", () => {
   });
 
   it("later files override earlier ones for the same key", async () => {
-    const { extractStepOutputs } = await import("./result-builder.js");
+    const { extractStepOutputs } = await import("./result-builder.ts");
     const fileCommandsDir = path.join(tmpDir, "_runner_file_commands");
     fs.mkdirSync(fileCommandsDir, { recursive: true });
     fs.writeFileSync(path.join(fileCommandsDir, "set_output_aaa"), "key=first\n");
@@ -384,7 +384,7 @@ describe("extractStepOutputs", () => {
   });
 
   it("handles multiline heredoc with multiple lines", async () => {
-    const { extractStepOutputs } = await import("./result-builder.js");
+    const { extractStepOutputs } = await import("./result-builder.ts");
     const fileCommandsDir = path.join(tmpDir, "_runner_file_commands");
     fs.mkdirSync(fileCommandsDir, { recursive: true });
     fs.writeFileSync(
@@ -401,7 +401,7 @@ describe("extractStepOutputs", () => {
 
 describe("resolveJobOutputs", () => {
   it("resolves step output references in job output templates", async () => {
-    const { resolveJobOutputs } = await import("./result-builder.js");
+    const { resolveJobOutputs } = await import("./result-builder.ts");
     const outputDefs = {
       skip: "${{ steps.check.outputs.skip }}",
       count: "${{ steps.counter.outputs.shard_count }}",
@@ -419,7 +419,7 @@ describe("resolveJobOutputs", () => {
   });
 
   it("returns empty string for unresolved step outputs", async () => {
-    const { resolveJobOutputs } = await import("./result-builder.js");
+    const { resolveJobOutputs } = await import("./result-builder.ts");
     const outputDefs = {
       missing: "${{ steps.none.outputs.doesnt_exist }}",
     };
@@ -430,7 +430,7 @@ describe("resolveJobOutputs", () => {
   });
 
   it("passes through literal values unchanged", async () => {
-    const { resolveJobOutputs } = await import("./result-builder.js");
+    const { resolveJobOutputs } = await import("./result-builder.ts");
     const outputDefs = {
       version: "1.2.3",
     };
@@ -441,13 +441,13 @@ describe("resolveJobOutputs", () => {
   });
 
   it("returns empty object when no output definitions", async () => {
-    const { resolveJobOutputs } = await import("./result-builder.js");
+    const { resolveJobOutputs } = await import("./result-builder.ts");
     const resolved = resolveJobOutputs({}, { some: "output" });
     expect(resolved).toEqual({});
   });
 
   it("handles JSON values in step outputs", async () => {
-    const { resolveJobOutputs } = await import("./result-builder.js");
+    const { resolveJobOutputs } = await import("./result-builder.ts");
     const outputDefs = {
       matrix: "${{ steps.plan.outputs.matrix }}",
     };
@@ -462,7 +462,7 @@ describe("resolveJobOutputs", () => {
   });
 
   it("handles templates with surrounding text", async () => {
-    const { resolveJobOutputs } = await import("./result-builder.js");
+    const { resolveJobOutputs } = await import("./result-builder.ts");
     const outputDefs = {
       label: "shard-${{ steps.plan.outputs.index }}",
     };

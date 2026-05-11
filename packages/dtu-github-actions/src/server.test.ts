@@ -1,13 +1,13 @@
 import { describe, it, expect, beforeEach, beforeAll, afterAll } from "vitest";
-import { state } from "./server/store.js";
-import { bootstrapAndReturnApp } from "./server/index.js";
-import { getBaseUrl } from "./server/routes/dtu.js";
+import { state } from "./server/store.ts";
+import { bootstrapAndReturnApp } from "./server/index.ts";
+import { getBaseUrl } from "./server/routes/dtu.ts";
 import http from "node:http";
 import type { AddressInfo } from "node:net";
 import type { Polka } from "polka";
 import fs from "node:fs";
 import path from "node:path";
-import { getDtuLogPath } from "./server/logger.js";
+import { getDtuLogPath } from "./server/logger.ts";
 
 let PORT: number;
 

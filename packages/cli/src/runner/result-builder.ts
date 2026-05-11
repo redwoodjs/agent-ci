@@ -1,11 +1,11 @@
 import path from "path";
 import fs from "fs";
-import { type JobResult, type StepResult, tailLogFile } from "../output/reporter.js";
+import { type JobResult, type StepResult, tailLogFile } from "../output/reporter.ts";
 import {
   detectMissingToolHint,
   detectToolcacheHint,
   type ResolvedRunnerImage,
-} from "./runner-image.js";
+} from "./runner-image.ts";
 
 // ─── Timeline parsing ─────────────────────────────────────────────────────────
 

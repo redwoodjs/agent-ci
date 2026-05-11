@@ -1,6 +1,6 @@
 import { execSync } from "child_process";
-import { config } from "./config.js";
-import type { JobResult } from "./output/reporter.js";
+import { config } from "./config.ts";
+import type { JobResult } from "./output/reporter.ts";
 
 /**
  * Post a GitHub commit status via the `gh` CLI.

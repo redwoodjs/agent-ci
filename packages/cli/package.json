@@ -37,7 +37,7 @@
   "scripts": {
     "build": "tsgo",
     "typecheck": "tsgo",
-    "agent-ci": "tsx src/cli.ts",
+    "agent-ci": "node src/cli.ts",
     "test": "vitest run"
   },
   "dependencies": {
@@ -50,10 +50,9 @@
   "devDependencies": {
     "@types/dockerode": "^3.3.34",
     "@types/node": "^22.10.2",
-    "tsx": "^4.21.0",
     "vitest": "^4.0.18"
   },
   "engines": {
-    "node": ">=22"
+    "node": ">=24"
   }
 }

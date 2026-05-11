@@ -1,9 +1,9 @@
-import { Polka } from "polka";
+import type { Polka } from "polka";
 import crypto from "node:crypto";
 import fs from "node:fs";
 
-import { state } from "../store.js";
-import { createJobResponse } from "./actions/generators.js";
+import { state } from "../store.ts";
+import { createJobResponse } from "./actions/generators.ts";
 
 // Base URL extractor middleware (to handle localhost vs host.docker.internal properly)
 // NOTE: strip \r\n from the Host header — HTTP/1.1 runners can include a trailing \r

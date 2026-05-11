@@ -6,7 +6,7 @@ import {
   parseJobRunsOnLabels,
   parseMergedJobEnv,
   parseWorkflowServices,
-} from "./workflow-parser.js";
+} from "./workflow-parser.ts";
 
 // ─── Fixtures ─────────────────────────────────────────────────────────────────
 
@@ -263,7 +263,7 @@ describe("workflow resource hint accessors", () => {
 
 // ─── expandExpressions ────────────────────────────────────────────────────────
 
-import { expandExpressions } from "./workflow-parser.js";
+import { expandExpressions } from "./workflow-parser.ts";
 
 describe("expandExpressions", () => {
   let tmpDir: string;
@@ -548,7 +548,7 @@ describe("expandExpressions with matrixContext", () => {
 
 // ─── expandMatrixCombinations ─────────────────────────────────────────────────
 
-import { expandMatrixCombinations } from "./workflow-parser.js";
+import { expandMatrixCombinations } from "./workflow-parser.ts";
 
 describe("expandMatrixCombinations", () => {
   it("returns [{}] for an empty matrix", () => {
@@ -689,7 +689,7 @@ OTHER_TOKEN=tok-456
 
 // ─── extractSecretRefs & validateSecrets ──────────────────────────────────────
 
-import { extractSecretRefs, validateSecrets } from "./workflow-parser.js";
+import { extractSecretRefs, validateSecrets } from "./workflow-parser.ts";
 
 describe("extractSecretRefs", () => {
   let tmpDir: string;
@@ -857,7 +857,7 @@ jobs:
 
 // ─── isWorkflowRelevant ───────────────────────────────────────────────────────
 
-import { isWorkflowRelevant } from "./workflow-parser.js";
+import { isWorkflowRelevant } from "./workflow-parser.ts";
 
 describe("isWorkflowRelevant", () => {
   // Helper to build a template with push event config
@@ -1078,7 +1078,7 @@ describe("expandExpressions — toJSON", () => {
 
 // ─── Cross-job outputs: needs context ─────────────────────────────────────────
 
-import { parseJobOutputDefs } from "./workflow-parser.js";
+import { parseJobOutputDefs } from "./workflow-parser.ts";
 
 describe("parseJobOutputDefs", () => {
   let tmpDir: string;
@@ -1496,7 +1496,7 @@ describe("expandExpressions real-world patterns", () => {
 
 // ─── Job-level if conditions ──────────────────────────────────────────────────
 
-import { evaluateJobIf, parseJobIf, parseStepIf } from "./workflow-parser.js";
+import { evaluateJobIf, parseJobIf, parseStepIf } from "./workflow-parser.ts";
 
 describe("parseJobIf", () => {
   let tmpDir: string;
@@ -1661,7 +1661,7 @@ describe("evaluateJobIf", () => {
 
 // ─── strategy.fail-fast ──────────────────────────────────────────────────────
 
-import { parseFailFast } from "./workflow-parser.js";
+import { parseFailFast } from "./workflow-parser.ts";
 
 describe("parseFailFast", () => {
   let tmpDir: string;
@@ -1745,7 +1745,7 @@ jobs:
 
 // ─── parseWorkflowSteps with needsContext ─────────────────────────────────────
 
-import { parseWorkflowSteps } from "./workflow-parser.js";
+import { parseWorkflowSteps } from "./workflow-parser.ts";
 
 describe("parseWorkflowSteps with needsContext", () => {
   let tmpDir: string;
@@ -2052,7 +2052,7 @@ jobs:
 
 // ─── extractVarRefs & validateVars ────────────────────────────────────────────
 
-import { extractVarRefs, validateVars } from "./workflow-parser.js";
+import { extractVarRefs, validateVars } from "./workflow-parser.ts";
 
 describe("extractVarRefs", () => {
   // SPEC-V-011: workflow with no var refs returns empty array
@@ -2450,7 +2450,7 @@ jobs:
   });
 });
 
-import { runnerContextFromRunsOn } from "./workflow-parser.js";
+import { runnerContextFromRunsOn } from "./workflow-parser.ts";
 
 describe("runnerContextFromRunsOn", () => {
   it("classifies macos-14 to macOS/ARM64", () => {
@@ -2481,7 +2481,7 @@ describe("runnerContextFromRunsOn", () => {
   });
 });
 
-import { parseJobRunsOn } from "./workflow-parser.js";
+import { parseJobRunsOn } from "./workflow-parser.ts";
 
 describe("parseJobRunsOn", () => {
   let tmpDir: string;

@@ -15,7 +15,7 @@ afterEach(() => {
 
 async function importFresh() {
   vi.resetModules();
-  return import("./docker-socket.js");
+  return import("./docker-socket.ts");
 }
 
 describe("resolveDockerSocket", () => {

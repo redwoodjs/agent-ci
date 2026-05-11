@@ -1,7 +1,7 @@
 import { execSync } from "child_process";
 import fs from "fs";
 import path from "path";
-import { PROJECT_ROOT } from "./output/working-directory.js";
+import { PROJECT_ROOT } from "./output/working-directory.ts";
 
 /**
  * Get the URL of the first git remote, preferring 'origin'.

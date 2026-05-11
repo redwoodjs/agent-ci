@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { classifyRunsOn, isUnsupportedOS, formatUnsupportedOSWarning } from "./runs-on-compat.js";
+import { classifyRunsOn, isUnsupportedOS, formatUnsupportedOSWarning } from "./runs-on-compat.ts";
 
 describe("classifyRunsOn", () => {
   it("treats ubuntu-* as linux", () => {

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { collapseMatrixToSingle, expandMatrixCombinations } from "./workflow-parser.js";
+import { collapseMatrixToSingle, expandMatrixCombinations } from "./workflow-parser.ts";
 
 // ─── collapseMatrixToSingle ───────────────────────────────────────────────────
 //

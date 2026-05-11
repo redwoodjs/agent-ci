@@ -4,8 +4,8 @@
 // logUpdate. No side effects, no I/O — fully testable in isolation.
 
 import path from "path";
-import { renderTree, type TreeNode } from "./tree-renderer.js";
-import type { RunState, JobState, StepState } from "./run-state.js";
+import { renderTree, type TreeNode } from "./tree-renderer.ts";
+import type { RunState, JobState, StepState } from "./run-state.ts";
 
 // ─── ANSI helpers ─────────────────────────────────────────────────────────────
 

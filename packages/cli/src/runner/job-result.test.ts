@@ -5,7 +5,7 @@ import {
   isJobError,
   getErrorMessage,
   type JobError,
-} from "./job-result.js";
+} from "./job-result.ts";
 
 describe("getErrorMessage", () => {
   it("extracts message from Error object", () => {

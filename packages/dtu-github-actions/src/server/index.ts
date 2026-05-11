@@ -3,16 +3,16 @@ import bodyParser from "body-parser";
 import { exec } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
-import { config } from "../config.js";
-import { state } from "./store.js";
-import { setupDtuLogging, getDtuLogPath } from "./logger.js";
+import { config } from "../config.ts";
+import { state } from "./store.ts";
+import { setupDtuLogging, getDtuLogPath } from "./logger.ts";
 
 // Routes
-import { registerDtuRoutes } from "./routes/dtu.js";
-import { registerGithubRoutes } from "./routes/github.js";
-import { registerActionRoutes } from "./routes/actions/index.js";
-import { registerCacheRoutes } from "./routes/cache.js";
-import { registerArtifactRoutes } from "./routes/artifacts.js";
+import { registerDtuRoutes } from "./routes/dtu.ts";
+import { registerGithubRoutes } from "./routes/github.ts";
+import { registerActionRoutes } from "./routes/actions/index.ts";
+import { registerCacheRoutes } from "./routes/cache.ts";
+import { registerArtifactRoutes } from "./routes/artifacts.ts";
 
 async function terminateOldProcess() {
   // Kill existing process on DTU port

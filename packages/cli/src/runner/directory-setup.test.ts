@@ -18,7 +18,7 @@ describe("ensureWorldWritable", () => {
   });
 
   it("sets all directories to 0o777", async () => {
-    const { ensureWorldWritable } = await import("./directory-setup.js");
+    const { ensureWorldWritable } = await import("./directory-setup.ts");
     const dir1 = path.join(tmpDir, "a");
     const dir2 = path.join(tmpDir, "b");
     fs.mkdirSync(dir1);
@@ -35,7 +35,7 @@ describe("ensureWorldWritable", () => {
   });
 
   it("does not throw on non-existent directories", async () => {
-    const { ensureWorldWritable } = await import("./directory-setup.js");
+    const { ensureWorldWritable } = await import("./directory-setup.ts");
     expect(() => ensureWorldWritable(["/nonexistent/path"])).not.toThrow();
   });
 });
@@ -81,7 +81,7 @@ describe("createRunDirectories — PM-scoped caching", () => {
 
   it("npm: only creates npm cache dir, not pnpm or bun", async () => {
     makeFixture("package-lock.json", '{"lockfileVersion":3}');
-    const { createRunDirectories } = await import("./directory-setup.js");
+    const { createRunDirectories } = await import("./directory-setup.ts");
 
     const dirs = createRunDirectories({
       runDir,
@@ -97,7 +97,7 @@ describe("createRunDirectories — PM-scoped caching", () => {
 
   it("pnpm: only creates pnpm cache dir, not npm or bun", async () => {
     makeFixture("pnpm-lock.yaml", "lockfileVersion: '9.0'\n");
-    const { createRunDirectories } = await import("./directory-setup.js");
+    const { createRunDirectories } = await import("./directory-setup.ts");
 
     const dirs = createRunDirectories({
       runDir,
@@ -113,7 +113,7 @@ describe("createRunDirectories — PM-scoped caching", () => {
 
   it("yarn: creates no PM-specific cache dirs (no dedicated mount)", async () => {
     makeFixture("yarn.lock", "# yarn lockfile v1\n");
-    const { createRunDirectories } = await import("./directory-setup.js");
+    const { createRunDirectories } = await import("./directory-setup.ts");
 
     const dirs = createRunDirectories({
       runDir,
@@ -129,7 +129,7 @@ describe("createRunDirectories — PM-scoped caching", () => {
 
   it("bun: only creates bun cache dir, not pnpm or npm", async () => {
     makeFixture("bun.lock", '{"lockfileVersion":0}');
-    const { createRunDirectories } = await import("./directory-setup.js");
+    const { createRunDirectories } = await import("./directory-setup.ts");
 
     const dirs = createRunDirectories({
       runDir,
@@ -159,7 +159,7 @@ describe("createRunDirectories — PM-scoped caching", () => {
     execSync("git add -A", { cwd: repoDir, stdio: "pipe" });
     execSync('git commit -m "init"', { cwd: repoDir, stdio: "pipe" });
 
-    const { createRunDirectories } = await import("./directory-setup.js");
+    const { createRunDirectories } = await import("./directory-setup.ts");
 
     const dirs = createRunDirectories({
       runDir,
@@ -178,7 +178,7 @@ describe("createRunDirectories — PM-scoped caching", () => {
 
 describe("buildContainerBinds — PM-scoped mounts", () => {
   it("npm project: only mounts .npm, no .pnpm-store or .bun", async () => {
-    const { buildContainerBinds } = await import("../docker/container-config.js");
+    const { buildContainerBinds } = await import("../docker/container-config.ts");
 
     const binds = buildContainerBinds({
       hostWorkDir: "/tmp/work",
@@ -200,7 +200,7 @@ describe("buildContainerBinds — PM-scoped mounts", () => {
   });
 
   it("pnpm project: only mounts .pnpm-store, no .npm or .bun", async () => {
-    const { buildContainerBinds } = await import("../docker/container-config.js");
+    const { buildContainerBinds } = await import("../docker/container-config.ts");
 
     const binds = buildContainerBinds({
       hostWorkDir: "/tmp/work",
@@ -222,7 +222,7 @@ describe("buildContainerBinds — PM-scoped mounts", () => {
   });
 
   it("bun project: only mounts .bun, no .pnpm-store or .npm", async () => {
-    const { buildContainerBinds } = await import("../docker/container-config.js");
+    const { buildContainerBinds } = await import("../docker/container-config.ts");
 
     const binds = buildContainerBinds({
       hostWorkDir: "/tmp/work",
@@ -244,7 +244,7 @@ describe("buildContainerBinds — PM-scoped mounts", () => {
   });
 
   it("yarn project: no PM-specific mounts at all", async () => {
-    const { buildContainerBinds } = await import("../docker/container-config.js");
+    const { buildContainerBinds } = await import("../docker/container-config.ts");
 
     const binds = buildContainerBinds({
       hostWorkDir: "/tmp/work",

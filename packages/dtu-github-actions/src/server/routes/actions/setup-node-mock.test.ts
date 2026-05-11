@@ -5,9 +5,9 @@ import os from "node:os";
 import path from "node:path";
 import type { AddressInfo } from "node:net";
 import type { Polka } from "polka";
-import { state, getActionTarballsDir } from "../../store.js";
-import { bootstrapAndReturnApp } from "../../index.js";
-import { rewriteSetupNodeTarball } from "./index.js";
+import { state, getActionTarballsDir } from "../../store.ts";
+import { bootstrapAndReturnApp } from "../../index.ts";
+import { rewriteSetupNodeTarball } from "./index.ts";
 
 const HARDCODED_URL = "`https://api.github.com/repos/";
 const REWRITTEN_URL_FRAGMENT = "process.env.GITHUB_API_URL";

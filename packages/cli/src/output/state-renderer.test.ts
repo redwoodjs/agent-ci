@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { renderRunState } from "./state-renderer.js";
-import type { RunState } from "./run-state.js";
+import { renderRunState } from "./state-renderer.ts";
+import type { RunState } from "./run-state.ts";
 
 // Freeze time so spinner frames and elapsed times are deterministic.
 // Date.now() → 0 → Math.floor(0/80) % 10 → frame index 0 → "⠋"

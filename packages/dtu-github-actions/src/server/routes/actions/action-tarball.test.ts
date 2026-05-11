@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, beforeAll, afterAll } from "vitest";
-import { state, getActionTarballsDir } from "../../store.js";
-import { bootstrapAndReturnApp } from "../../index.js";
+import { state, getActionTarballsDir } from "../../store.ts";
+import { bootstrapAndReturnApp } from "../../index.ts";
 import fs from "node:fs";
 import path from "node:path";
 import type { AddressInfo } from "node:net";

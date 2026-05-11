@@ -1,7 +1,7 @@
 import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";
-import { config } from "../config.js";
+import { config } from "../config.ts";
 
 let CACHE_DIR = config.DTU_CACHE_DIR;
 let CACHES_FILE = path.join(CACHE_DIR, "caches.json");

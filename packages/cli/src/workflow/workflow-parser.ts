@@ -4,7 +4,7 @@ import crypto from "crypto";
 import { execSync } from "child_process";
 import { minimatch } from "minimatch";
 import { parse as parseYaml } from "yaml";
-import { classifyRunsOn } from "../runner/runs-on-compat.js";
+import { classifyRunsOn } from "../runner/runs-on-compat.ts";
 
 /**
  * Values used to resolve `${{ runner.os }}` / `${{ runner.arch }}` at
@@ -38,6 +38,7 @@ export function runnerContextFromRunsOn(labels: string[]): RunnerContext {
 // which Node 22+ rejects. Register a custom ESM loader hook that transparently
 // adds the missing attribute before we dynamically import the module.
 import { register } from "node:module";
+import { fileURLToPath } from "node:url";
 
 let hookRegistered = false;
 
@@ -45,7 +46,13 @@ async function loadWorkflowParser() {
   if (!hookRegistered) {
     hookRegistered = true;
     try {
-      register("../hooks/json-loader.js", import.meta.url);
+      // Source builds run the .ts file directly under Node's native TS support;
+      // published builds run the .js compiled by tsc. Pick whichever exists so
+      // the same code works in both contexts.
+      const srcUrl = new URL("../hooks/json-loader.ts", import.meta.url);
+      const distUrl = new URL("../hooks/json-loader.js", import.meta.url);
+      const url = fs.existsSync(fileURLToPath(srcUrl)) ? srcUrl : distUrl;
+      register(url);
     } catch {
       // In test environments (Vitest), the hook file may not resolve and
       // Vite already handles JSON imports via its inline config.

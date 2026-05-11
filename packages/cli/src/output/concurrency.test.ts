@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { createConcurrencyLimiter, getDefaultMaxConcurrentJobs } from "./concurrency.js";
+import { createConcurrencyLimiter, getDefaultMaxConcurrentJobs } from "./concurrency.ts";
 
 describe("createConcurrencyLimiter", () => {
   it("limits concurrent execution to max", async () => {

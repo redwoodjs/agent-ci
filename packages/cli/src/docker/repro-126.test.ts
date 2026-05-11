@@ -65,7 +65,7 @@ describe("issue-126 reproduction: resolveDtuHost inside Docker", () => {
     // Simulate agent-ci Docker env: AGENT_CI_DTU_HOST was set but we deleted it
     delete process.env.AGENT_CI_DTU_HOST;
 
-    const { resolveDtuHost } = await import("./container-config.js");
+    const { resolveDtuHost } = await import("./container-config.ts");
 
     const originalExistsSync = fs.existsSync;
     vi.spyOn(fs, "existsSync").mockImplementation((filePath: fs.PathLike) => {

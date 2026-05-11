@@ -1,10 +1,10 @@
-import { Polka } from "polka";
+import type { Polka } from "polka";
 import fs from "node:fs";
 import path from "node:path";
 import { execSync } from "node:child_process";
-import { state } from "../store.js";
-import { getBaseUrl } from "./dtu.js";
-import { config } from "../../config.js";
+import { state } from "../store.ts";
+import { getBaseUrl } from "./dtu.ts";
+import { config } from "../../config.ts";
 
 // Ensure DTU has a temp dir for caching
 const CACHE_DIR = config.DTU_CACHE_DIR;

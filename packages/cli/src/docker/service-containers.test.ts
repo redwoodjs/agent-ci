@@ -3,8 +3,8 @@ import {
   startServiceContainers,
   cleanupServiceContainers,
   parseHealthCheck,
-} from "./service-containers.js";
-import type { WorkflowService } from "../workflow/workflow-parser.js";
+} from "./service-containers.ts";
+import type { WorkflowService } from "../workflow/workflow-parser.ts";
 
 // ─── Mock Docker client ───────────────────────────────────────────────────────
 

@@ -82,7 +82,7 @@ describe("Stale workspace pruning", () => {
     const oldTime = new Date(Date.now() - 48 * 60 * 60 * 1000);
     fs.utimesSync(staleDir, oldTime, oldTime);
 
-    const { pruneStaleWorkspaces } = await import("./shutdown.js");
+    const { pruneStaleWorkspaces } = await import("./shutdown.ts");
     const pruned = pruneStaleWorkspaces(tmpDir, 24 * 60 * 60 * 1000);
 
     expect(pruned).toContain("agent-ci-100");
@@ -95,7 +95,7 @@ describe("Stale workspace pruning", () => {
     fs.mkdirSync(path.join(freshDir, "logs"), { recursive: true });
     fs.writeFileSync(path.join(freshDir, "logs", "output.log"), "fresh");
 
-    const { pruneStaleWorkspaces } = await import("./shutdown.js");
+    const { pruneStaleWorkspaces } = await import("./shutdown.ts");
     const pruned = pruneStaleWorkspaces(tmpDir, 24 * 60 * 60 * 1000);
 
     expect(pruned).toEqual([]);
@@ -110,7 +110,7 @@ describe("Stale workspace pruning", () => {
     const oldTime = new Date(Date.now() - 48 * 60 * 60 * 1000);
     fs.utimesSync(otherDir, oldTime, oldTime);
 
-    const { pruneStaleWorkspaces } = await import("./shutdown.js");
+    const { pruneStaleWorkspaces } = await import("./shutdown.ts");
     const pruned = pruneStaleWorkspaces(tmpDir, 24 * 60 * 60 * 1000);
 
     expect(pruned).toEqual([]);
@@ -162,7 +162,7 @@ describe("killOrphanedContainers", () => {
       return true;
     }) as typeof process.kill);
 
-    const { killOrphanedContainers } = await import("./shutdown.js");
+    const { killOrphanedContainers } = await import("./shutdown.ts");
     killOrphanedContainers();
 
     const rmCalls = execSyncMock.mock.calls.filter(([cmd]: string[]) =>
@@ -186,7 +186,7 @@ describe("killOrphanedContainers", () => {
       throw new Error("ESRCH");
     }) as typeof process.kill);
 
-    const { killOrphanedContainers } = await import("./shutdown.js");
+    const { killOrphanedContainers } = await import("./shutdown.ts");
     killOrphanedContainers();
 
     const rmCalls = execSyncMock.mock.calls.filter(([cmd]: string[]) =>
@@ -204,7 +204,7 @@ describe("killOrphanedContainers", () => {
       return "";
     });
 
-    const { killOrphanedContainers } = await import("./shutdown.js");
+    const { killOrphanedContainers } = await import("./shutdown.ts");
     killOrphanedContainers();
 
     const rmCalls = execSyncMock.mock.calls.filter(([cmd]: string[]) =>
@@ -222,7 +222,7 @@ describe("killOrphanedContainers", () => {
       return "";
     });
 
-    const { killOrphanedContainers } = await import("./shutdown.js");
+    const { killOrphanedContainers } = await import("./shutdown.ts");
     killOrphanedContainers();
 
     // Should call killRunnerContainers with the runner name (without -svc-cache-db)
@@ -250,7 +250,7 @@ describe("killOrphanedContainers", () => {
       return true;
     }) as typeof process.kill);
 
-    const { killOrphanedContainers } = await import("./shutdown.js");
+    const { killOrphanedContainers } = await import("./shutdown.ts");
     killOrphanedContainers();
 
     // killRunnerContainers should only be called once for the runner name
@@ -267,7 +267,7 @@ describe("killOrphanedContainers", () => {
       throw new Error("Cannot connect to Docker daemon");
     });
 
-    const { killOrphanedContainers } = await import("./shutdown.js");
+    const { killOrphanedContainers } = await import("./shutdown.ts");
     expect(() => killOrphanedContainers()).not.toThrow();
   });
 });
@@ -369,7 +369,7 @@ describe.skipIf(!dockerAvailable() || insideDocker())(
     // so exercising the real module resolution path is a feature, not a hack.
     function runKillOrphanedContainers() {
       execSync(
-        `npx tsx -e "import { killOrphanedContainers } from './src/docker/shutdown.ts'; killOrphanedContainers();"`,
+        `node --input-type=module -e "import { killOrphanedContainers } from './src/docker/shutdown.ts'; killOrphanedContainers();"`,
         { stdio: "pipe" },
       );
     }

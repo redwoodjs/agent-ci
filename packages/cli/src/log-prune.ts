@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { resolveLogsDir, resolveStateDir } from "./run-result-writer.js";
+import { resolveLogsDir, resolveStateDir } from "./run-result-writer.ts";
 
 /** Default: keep runs whose mtime is younger than this many days. */
 const DEFAULT_RETAIN_DAYS = 7;

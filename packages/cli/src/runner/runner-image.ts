@@ -2,8 +2,8 @@ import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
 import type Docker from "dockerode";
-import { ensureImagePulled } from "../docker/image-pull.js";
-import { debugRunner } from "../output/debug.js";
+import { ensureImagePulled } from "../docker/image-pull.ts";
+import { debugRunner } from "../output/debug.ts";
 
 export const UPSTREAM_RUNNER_IMAGE = "ghcr.io/actions/actions-runner:latest";
 

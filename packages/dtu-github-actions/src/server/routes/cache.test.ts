@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, beforeAll, afterAll } from "vitest";
-import { state } from "../store.js";
-import { bootstrapAndReturnApp } from "../index.js";
-import { config } from "../../config.js";
+import { state } from "../store.ts";
+import { bootstrapAndReturnApp } from "../index.ts";
+import { config } from "../../config.ts";
 import fs from "node:fs";
 import path from "node:path";
 import type { AddressInfo } from "node:net";

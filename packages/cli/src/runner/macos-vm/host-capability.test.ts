@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { checkMacosVmHost } from "./host-capability.js";
+import { checkMacosVmHost } from "./host-capability.ts";
 
 const ok = {
   platform: "darwin",

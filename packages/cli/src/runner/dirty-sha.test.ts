@@ -3,7 +3,7 @@ import { execSync } from "child_process";
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
-import { computeDirtySha } from "./dirty-sha.js";
+import { computeDirtySha } from "./dirty-sha.ts";
 
 describe("computeDirtySha", () => {
   let repoDir: string;

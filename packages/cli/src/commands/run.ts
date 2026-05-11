@@ -3,23 +3,23 @@ import path from "node:path";
 import fs from "node:fs";
 import type Docker from "dockerode";
 
-import { config, loadMachineSecrets, resolveRepoSlug } from "../config.js";
-import { getNextLogNum } from "../output/logger.js";
+import { config, loadMachineSecrets, resolveRepoSlug } from "../config.ts";
+import { getNextLogNum } from "../output/logger.ts";
 import {
   setWorkingDirectory,
   DEFAULT_WORKING_DIR,
   PROJECT_ROOT,
   getWorkingDirectory,
-} from "../output/working-directory.js";
-import { debugCli } from "../output/debug.js";
-import { executeLocalJob, getDocker } from "../runner/local-job.js";
-import { executeMacosVmJob } from "../runner/macos-vm/macos-vm-job.js";
-import { checkMacosVmHost } from "../runner/macos-vm/host-capability.js";
+} from "../output/working-directory.ts";
+import { debugCli } from "../output/debug.ts";
+import { executeLocalJob, getDocker } from "../runner/local-job.ts";
+import { executeMacosVmJob } from "../runner/macos-vm/macos-vm-job.ts";
+import { checkMacosVmHost } from "../runner/macos-vm/host-capability.ts";
 import {
   discoverRunnerImage,
   ensureRunnerImage,
   UPSTREAM_RUNNER_IMAGE,
-} from "../runner/runner-image.js";
+} from "../runner/runner-image.ts";
 import {
   parseWorkflowSteps,
   parseWorkflowServices,
@@ -40,41 +40,41 @@ import {
   parseFailFast,
   parseJobRunsOn,
   expandExpressions,
-} from "../workflow/workflow-parser.js";
+} from "../workflow/workflow-parser.ts";
 import {
   classifyRunsOn,
   isUnsupportedOS,
   formatUnsupportedOSWarning,
   type RunnerOSKind,
-} from "../runner/runs-on-compat.js";
-import { resolveJobOutputs } from "../runner/result-builder.js";
-import { Job } from "../types.js";
-import { createConcurrencyLimiter, getDefaultMaxConcurrentJobs } from "../output/concurrency.js";
-import { isWarmNodeModules, computeLockfileHash } from "../output/cleanup.js";
+} from "../runner/runs-on-compat.ts";
+import { resolveJobOutputs } from "../runner/result-builder.ts";
+import type { Job } from "../types.ts";
+import { createConcurrencyLimiter, getDefaultMaxConcurrentJobs } from "../output/concurrency.ts";
+import { isWarmNodeModules, computeLockfileHash } from "../output/cleanup.ts";
 import {
   pruneOrphanedDockerResources,
   killOrphanedContainers,
   pruneStaleWorkspaces,
-} from "../docker/shutdown.js";
-import { topoSort } from "../workflow/job-scheduler.js";
-import { expandReusableJobs, type ExpandedJobEntry } from "../workflow/reusable-workflow.js";
-import { prefetchRemoteWorkflows } from "../workflow/remote-workflow-fetch.js";
-import { printSummary, type JobResult } from "../output/reporter.js";
-import { computeDirtySha } from "../runner/dirty-sha.js";
-import { RunStateStore } from "../output/run-state.js";
-import { renderRunState } from "../output/state-renderer.js";
-import { isAgentMode, isJsonMode, setJsonMode, setQuietMode } from "../output/agent-mode.js";
-import { createDiffRenderer } from "../output/diff-renderer.js";
-import { createFailedJobResult, wrapJobError, isJobError } from "../runner/job-result.js";
-import { postCommitStatus } from "../commit-status.js";
+} from "../docker/shutdown.ts";
+import { topoSort } from "../workflow/job-scheduler.ts";
+import { expandReusableJobs, type ExpandedJobEntry } from "../workflow/reusable-workflow.ts";
+import { prefetchRemoteWorkflows } from "../workflow/remote-workflow-fetch.ts";
+import { printSummary, type JobResult } from "../output/reporter.ts";
+import { computeDirtySha } from "../runner/dirty-sha.ts";
+import { RunStateStore } from "../output/run-state.ts";
+import { renderRunState } from "../output/state-renderer.ts";
+import { isAgentMode, isJsonMode, setJsonMode, setQuietMode } from "../output/agent-mode.ts";
+import { createDiffRenderer } from "../output/diff-renderer.ts";
+import { createFailedJobResult, wrapJobError, isJobError } from "../runner/job-result.ts";
+import { postCommitStatus } from "../commit-status.ts";
 import {
   classifyJobResources,
   collectJobResourceHints,
   getHostResources,
   type ResourceFidelity,
-} from "../workflow/resource-classifier.js";
-import { writeRunResult } from "../run-result-writer.js";
-import { pruneLogs } from "../log-prune.js";
+} from "../workflow/resource-classifier.ts";
+import { writeRunResult } from "../run-result-writer.ts";
+import { pruneLogs } from "../log-prune.ts";
 import {
   EVENT_SCHEMA_VERSION,
   formatEvent,
@@ -83,7 +83,7 @@ import {
   runDetachedLauncher,
   shouldLaunchDetached,
   type LogEvent,
-} from "../launcher.js";
+} from "../launcher.ts";
 
 type ParsedRunArgs = {
   sha?: string;

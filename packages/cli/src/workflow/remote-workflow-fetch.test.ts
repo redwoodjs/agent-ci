@@ -7,7 +7,7 @@ import {
   isShaRef,
   remoteCachePath,
   prefetchRemoteWorkflows,
-} from "./remote-workflow-fetch.js";
+} from "./remote-workflow-fetch.ts";
 
 describe("parseRemoteRef", () => {
   it("parses owner/repo/path@ref", () => {

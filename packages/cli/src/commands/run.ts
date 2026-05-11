@@ -1,4 +1,7 @@
-import { execSync } from "node:child_process";
+import { execFile, execSync } from "node:child_process";
+import { promisify } from "node:util";
+
+const execFileP = promisify(execFile);
 import path from "node:path";
 import fs from "node:fs";
 import type Docker from "dockerode";
@@ -259,13 +262,13 @@ function resolveWorkflowArgPath(workflow: string, repoRoot: string): string {
  * finish sentinel, and exit. Used by both the --all and single-workflow
  * code paths so they share the same shutdown sequence.
  */
-function finalizeRun(opts: {
+async function finalizeRun(opts: {
   results: JobResult[];
   parsed: ParsedRunArgs;
   repoRoot: string;
   startedAt: Date;
   branch?: string;
-}): never {
+}): Promise<never> {
   const { results, parsed, repoRoot, startedAt, branch } = opts;
   if (results.length > 0) {
     printSummary(results);
@@ -273,13 +276,13 @@ function finalizeRun(opts: {
   if (parsed.commitStatus) {
     postCommitStatus(results, parsed.sha, parsed.githubToken);
   }
-  persistRunResult({ results, repoRoot, startedAt, sha: parsed.sha, branch });
+  await persistRunResult({ results, repoRoot, startedAt, sha: parsed.sha, branch });
   const anyFailed = results.length === 0 || results.some((r) => !r.succeeded);
   emitRunFinishSentinel(anyFailed ? "failed" : "passed");
   process.exit(anyFailed ? 1 : 0);
 }
 
-export default async function runCmd(args: string[]): Promise<never> {
+export default async function runCmd(args: string[]): Promise<void> {
   const parsed = parseRunArgs(args);
 
   // ── Detached-worker dispatch (issue #315) ────────────────────────────────
@@ -329,15 +332,19 @@ export default async function runCmd(args: string[]): Promise<never> {
 
   if (parsed.runAll) {
     const repoRoot = resolveRepoRoot();
-    const branch = execSync("git rev-parse --abbrev-ref HEAD", { cwd: repoRoot }).toString().trim();
-    const changedFiles = getChangedFiles(repoRoot);
+    // Branch and changed-files are independent — kick both off together.
+    const [{ stdout: branchOut }, changedFiles] = await Promise.all([
+      execFileP("git", ["rev-parse", "--abbrev-ref", "HEAD"], { cwd: repoRoot }),
+      getChangedFiles(repoRoot),
+    ]);
+    const branch = branchOut.trim();
     const relevant = await discoverRelevantWorkflows(repoRoot, branch, changedFiles);
     if (relevant.length === 0) {
       console.log(`[Agent CI] No relevant workflows found for branch '${branch}'.`);
       process.exit(0);
     }
     const results = await runWorkflows({ workflowPaths: relevant, ...runWorkflowsOpts });
-    finalizeRun({ results, parsed, repoRoot, startedAt, branch });
+    await finalizeRun({ results, parsed, repoRoot, startedAt, branch });
   }
 
   if (!parsed.workflow) {
@@ -350,7 +357,7 @@ export default async function runCmd(args: string[]): Promise<never> {
   const repoRoot = resolveRepoRoot();
   const workflowPath = resolveWorkflowArgPath(parsed.workflow, repoRoot);
   const results = await runWorkflows({ workflowPaths: [workflowPath], ...runWorkflowsOpts });
-  finalizeRun({ results, parsed, repoRoot, startedAt });
+  await finalizeRun({ results, parsed, repoRoot, startedAt });
 }
 
 // ─── prefetchRunnerImages ──────────────────────────────────────────────────
@@ -840,7 +847,7 @@ async function runWorkflows(options: {
       // Multiple workflows (--all mode)
       // Determine warm-cache status from the first workflow's repo root
       const firstRepoRoot = resolveRepoRootFromWorkflow(workflowPaths[0]);
-      config.GITHUB_REPO ??= resolveRepoSlug(firstRepoRoot);
+      config.GITHUB_REPO ??= await resolveRepoSlug(firstRepoRoot);
       const repoSlug = config.GITHUB_REPO.replace("/", "-");
       let lockfileHash = "no-lockfile";
       try {
@@ -1119,18 +1126,22 @@ async function handleWorkflow(options: {
     setWorkingDirectory(DEFAULT_WORKING_DIR);
   }
 
-  const { headSha, shaRef } = sha
-    ? resolveHeadSha(repoRoot, sha)
-    : { headSha: undefined, shaRef: undefined };
-  // Always resolve a SHA that represents the code being executed.
-  // When the working tree is dirty and no explicit --sha was given, compute an
-  // ephemeral commit SHA that captures the dirty state (including untracked files).
-  // This is purely informational — actions/checkout is always stubbed, so no
-  // workflow will ever try to fetch this SHA from a remote.
-  const realHeadSha =
-    headSha ?? computeDirtySha(repoRoot) ?? resolveHeadSha(repoRoot, "HEAD").headSha;
-  const baseSha = resolveBaseSha(repoRoot, realHeadSha);
-  const githubRepo = config.GITHUB_REPO ?? resolveRepoSlug(repoRoot);
+  // Resolve startup git / remote calls concurrently. headSha, dirtySha, the
+  // repo slug, and the upstream remote URL are independent — running them in
+  // parallel saves ~half a second on every invocation.
+  // Always resolve a SHA that represents the code being executed: an explicit
+  // --sha wins, then a dirty-tree ephemeral SHA, then plain HEAD. Information
+  // only — actions/checkout is stubbed, so no workflow tries to fetch it.
+  const [explicitHead, dirtySha, headSlug, slugFromRemote] = await Promise.all([
+    sha ? resolveHeadSha(repoRoot, sha) : Promise.resolve(undefined),
+    sha ? Promise.resolve(undefined) : computeDirtySha(repoRoot),
+    resolveHeadSha(repoRoot, "HEAD"),
+    config.GITHUB_REPO ? Promise.resolve(config.GITHUB_REPO) : resolveRepoSlug(repoRoot),
+  ]);
+  const { headSha, shaRef } = explicitHead ?? { headSha: undefined, shaRef: undefined };
+  const realHeadSha = headSha ?? dirtySha ?? headSlug.headSha;
+  const baseSha = await resolveBaseSha(repoRoot, realHeadSha);
+  const githubRepo = slugFromRemote;
   config.GITHUB_REPO = githubRepo;
   const [owner, name] = githubRepo.split("/");
 
@@ -1709,12 +1720,10 @@ function resolveRepoRootFromWorkflow(workflowPath: string): string {
   return repoRoot === "/" ? resolveRepoRoot() : repoRoot;
 }
 
-function resolveHeadSha(repoRoot: string, sha: string) {
+async function resolveHeadSha(repoRoot: string, sha: string) {
   try {
-    return {
-      headSha: execSync(`git rev-parse ${sha}`, { cwd: repoRoot }).toString().trim(),
-      shaRef: sha,
-    };
+    const { stdout } = await execFileP("git", ["rev-parse", sha], { cwd: repoRoot });
+    return { headSha: stdout.trim(), shaRef: sha };
   } catch {
     throw new Error(`Failed to resolve ref: ${sha}`);
   }
@@ -1735,21 +1744,25 @@ function emitRunFinishSentinel(status: "passed" | "failed"): void {
   );
 }
 
-function persistRunResult(opts: {
+async function persistRunResult(opts: {
   results: JobResult[];
   repoRoot: string;
   startedAt: Date;
   sha?: string;
   branch?: string;
-}): void {
+}): Promise<void> {
   try {
-    const repo = config.GITHUB_REPO ?? resolveRepoSlug(opts.repoRoot);
-    const branch =
+    const [repo, branch, headSha] = await Promise.all([
+      config.GITHUB_REPO ?? resolveRepoSlug(opts.repoRoot),
       opts.branch ??
-      execSync("git rev-parse --abbrev-ref HEAD", { cwd: opts.repoRoot }).toString().trim();
-    const headSha = (
-      opts.sha ?? execSync("git rev-parse HEAD", { cwd: opts.repoRoot }).toString()
-    ).trim();
+        execFileP("git", ["rev-parse", "--abbrev-ref", "HEAD"], { cwd: opts.repoRoot }).then((r) =>
+          r.stdout.trim(),
+        ),
+      opts.sha ??
+        execFileP("git", ["rev-parse", "HEAD"], { cwd: opts.repoRoot }).then((r) =>
+          r.stdout.trim(),
+        ),
+    ]);
     writeRunResult({
       repo,
       branch,
@@ -1765,10 +1778,11 @@ function persistRunResult(opts: {
 }
 
 /** Resolve the parent commit SHA for push-event `before` context. */
-function resolveBaseSha(repoRoot: string, headSha?: string): string | undefined {
+async function resolveBaseSha(repoRoot: string, headSha?: string): Promise<string | undefined> {
   try {
     const ref = headSha && headSha !== "HEAD" ? `${headSha}~1` : "HEAD~1";
-    return execSync(`git rev-parse ${ref}`, { cwd: repoRoot, stdio: "pipe" }).toString().trim();
+    const { stdout } = await execFileP("git", ["rev-parse", ref], { cwd: repoRoot });
+    return stdout.trim();
   } catch {
     return undefined;
   }

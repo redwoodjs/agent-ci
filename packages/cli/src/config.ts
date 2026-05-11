@@ -1,24 +1,29 @@
-import { execSync } from "child_process";
+import { execFile } from "child_process";
+import { promisify } from "util";
 import fs from "fs";
 import path from "path";
 import { PROJECT_ROOT } from "./output/working-directory.ts";
+
+const execFileP = promisify(execFile);
 
 /**
  * Get the URL of the first git remote, preferring 'origin'.
  * Uses `git remote get-url` which is scoped to the repo (unlike `git config`
  * which can leak values from global/system config on CI runners).
  */
-export function getFirstRemoteUrl(cwd: string): string | null {
-  const exec = (cmd: string) =>
-    execSync(cmd, { cwd, encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] }).trim();
+export async function getFirstRemoteUrl(cwd: string): Promise<string | null> {
+  const git = async (...args: string[]): Promise<string> => {
+    const { stdout } = await execFileP("git", args, { cwd, encoding: "utf-8" });
+    return stdout.trim();
+  };
   try {
-    return exec("git remote get-url origin") || null;
+    return (await git("remote", "get-url", "origin")) || null;
   } catch {
     // origin doesn't exist — fall back to the first listed remote
     try {
-      const firstName = exec("git remote").split("\n")[0];
+      const firstName = (await git("remote")).split("\n")[0];
       if (firstName) {
-        return exec(`git remote get-url ${firstName}`) || null;
+        return (await git("remote", "get-url", firstName)) || null;
       }
     } catch {}
   }
@@ -38,8 +43,8 @@ export function parseRepoSlug(remoteUrl: string): string | null {
  * Detect `owner/repo` from the git remote in the given directory.
  * Throws if detection fails and no fallback is provided.
  */
-export function resolveRepoSlug(cwd: string, fallback?: string): string {
-  const remoteUrl = getFirstRemoteUrl(cwd);
+export async function resolveRepoSlug(cwd: string, fallback?: string): Promise<string> {
+  const remoteUrl = await getFirstRemoteUrl(cwd);
   if (remoteUrl) {
     const slug = parseRepoSlug(remoteUrl);
     if (slug) {

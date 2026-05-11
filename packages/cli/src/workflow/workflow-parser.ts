@@ -1,10 +1,13 @@
 import fs from "fs";
 import path from "path";
 import crypto from "crypto";
-import { execSync } from "child_process";
+import { execFile } from "child_process";
+import { promisify } from "util";
 import { minimatch } from "minimatch";
 import { parse as parseYaml } from "yaml";
 import { classifyRunsOn } from "../runner/runs-on-compat.ts";
+
+const execFileP = promisify(execFile);
 
 /**
  * Values used to resolve `${{ runner.os }}` / `${{ runner.arch }}` at
@@ -1223,14 +1226,13 @@ export async function parseWorkflowContainer(
  * Get the list of files changed in the current commit relative to the previous
  * commit. Returns an empty array on error (safe fallback: all workflows run).
  */
-export function getChangedFiles(repoRoot: string): string[] {
+export async function getChangedFiles(repoRoot: string): Promise<string[]> {
   try {
-    const output = execSync("git diff --name-only HEAD~1", {
+    const { stdout } = await execFileP("git", ["diff", "--name-only", "HEAD~1"], {
       cwd: repoRoot,
       encoding: "utf-8",
-      stdio: ["pipe", "pipe", "pipe"],
     });
-    return output
+    return stdout
       .trim()
       .split("\n")
       .filter((f) => f.length > 0);

@@ -46,23 +46,23 @@ describe("getFirstRemoteUrl", () => {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  it("returns origin URL when origin exists", () => {
+  it("returns origin URL when origin exists", async () => {
     execSync("git remote add origin https://github.com/test/repo.git", {
       cwd: tmpDir,
       stdio: "pipe",
     });
-    expect(getFirstRemoteUrl(tmpDir)).toBe("https://github.com/test/repo.git");
+    expect(await getFirstRemoteUrl(tmpDir)).toBe("https://github.com/test/repo.git");
   });
 
-  it("falls back to first remote when origin does not exist", () => {
+  it("falls back to first remote when origin does not exist", async () => {
     execSync("git remote add upstream https://github.com/test/upstream.git", {
       cwd: tmpDir,
       stdio: "pipe",
     });
-    expect(getFirstRemoteUrl(tmpDir)).toBe("https://github.com/test/upstream.git");
+    expect(await getFirstRemoteUrl(tmpDir)).toBe("https://github.com/test/upstream.git");
   });
 
-  it("prefers origin over other remotes", () => {
+  it("prefers origin over other remotes", async () => {
     execSync("git remote add upstream https://github.com/test/upstream.git", {
       cwd: tmpDir,
       stdio: "pipe",
@@ -71,17 +71,17 @@ describe("getFirstRemoteUrl", () => {
       cwd: tmpDir,
       stdio: "pipe",
     });
-    expect(getFirstRemoteUrl(tmpDir)).toBe("https://github.com/test/origin.git");
+    expect(await getFirstRemoteUrl(tmpDir)).toBe("https://github.com/test/origin.git");
   });
 
-  it("returns null when no remotes exist", () => {
-    expect(getFirstRemoteUrl(tmpDir)).toBeNull();
+  it("returns null when no remotes exist", async () => {
+    expect(await getFirstRemoteUrl(tmpDir)).toBeNull();
   });
 
-  it("returns null for non-git directory", () => {
+  it("returns null for non-git directory", async () => {
     const nonGitDir = fs.mkdtempSync(path.join(os.tmpdir(), "no-git-"));
     try {
-      expect(getFirstRemoteUrl(nonGitDir)).toBeNull();
+      expect(await getFirstRemoteUrl(nonGitDir)).toBeNull();
     } finally {
       fs.rmSync(nonGitDir, { recursive: true, force: true });
     }
@@ -100,45 +100,47 @@ describe("resolveRepoSlug", () => {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  it("detects owner/repo from remote URL", () => {
+  it("detects owner/repo from remote URL", async () => {
     execSync("git remote add origin https://github.com/acme/widgets.git", {
       cwd: tmpDir,
       stdio: "pipe",
     });
-    expect(resolveRepoSlug(tmpDir)).toBe("acme/widgets");
+    expect(await resolveRepoSlug(tmpDir)).toBe("acme/widgets");
   });
 
-  it("detects owner/repo from SSH remote", () => {
+  it("detects owner/repo from SSH remote", async () => {
     execSync("git remote add origin git@github.com:acme/widgets.git", {
       cwd: tmpDir,
       stdio: "pipe",
     });
-    expect(resolveRepoSlug(tmpDir)).toBe("acme/widgets");
+    expect(await resolveRepoSlug(tmpDir)).toBe("acme/widgets");
   });
 
-  it("throws when no remotes exist and no fallback given", () => {
-    expect(() => resolveRepoSlug(tmpDir)).toThrow(/Could not detect GitHub repository/);
+  it("throws when no remotes exist and no fallback given", async () => {
+    await expect(resolveRepoSlug(tmpDir)).rejects.toThrow(/Could not detect GitHub repository/);
   });
 
-  it("returns fallback when no remotes exist", () => {
-    expect(resolveRepoSlug(tmpDir, "org/fallback")).toBe("org/fallback");
+  it("returns fallback when no remotes exist", async () => {
+    expect(await resolveRepoSlug(tmpDir, "org/fallback")).toBe("org/fallback");
   });
 
-  it("throws for non-git directory without fallback", () => {
+  it("throws for non-git directory without fallback", async () => {
     const nonGitDir = fs.mkdtempSync(path.join(os.tmpdir(), "no-git-"));
     try {
-      expect(() => resolveRepoSlug(nonGitDir)).toThrow(/Could not detect GitHub repository/);
+      await expect(resolveRepoSlug(nonGitDir)).rejects.toThrow(
+        /Could not detect GitHub repository/,
+      );
     } finally {
       fs.rmSync(nonGitDir, { recursive: true, force: true });
     }
   });
 
-  it("uses non-origin remote when origin is absent", () => {
+  it("uses non-origin remote when origin is absent", async () => {
     execSync("git remote add upstream https://github.com/acme/upstream.git", {
       cwd: tmpDir,
       stdio: "pipe",
     });
-    expect(resolveRepoSlug(tmpDir)).toBe("acme/upstream");
+    expect(await resolveRepoSlug(tmpDir)).toBe("acme/upstream");
   });
 });
 
@@ -169,23 +171,23 @@ describe("GITHUB_REPO env var override priority", () => {
     expect(result).toBe("override/from-env");
   });
 
-  it("auto-detects when env var is not set", () => {
+  it("auto-detects when env var is not set", async () => {
     execSync("git remote add origin https://github.com/detected/repo.git", {
       cwd: tmpDir,
       stdio: "pipe",
     });
     config.GITHUB_REPO = undefined;
 
-    const result = config.GITHUB_REPO ?? resolveRepoSlug(tmpDir);
+    const result = config.GITHUB_REPO ?? (await resolveRepoSlug(tmpDir));
     expect(result).toBe("detected/repo");
   });
 
-  it("throws when neither env var nor remote is available", () => {
+  it("throws when neither env var nor remote is available", async () => {
     config.GITHUB_REPO = undefined;
 
-    expect(() => {
-      return config.GITHUB_REPO ?? resolveRepoSlug(tmpDir);
-    }).toThrow(/Could not detect GitHub repository/);
+    await expect(
+      (async () => config.GITHUB_REPO ?? (await resolveRepoSlug(tmpDir)))(),
+    ).rejects.toThrow(/Could not detect GitHub repository/);
   });
 });
 

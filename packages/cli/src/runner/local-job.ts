@@ -285,6 +285,236 @@ async function seedRunnerBinaryToHost(docker: Docker, hostRunnerSeedDir: string)
 }
 
 /**
+ * Mutable state tracked across timeline-poll ticks. The store-sync helper
+ * mutates the fields in place; the polling loop and the rest of
+ * `executeLocalJob` read them once the loop finishes.
+ */
+type TimelineSyncState = {
+  lastSeenAttempt: number;
+  isPaused: boolean;
+  pausedAtMs: number | null;
+  pausedStepName: string | null;
+  isBooting: boolean;
+  lastFailedStep: string | null;
+};
+
+/** Read-only inputs the store-sync helper needs but does not mutate. */
+type TimelineSyncContext = {
+  pauseOnFailure: boolean;
+  pausedSignalPath: string;
+  signalsDir: string;
+  timelinePath: string;
+  bootStart: number;
+  containerName: string;
+  store: RunStateStore | undefined;
+  /** Called the first time a pause is detected — sets up the Enter-to-retry stdin listener. */
+  onNewPause: () => void;
+};
+
+/** Result of folding the timeline-records list into a render-ready shape. */
+type BuiltSteps = {
+  newSteps: StepState[];
+  totalDurationMs: number | undefined;
+  jobFinished: boolean;
+};
+
+/**
+ * Fold the raw actions-runner timeline records into the `StepState[]` shape
+ * the renderer expects. Mutates `state.lastFailedStep` when a step result is
+ * "failed". Skips duplicate names; the second occurrence (e.g. for a "Post"
+ * step) triggers a synthetic "Post Setup" row at the end.
+ */
+function buildStepsFromTimeline(steps: any[], state: TimelineSyncState): BuiltSteps {
+  const seenNames = new Set<string>();
+  let hasPostSteps = false;
+  let completeJobRecord: any = null;
+
+  const preCountNames = new Set<string>();
+  for (const r of steps) {
+    if (!preCountNames.has(r.name)) {
+      preCountNames.add(r.name);
+    } else {
+      hasPostSteps = true;
+    }
+  }
+
+  let stepIdx = 0;
+  const newSteps: StepState[] = [];
+
+  for (const r of steps) {
+    if (seenNames.has(r.name)) {
+      continue;
+    }
+    seenNames.add(r.name);
+
+    if (r.name === "Complete job") {
+      completeJobRecord = r;
+      continue;
+    }
+    stepIdx++;
+
+    const durationMs =
+      r.startTime && r.finishTime
+        ? new Date(r.finishTime).getTime() - new Date(r.startTime).getTime()
+        : undefined;
+
+    let status: StepState["status"];
+    if (!r.result && r.state !== "completed") {
+      if (r.startTime) {
+        status = state.isPaused && state.pausedStepName === r.name ? "paused" : "running";
+      } else {
+        status = "pending";
+      }
+    } else {
+      const result = (r.result || "").toLowerCase();
+      if (result === "failed") {
+        state.lastFailedStep = r.name;
+        status = "failed";
+      } else if (result === "skipped") {
+        status = "skipped";
+      } else {
+        status = "completed";
+      }
+    }
+
+    newSteps.push({
+      name: r.name,
+      index: stepIdx,
+      status,
+      startedAt: r.startTime,
+      completedAt: r.finishTime,
+      durationMs,
+    });
+  }
+
+  const jobFinished = !!completeJobRecord?.result;
+
+  if (hasPostSteps && jobFinished) {
+    stepIdx++;
+    newSteps.push({ name: "Post Setup", index: stepIdx, status: "completed" });
+  }
+
+  if (completeJobRecord && jobFinished) {
+    stepIdx++;
+    const durationMs =
+      completeJobRecord.startTime && completeJobRecord.finishTime
+        ? new Date(completeJobRecord.finishTime).getTime() -
+          new Date(completeJobRecord.startTime).getTime()
+        : undefined;
+    newSteps.push({
+      name: "Complete job",
+      index: stepIdx,
+      status: "completed",
+      startedAt: completeJobRecord.startTime,
+      completedAt: completeJobRecord.finishTime,
+      durationMs,
+    });
+  }
+
+  // Total job duration spans first step start to last step end.
+  let totalDurationMs: number | undefined;
+  if (jobFinished) {
+    const allTimes = steps
+      .filter((r) => r.startTime && r.finishTime)
+      .map((r) => ({
+        start: new Date(r.startTime).getTime(),
+        end: new Date(r.finishTime).getTime(),
+      }));
+    if (allTimes.length > 0) {
+      const earliest = Math.min(...allTimes.map((t) => t.start));
+      const latest = Math.max(...allTimes.map((t) => t.end));
+      const ms = latest - earliest;
+      if (!isNaN(ms) && ms >= 0) {
+        totalDurationMs = ms;
+      }
+    }
+  }
+
+  return { newSteps, totalDurationMs, jobFinished };
+}
+
+/**
+ * One poll tick of the actions-runner timeline.json into the RunStateStore.
+ * Reads the paused-signal file (if `pauseOnFailure` is set) and the timeline
+ * JSON; updates the store and the mutable `state` in place. Errors are
+ * swallowed — this is best-effort and runs every 100ms.
+ */
+function syncTimelineToStore(state: TimelineSyncState, ctx: TimelineSyncContext): void {
+  try {
+    // ── Pause-on-failure: check for paused signal ───────────────────────────
+    if (ctx.pauseOnFailure && fs.existsSync(ctx.pausedSignalPath)) {
+      const content = fs.readFileSync(ctx.pausedSignalPath, "utf-8").trim();
+      const lines = content.split("\n");
+      state.pausedStepName = lines[0] || null;
+      const attempt = parseInt(lines[1] || "1", 10);
+      const isNewAttempt = attempt !== state.lastSeenAttempt;
+      if (isNewAttempt) {
+        state.lastSeenAttempt = attempt;
+        state.isPaused = true;
+        state.pausedAtMs = Date.now();
+        ctx.onNewPause();
+      }
+
+      // Read output captured by the wrapper script's tee — written directly
+      // to the signals dir so it's always available when paused.
+      const tailLines = tailLogFile(path.join(ctx.signalsDir, "step-output"), 20);
+
+      ctx.store?.updateJob(ctx.containerName, {
+        status: "paused",
+        pausedAtStep: state.pausedStepName || undefined,
+        ...(isNewAttempt && state.pausedAtMs !== null
+          ? { pausedAtMs: new Date(state.pausedAtMs).toISOString(), attempt: state.lastSeenAttempt }
+          : {}),
+        lastOutputLines: tailLines,
+      });
+    } else if (state.isPaused && !fs.existsSync(ctx.pausedSignalPath)) {
+      // Pause signal removed — job is retrying
+      state.isPaused = false;
+      state.pausedAtMs = null;
+      ctx.store?.updateJob(ctx.containerName, { status: "running", pausedAtMs: undefined });
+    }
+
+    if (!fs.existsSync(ctx.timelinePath)) {
+      return;
+    }
+
+    const records = JSON.parse(fs.readFileSync(ctx.timelinePath, "utf-8")) as any[];
+    const steps = records
+      .filter((r) => r.type === "Task" && r.name)
+      .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+
+    if (steps.length === 0) {
+      return;
+    }
+
+    // ── Transition from booting to running on first timeline entry ──────────
+    if (state.isBooting) {
+      state.isBooting = false;
+      debugBoot(`${ctx.containerName} total: ${Date.now() - ctx.bootStart}ms`);
+      ctx.store?.updateJob(ctx.containerName, {
+        status: state.isPaused ? "paused" : "running",
+        bootDurationMs: Date.now() - ctx.bootStart,
+      });
+    }
+
+    const { newSteps, totalDurationMs, jobFinished } = buildStepsFromTimeline(steps, state);
+
+    ctx.store?.updateJob(ctx.containerName, {
+      steps: newSteps,
+      ...(jobFinished
+        ? {
+            status: state.lastFailedStep ? "failed" : "completed",
+            failedStep: state.lastFailedStep || undefined,
+            durationMs: totalDurationMs,
+          }
+        : {}),
+    });
+  } catch {
+    // Best-effort
+  }
+}
+
+/**
  * Wait for a container's exit, but bail out after `timeoutMs` and stop the
  * container if the runner keeps the entrypoint alive past that. Returns the
  * exit code the daemon reports.
@@ -686,16 +916,19 @@ export async function executeLocalJob(
     })) as NodeJS.ReadableStream;
 
     let tailDone = false;
-    let lastFailedStep: string | null = null;
-    let isPaused = false;
-    let pausedStepName: string | null = null;
-    let pausedAtMs: number | null = null;
-    let lastSeenAttempt = 0;
-    let isBooting = true;
     let stdinListening = false;
     const timelinePath = path.join(logDir, "timeline.json");
     const pausedSignalPath = path.join(dirs.signalsDir, "paused");
     const signalsRunDir = path.dirname(dirs.signalsDir);
+
+    const timelineState: TimelineSyncState = {
+      lastSeenAttempt: 0,
+      isPaused: false,
+      pausedAtMs: null,
+      pausedStepName: null,
+      isBooting: true,
+      lastFailedStep: null,
+    };
 
     // Listen for Enter key to trigger retry when paused
     const setupStdinRetry = () => {
@@ -710,7 +943,7 @@ export async function executeLocalJob(
           process.stdin.setRawMode(false);
           process.exit(130);
         }
-        if (key[0] === 13 && isPaused) {
+        if (key[0] === 13 && timelineState.isPaused) {
           syncWorkspaceForRetry(signalsRunDir);
           fs.writeFileSync(path.join(dirs.signalsDir, "retry"), "");
         }
@@ -725,204 +958,24 @@ export async function executeLocalJob(
       }
     };
 
-    // ── Timeline → store updater ──────────────────────────────────────────────
-    // Reads timeline.json and the paused signal, then updates the RunStateStore.
-    // The render loop in cli.ts reads the store and calls renderRunState().
-    const updateStoreFromTimeline = () => {
-      try {
-        // ── Pause-on-failure: check for paused signal ───────────────────────
-        if (pauseOnFailure && fs.existsSync(pausedSignalPath)) {
-          const content = fs.readFileSync(pausedSignalPath, "utf-8").trim();
-          const lines = content.split("\n");
-          pausedStepName = lines[0] || null;
-          const attempt = parseInt(lines[1] || "1", 10);
-          const isNewAttempt = attempt !== lastSeenAttempt;
-          if (isNewAttempt) {
-            lastSeenAttempt = attempt;
-            isPaused = true;
-            pausedAtMs = Date.now();
-            setupStdinRetry();
-          }
-
-          // Read output captured by the wrapper script's tee — written directly
-          // to the signals dir so it's always available when paused.
-          const tailLines = tailLogFile(path.join(dirs.signalsDir, "step-output"), 20);
-
-          store?.updateJob(containerName, {
-            status: "paused",
-            pausedAtStep: pausedStepName || undefined,
-            ...(isNewAttempt && pausedAtMs !== null
-              ? { pausedAtMs: new Date(pausedAtMs).toISOString(), attempt: lastSeenAttempt }
-              : {}),
-            lastOutputLines: tailLines,
-          });
-        } else if (isPaused && !fs.existsSync(pausedSignalPath)) {
-          // Pause signal removed — job is retrying
-          isPaused = false;
-          pausedAtMs = null;
-          store?.updateJob(containerName, { status: "running", pausedAtMs: undefined });
-        }
-
-        if (!fs.existsSync(timelinePath)) {
-          return;
-        }
-
-        const records = JSON.parse(fs.readFileSync(timelinePath, "utf-8")) as any[];
-        const steps = records
-          .filter((r) => r.type === "Task" && r.name)
-          .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
-
-        if (steps.length === 0) {
-          return;
-        }
-
-        // ── Transition from booting to running on first timeline entry ────────
-        if (isBooting) {
-          isBooting = false;
-          bt("total", bootStart);
-          store?.updateJob(containerName, {
-            status: isPaused ? "paused" : "running",
-            bootDurationMs: Date.now() - bootStart,
-          });
-        }
-
-        // ── Build StepState[] from timeline records ───────────────────────────
-        const seenNames = new Set<string>();
-        let hasPostSteps = false;
-        let completeJobRecord: any = null;
-
-        const preCountNames = new Set<string>();
-        for (const r of steps) {
-          if (!preCountNames.has(r.name)) {
-            preCountNames.add(r.name);
-          } else {
-            hasPostSteps = true;
-          }
-        }
-        const hasCompleteJob = preCountNames.has("Complete job");
-        // Total = unique names (minus "Complete job") + "Post Setup" (if any) + "Complete job"
-        const totalSteps =
-          preCountNames.size -
-          (hasCompleteJob ? 1 : 0) +
-          (hasPostSteps ? 1 : 0) +
-          (hasCompleteJob ? 1 : 0);
-        const padW = String(totalSteps).length;
-
-        let stepIdx = 0;
-        const newSteps: StepState[] = [];
-
-        for (const r of steps) {
-          if (seenNames.has(r.name)) {
-            continue;
-          }
-          seenNames.add(r.name);
-
-          if (r.name === "Complete job") {
-            completeJobRecord = r;
-            continue;
-          }
-          stepIdx++;
-
-          const durationMs =
-            r.startTime && r.finishTime
-              ? new Date(r.finishTime).getTime() - new Date(r.startTime).getTime()
-              : undefined;
-
-          let status: StepState["status"];
-          if (!r.result && r.state !== "completed") {
-            if (r.startTime) {
-              status = isPaused && pausedStepName === r.name ? "paused" : "running";
-            } else {
-              status = "pending";
-            }
-          } else {
-            const result = (r.result || "").toLowerCase();
-            if (result === "failed") {
-              lastFailedStep = r.name;
-              status = "failed";
-            } else if (result === "skipped") {
-              status = "skipped";
-            } else {
-              status = "completed";
-            }
-          }
-
-          newSteps.push({
-            name: r.name,
-            index: stepIdx,
-            status,
-            startedAt: r.startTime,
-            completedAt: r.finishTime,
-            durationMs,
-          });
-          void padW; // used for totalSteps calculation above
-        }
-
-        const jobFinished = !!completeJobRecord?.result;
-
-        if (hasPostSteps && jobFinished) {
-          stepIdx++;
-          newSteps.push({ name: "Post Setup", index: stepIdx, status: "completed" });
-        }
-
-        if (completeJobRecord && jobFinished) {
-          stepIdx++;
-          const durationMs =
-            completeJobRecord.startTime && completeJobRecord.finishTime
-              ? new Date(completeJobRecord.finishTime).getTime() -
-                new Date(completeJobRecord.startTime).getTime()
-              : undefined;
-          newSteps.push({
-            name: "Complete job",
-            index: stepIdx,
-            status: "completed",
-            startedAt: completeJobRecord.startTime,
-            completedAt: completeJobRecord.finishTime,
-            durationMs,
-          });
-        }
-
-        // Compute total duration from timeline step times
-        let totalDurationMs: number | undefined;
-        if (jobFinished) {
-          const allTimes = steps
-            .filter((r) => r.startTime && r.finishTime)
-            .map((r) => ({
-              start: new Date(r.startTime).getTime(),
-              end: new Date(r.finishTime).getTime(),
-            }));
-          if (allTimes.length > 0) {
-            const earliest = Math.min(...allTimes.map((t) => t.start));
-            const latest = Math.max(...allTimes.map((t) => t.end));
-            const ms = latest - earliest;
-            if (!isNaN(ms) && ms >= 0) {
-              totalDurationMs = ms;
-            }
-          }
-        }
-
-        store?.updateJob(containerName, {
-          steps: newSteps,
-          ...(jobFinished
-            ? {
-                status: lastFailedStep ? "failed" : "completed",
-                failedStep: lastFailedStep || undefined,
-                durationMs: totalDurationMs,
-              }
-            : {}),
-        });
-      } catch {
-        // Best-effort
-      }
+    const timelineCtx: TimelineSyncContext = {
+      pauseOnFailure,
+      pausedSignalPath,
+      signalsDir: dirs.signalsDir,
+      timelinePath,
+      bootStart,
+      containerName,
+      store,
+      onNewPause: setupStdinRetry,
     };
 
     const pollPromise = (async () => {
       while (!tailDone) {
-        updateStoreFromTimeline();
+        syncTimelineToStore(timelineState, timelineCtx);
         await new Promise((r) => setTimeout(r, 100));
       }
       // Final update
-      updateStoreFromTimeline();
+      syncTimelineToStore(timelineState, timelineCtx);
     })();
 
     // Start waiting for container exit in parallel with log streaming.
@@ -957,7 +1010,11 @@ export async function executeLocalJob(
       CONTAINER_EXIT_TIMEOUT_MS,
     );
 
-    const jobSucceeded = isJobSuccessful({ lastFailedStep, containerExitCode, isBooting });
+    const jobSucceeded = isJobSuccessful({
+      lastFailedStep: timelineState.lastFailedStep,
+      containerExitCode,
+      isBooting: timelineState.isBooting,
+    });
 
     // Update store with final exit code on failure
     if (!jobSucceeded) {
@@ -995,7 +1052,7 @@ export async function executeLocalJob(
       job,
       startTime,
       jobSucceeded,
-      lastFailedStep,
+      lastFailedStep: timelineState.lastFailedStep,
       containerExitCode,
       timelinePath,
       logDir,

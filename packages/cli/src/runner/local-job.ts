@@ -130,6 +130,190 @@ const SEED_IMAGE = UPSTREAM_RUNNER_IMAGE;
 
 import { writeRunnerCredentials } from "./runner-credentials.js";
 
+const CONTAINER_EXIT_TIMEOUT_MS = 30_000;
+
+/**
+ * Pull a Docker image and report per-layer download / extraction progress to
+ * the RunStateStore. Resolves once the pull completes. Rejects on any error
+ * the daemon surfaces.
+ */
+async function pullContainerImageWithProgress(
+  docker: Docker,
+  image: string,
+  store: RunStateStore | undefined,
+  containerName: string,
+): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    docker.pull(image, (err: Error | null, stream: NodeJS.ReadableStream) => {
+      if (err) {
+        return reject(err);
+      }
+      // Track per-layer progress across download and extraction phases
+      const downloadProgress = new Map<string, { current: number; total: number }>();
+      const extractProgress = new Map<string, { current: number; total: number }>();
+      let lastProgressUpdate = 0;
+      let currentPhase: "downloading" | "extracting" = "downloading";
+
+      const flushProgress = (force = false) => {
+        const map = currentPhase === "downloading" ? downloadProgress : extractProgress;
+        if (map.size === 0) {
+          return;
+        }
+        const now = Date.now();
+        if (!force && now - lastProgressUpdate < 250) {
+          return;
+        }
+        lastProgressUpdate = now;
+        let totalBytes = 0;
+        let currentBytes = 0;
+        for (const layer of map.values()) {
+          totalBytes += layer.total;
+          currentBytes += layer.current;
+        }
+        store?.updateJob(containerName, {
+          pullProgress: { phase: currentPhase, currentBytes, totalBytes },
+        });
+      };
+
+      docker.modem.followProgress(
+        stream,
+        (followErr: Error | null) => {
+          if (followErr) {
+            return reject(followErr);
+          }
+          store?.updateJob(containerName, { pullProgress: undefined });
+          resolve();
+        },
+        (event: {
+          status?: string;
+          id?: string;
+          progressDetail?: { current?: number; total?: number };
+        }) => {
+          if (!event.id) {
+            return;
+          }
+
+          const detail = event.progressDetail;
+          const hasByteCounts =
+            detail &&
+            typeof detail.current === "number" &&
+            typeof detail.total === "number" &&
+            detail.total > 0;
+
+          if (event.status === "Downloading" && hasByteCounts) {
+            downloadProgress.set(event.id, {
+              current: detail.current!,
+              total: detail.total!,
+            });
+          } else if (event.status === "Download complete") {
+            const existing = downloadProgress.get(event.id);
+            if (existing) {
+              existing.current = existing.total;
+            }
+          } else if (event.status === "Extracting" && hasByteCounts) {
+            const phaseChanged = currentPhase !== "extracting";
+            currentPhase = "extracting";
+            extractProgress.set(event.id, {
+              current: detail.current!,
+              total: detail.total!,
+            });
+            // Force update on first extraction event so the phase change is visible immediately
+            if (phaseChanged) {
+              flushProgress(true);
+              return;
+            }
+          } else if (event.status === "Pull complete") {
+            const existing = extractProgress.get(event.id);
+            if (existing) {
+              existing.current = existing.total;
+            }
+          } else {
+            return;
+          }
+
+          flushProgress();
+        },
+      );
+    });
+  });
+}
+
+/**
+ * Extract the actions-runner binary from the SEED_IMAGE to `hostRunnerSeedDir`
+ * once and reuse it on subsequent calls. Direct-container mode injects this
+ * runner into the user's chosen image so we don't have to fork their entrypoint.
+ *
+ * Skipped when the seed dir already has a `.seeded` marker and `run.sh`.
+ */
+async function seedRunnerBinaryToHost(docker: Docker, hostRunnerSeedDir: string): Promise<void> {
+  await fs.promises.mkdir(hostRunnerSeedDir, { recursive: true });
+  const markerFile = path.join(hostRunnerSeedDir, ".seeded");
+  const runShExists = fs.existsSync(path.join(hostRunnerSeedDir, "run.sh"));
+  const needsSeed = !fs.existsSync(markerFile) || !runShExists;
+  if (needsSeed) {
+    if (!runShExists && fs.existsSync(markerFile)) {
+      debugRunner(`Runner seed is incomplete (run.sh missing), re-extracting...`);
+    } else {
+      debugRunner(`Extracting runner binary to host (one-time)...`);
+    }
+    const tmpName = `agent-ci-seed-runner-${Date.now()}`;
+    const seedContainer = await docker.createContainer({
+      Image: SEED_IMAGE,
+      name: tmpName,
+      Cmd: ["true"],
+    });
+    execSync(`docker cp ${tmpName}:/home/runner/. "${hostRunnerSeedDir}/"`, { stdio: "pipe" });
+    await seedContainer.remove();
+    const configShPath = path.join(hostRunnerSeedDir, "config.sh");
+    let configSh = await fs.promises.readFile(configShPath, "utf8");
+    configSh = configSh.replace(
+      /# Check dotnet Core.*?^fi$/ms,
+      "# Dependency checks removed for container injection",
+    );
+    await fs.promises.writeFile(configShPath, configSh);
+    await fs.promises.writeFile(markerFile, new Date().toISOString());
+    ensureRunnerWriteable(hostRunnerSeedDir);
+    debugRunner(`Runner extracted.`);
+  }
+  for (const staleFile of [".runner", ".credentials", ".credentials_rsaparams"]) {
+    try {
+      fs.rmSync(path.join(hostRunnerSeedDir, staleFile));
+    } catch {
+      /* not present */
+    }
+  }
+}
+
+/**
+ * Wait for a container's exit, but bail out after `timeoutMs` and stop the
+ * container if the runner keeps the entrypoint alive past that. Returns the
+ * exit code the daemon reports.
+ */
+async function waitForContainerExit(
+  container: Docker.Container,
+  containerWaitPromise: Promise<{ StatusCode: number }>,
+  timeoutMs: number,
+): Promise<number> {
+  let waitResult: { StatusCode: number };
+  try {
+    waitResult = await Promise.race([
+      containerWaitPromise,
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error("Container exit timeout")), timeoutMs),
+      ),
+    ]);
+  } catch {
+    debugRunner(`Runner did not exit within ${timeoutMs / 1000}s, force-stopping container…`);
+    try {
+      await container.stop({ t: 5 });
+    } catch {
+      /* already stopped */
+    }
+    waitResult = await container.wait();
+  }
+  return waitResult.StatusCode;
+}
+
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
 export async function executeLocalJob(
@@ -417,144 +601,14 @@ export async function executeLocalJob(
     }
 
     if (useDirectContainer) {
-      await fs.promises.mkdir(hostRunnerSeedDir, { recursive: true });
-      const markerFile = path.join(hostRunnerSeedDir, ".seeded");
-      const runShExists = fs.existsSync(path.join(hostRunnerSeedDir, "run.sh"));
-      const needsSeed = !fs.existsSync(markerFile) || !runShExists;
-      if (needsSeed) {
-        if (!runShExists && fs.existsSync(markerFile)) {
-          debugRunner(`Runner seed is incomplete (run.sh missing), re-extracting...`);
-        } else {
-          debugRunner(`Extracting runner binary to host (one-time)...`);
-        }
-        const tmpName = `agent-ci-seed-runner-${Date.now()}`;
-        const seedContainer = await getDocker().createContainer({
-          Image: SEED_IMAGE,
-          name: tmpName,
-          Cmd: ["true"],
-        });
-        const { execSync } = await import("node:child_process");
-        execSync(`docker cp ${tmpName}:/home/runner/. "${hostRunnerSeedDir}/"`, { stdio: "pipe" });
-        await seedContainer.remove();
-        const configShPath = path.join(hostRunnerSeedDir, "config.sh");
-        let configSh = await fs.promises.readFile(configShPath, "utf8");
-        configSh = configSh.replace(
-          /# Check dotnet Core.*?^fi$/ms,
-          "# Dependency checks removed for container injection",
-        );
-        await fs.promises.writeFile(configShPath, configSh);
-        await fs.promises.writeFile(markerFile, new Date().toISOString());
-        ensureRunnerWriteable(hostRunnerSeedDir);
-        debugRunner(`Runner extracted.`);
-      }
-      for (const staleFile of [".runner", ".credentials", ".credentials_rsaparams"]) {
-        try {
-          fs.rmSync(path.join(hostRunnerSeedDir, staleFile));
-        } catch {
-          /* not present */
-        }
-      }
+      await seedRunnerBinaryToHost(getDocker(), hostRunnerSeedDir);
       execSync(`cp -a "${hostRunnerSeedDir}" "${hostRunnerDir}"`, { stdio: "pipe" });
 
       const resolvedUrl = `${dockerApiUrl}/${githubRepo}`;
       writeRunnerCredentials(hostRunnerDir, containerName, resolvedUrl);
-    }
 
-    if (useDirectContainer) {
       debugRunner(`Pulling ${containerImage}...`);
-      await new Promise<void>((resolve, reject) => {
-        getDocker().pull(containerImage, (err: Error | null, stream: NodeJS.ReadableStream) => {
-          if (err) {
-            return reject(err);
-          }
-          // Track per-layer progress across download and extraction phases
-          const downloadProgress = new Map<string, { current: number; total: number }>();
-          const extractProgress = new Map<string, { current: number; total: number }>();
-          let lastProgressUpdate = 0;
-          let currentPhase: "downloading" | "extracting" = "downloading";
-
-          const flushProgress = (force = false) => {
-            const map = currentPhase === "downloading" ? downloadProgress : extractProgress;
-            if (map.size === 0) {
-              return;
-            }
-            const now = Date.now();
-            if (!force && now - lastProgressUpdate < 250) {
-              return;
-            }
-            lastProgressUpdate = now;
-            let totalBytes = 0;
-            let currentBytes = 0;
-            for (const layer of map.values()) {
-              totalBytes += layer.total;
-              currentBytes += layer.current;
-            }
-            store?.updateJob(containerName, {
-              pullProgress: { phase: currentPhase, currentBytes, totalBytes },
-            });
-          };
-
-          getDocker().modem.followProgress(
-            stream,
-            (err: Error | null) => {
-              if (err) {
-                return reject(err);
-              }
-              store?.updateJob(containerName, { pullProgress: undefined });
-              resolve();
-            },
-            (event: {
-              status?: string;
-              id?: string;
-              progressDetail?: { current?: number; total?: number };
-            }) => {
-              if (!event.id) {
-                return;
-              }
-
-              const detail = event.progressDetail;
-              const hasByteCounts =
-                detail &&
-                typeof detail.current === "number" &&
-                typeof detail.total === "number" &&
-                detail.total > 0;
-
-              if (event.status === "Downloading" && hasByteCounts) {
-                downloadProgress.set(event.id, {
-                  current: detail.current!,
-                  total: detail.total!,
-                });
-              } else if (event.status === "Download complete") {
-                const existing = downloadProgress.get(event.id);
-                if (existing) {
-                  existing.current = existing.total;
-                }
-              } else if (event.status === "Extracting" && hasByteCounts) {
-                const phaseChanged = currentPhase !== "extracting";
-                currentPhase = "extracting";
-                extractProgress.set(event.id, {
-                  current: detail.current!,
-                  total: detail.total!,
-                });
-                // Force update on first extraction event so the phase change is visible immediately
-                if (phaseChanged) {
-                  flushProgress(true);
-                  return;
-                }
-              } else if (event.status === "Pull complete") {
-                const existing = extractProgress.get(event.id);
-                if (existing) {
-                  existing.current = existing.total;
-                }
-              } else {
-                return;
-              }
-
-              flushProgress();
-            },
-          );
-        });
-      });
+      await pullContainerImageWithProgress(getDocker(), containerImage, store, containerName);
     }
 
     const containerEnv = buildContainerEnv({
@@ -897,27 +951,11 @@ export async function executeLocalJob(
     await pollPromise;
 
     // 8. Wait for completion
-    const CONTAINER_EXIT_TIMEOUT_MS = 30_000;
-    let waitResult: { StatusCode: number };
-    try {
-      waitResult = await Promise.race([
-        containerWaitPromise,
-        new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error("Container exit timeout")), CONTAINER_EXIT_TIMEOUT_MS),
-        ),
-      ]);
-    } catch {
-      debugRunner(
-        `Runner did not exit within ${CONTAINER_EXIT_TIMEOUT_MS / 1000}s, force-stopping container…`,
-      );
-      try {
-        await container.stop({ t: 5 });
-      } catch {
-        /* already stopped */
-      }
-      waitResult = await container.wait();
-    }
-    const containerExitCode = waitResult.StatusCode;
+    const containerExitCode = await waitForContainerExit(
+      container,
+      containerWaitPromise,
+      CONTAINER_EXIT_TIMEOUT_MS,
+    );
 
     const jobSucceeded = isJobSuccessful({ lastFailedStep, containerExitCode, isBooting });
 

@@ -1,6 +1,9 @@
-import { execSync } from "child_process";
+import { execFile } from "child_process";
+import { promisify } from "util";
 import path from "path";
 import fs from "fs";
+
+const execFileP = promisify(execFile);
 
 /**
  * Compute a SHA that represents the current dirty working-tree state, as if
@@ -9,25 +12,19 @@ import fs from "fs";
  *
  * Returns `undefined` when the tree is clean (no uncommitted changes).
  */
-export function computeDirtySha(repoRoot: string): string | undefined {
+export async function computeDirtySha(repoRoot: string): Promise<string | undefined> {
+  const git = async (env: NodeJS.ProcessEnv | undefined, ...args: string[]): Promise<string> => {
+    const { stdout } = await execFileP("git", args, { cwd: repoRoot, encoding: "utf-8", env });
+    return stdout.trim();
+  };
   try {
     // Quick check: anything dirty?
-    const status = execSync("git status --porcelain", {
-      cwd: repoRoot,
-      stdio: "pipe",
-    })
-      .toString()
-      .trim();
+    const status = await git(undefined, "status", "--porcelain");
     if (!status) {
       return undefined;
     }
 
-    const gitDir = execSync("git rev-parse --git-dir", {
-      cwd: repoRoot,
-      stdio: "pipe",
-    })
-      .toString()
-      .trim();
+    const gitDir = await git(undefined, "rev-parse", "--git-dir");
     const absoluteGitDir = path.isAbsolute(gitDir) ? gitDir : path.join(repoRoot, gitDir);
     const tmpIndex = path.join(absoluteGitDir, `index-agent-ci-${Date.now()}`);
 
@@ -38,26 +35,21 @@ export function computeDirtySha(repoRoot: string): string | undefined {
       const env = { ...process.env, GIT_INDEX_FILE: tmpIndex };
 
       // Stage everything (tracked + untracked, respecting .gitignore) into the temp index.
-      execSync("git add -A", { cwd: repoRoot, stdio: "pipe", env });
+      await git(env, "add", "-A");
 
       // Write a tree object from the temp index.
-      const tree = execSync("git write-tree", {
-        cwd: repoRoot,
-        stdio: "pipe",
-        env,
-      })
-        .toString()
-        .trim();
+      const tree = await git(env, "write-tree");
 
       // Create an ephemeral commit object parented on HEAD — no ref is updated.
-      const sha = execSync(`git commit-tree ${tree} -p HEAD -m "agent-ci: dirty working tree"`, {
-        cwd: repoRoot,
-        stdio: "pipe",
-      })
-        .toString()
-        .trim();
-
-      return sha;
+      return await git(
+        undefined,
+        "commit-tree",
+        tree,
+        "-p",
+        "HEAD",
+        "-m",
+        "agent-ci: dirty working tree",
+      );
     } finally {
       try {
         fs.unlinkSync(tmpIndex);

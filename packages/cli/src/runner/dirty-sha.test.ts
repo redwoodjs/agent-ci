@@ -22,39 +22,39 @@ describe("computeDirtySha", () => {
     fs.rmSync(repoDir, { recursive: true, force: true });
   });
 
-  it("returns undefined for a clean working tree", () => {
-    expect(computeDirtySha(repoDir)).toBeUndefined();
+  it("returns undefined for a clean working tree", async () => {
+    expect(await computeDirtySha(repoDir)).toBeUndefined();
   });
 
-  it("returns a SHA when tracked files are modified", () => {
+  it("returns a SHA when tracked files are modified", async () => {
     fs.writeFileSync(path.join(repoDir, "initial.txt"), "modified");
-    const sha = computeDirtySha(repoDir);
+    const sha = await computeDirtySha(repoDir);
     expect(sha).toBeDefined();
     expect(sha).toMatch(/^[0-9a-f]{40}$/);
   });
 
-  it("returns a SHA when untracked files are present", () => {
+  it("returns a SHA when untracked files are present", async () => {
     fs.writeFileSync(path.join(repoDir, "untracked.txt"), "new file");
-    const sha = computeDirtySha(repoDir);
+    const sha = await computeDirtySha(repoDir);
     expect(sha).toBeDefined();
     expect(sha).toMatch(/^[0-9a-f]{40}$/);
   });
 
-  it("returns a different SHA for different dirty states", () => {
+  it("returns a different SHA for different dirty states", async () => {
     fs.writeFileSync(path.join(repoDir, "a.txt"), "content a");
-    const sha1 = computeDirtySha(repoDir);
+    const sha1 = await computeDirtySha(repoDir);
 
     // Stage and commit a.txt, then modify differently
     execSync("git add -A && git commit -m 'add a'", { cwd: repoDir, stdio: "pipe" });
     fs.writeFileSync(path.join(repoDir, "a.txt"), "content b");
-    const sha2 = computeDirtySha(repoDir);
+    const sha2 = await computeDirtySha(repoDir);
 
     expect(sha1).toBeDefined();
     expect(sha2).toBeDefined();
     expect(sha1).not.toBe(sha2);
   });
 
-  it("does not move HEAD or create refs", () => {
+  it("does not move HEAD or create refs", async () => {
     const headBefore = execSync("git rev-parse HEAD", { cwd: repoDir, stdio: "pipe" })
       .toString()
       .trim();
@@ -63,7 +63,7 @@ describe("computeDirtySha", () => {
       .trim();
 
     fs.writeFileSync(path.join(repoDir, "dirty.txt"), "dirty");
-    computeDirtySha(repoDir);
+    await computeDirtySha(repoDir);
 
     const headAfter = execSync("git rev-parse HEAD", { cwd: repoDir, stdio: "pipe" })
       .toString()
@@ -76,7 +76,7 @@ describe("computeDirtySha", () => {
     expect(refsAfter).toBe(refsBefore);
   });
 
-  it("does not modify the real index", () => {
+  it("does not modify the real index", async () => {
     // Stage nothing, but have an untracked file
     fs.writeFileSync(path.join(repoDir, "untracked.txt"), "new");
 
@@ -84,7 +84,7 @@ describe("computeDirtySha", () => {
       .toString()
       .trim();
 
-    computeDirtySha(repoDir);
+    await computeDirtySha(repoDir);
 
     const statusAfter = execSync("git status --porcelain", { cwd: repoDir, stdio: "pipe" })
       .toString()
@@ -93,9 +93,9 @@ describe("computeDirtySha", () => {
     expect(statusAfter).toBe(statusBefore);
   });
 
-  it("returns a valid commit object parented on HEAD", () => {
+  it("returns a valid commit object parented on HEAD", async () => {
     fs.writeFileSync(path.join(repoDir, "dirty.txt"), "content");
-    const sha = computeDirtySha(repoDir);
+    const sha = await computeDirtySha(repoDir);
     expect(sha).toBeDefined();
 
     // Verify it's a valid commit object

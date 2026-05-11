@@ -47,6 +47,9 @@
       "oxlint --deny-warnings"
     ]
   },
+  "engines": {
+    "node": ">=24"
+  },
   "packageManager": "pnpm@10.30.1",
   "pnpm": {
     "onlyBuiltDependencies": [

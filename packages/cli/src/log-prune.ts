@@ -3,11 +3,11 @@ import path from "node:path";
 import { resolveLogsDir, resolveStateDir } from "./run-result-writer.js";
 
 /** Default: keep runs whose mtime is younger than this many days. */
-export const DEFAULT_RETAIN_DAYS = 7;
+const DEFAULT_RETAIN_DAYS = 7;
 /** Default: keep at most this many runs after age-based filtering. */
-export const DEFAULT_RETAIN_RUNS = 20;
+const DEFAULT_RETAIN_RUNS = 20;
 /** Default: don't run more than once per this many ms unless forced. */
-export const DEFAULT_THROTTLE_MS = 60 * 60 * 1000; // 1 hour
+const DEFAULT_THROTTLE_MS = 60 * 60 * 1000; // 1 hour
 
 export interface PruneOptions {
   logsDir?: string;

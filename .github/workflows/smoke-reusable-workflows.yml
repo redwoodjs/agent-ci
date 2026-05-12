@@ -13,7 +13,7 @@ jobs:
   # Calls a remote reusable workflow — verifies remote workflow fetching works
   remote-reusable-lint:
     if: '!github.event.pull_request.draft && (contains(fromJSON(''["MEMBER", "OWNER", "COLLABORATOR"]''), github.event.pull_request.author_association) || contains(github.event.pull_request.labels.*.name, ''safe-to-run''))'
-    uses: redwoodjs/actions/.github/workflows/lint.yml@main
+    uses: redwoodjs/actions/.github/workflows/lint.yml@9ac4c9681f56139dc239921e582ffc4976083059 # main
 
   # Calls a chain of nested reusable workflows 4 levels deep
   nested-reusable:

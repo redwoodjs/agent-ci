@@ -38,7 +38,7 @@ jobs:
   # response was decoded, (3) the fetched YAML was inlined and executed.
   remote-private-reusable-lint:
     if: '!github.event.pull_request.draft && (contains(fromJSON(''["MEMBER", "OWNER", "COLLABORATOR"]''), github.event.pull_request.author_association) || contains(github.event.pull_request.labels.*.name, ''safe-to-run''))'
-    uses: peterp/agent-ci-private/.github/workflows/lint.yml@main
+    uses: peterp/agent-ci-private/.github/workflows/lint.yml@cf9992c0af57f77d8ce9d965446dbdb3e062be75 # main
 
   verify-remote-private:
     needs: [remote-private-reusable-lint]

@@ -535,6 +535,14 @@ function stagingScript(
   );
   lines.push(`if [ -f ${GUEST_SHIMS_DIR}/git ]; then cp ${GUEST_SHIMS_DIR}/git /usr/bin/git; fi`);
   lines.push("chmod +x /usr/bin/git || true");
+  // The work dir is FUSE-mounted from the host with the host user's uid,
+  // but anything inside the guest runs as root. Git's safe.directory
+  // check refuses to operate on repos owned by a different uid, which
+  // breaks actions/checkout's post-step cleanup (it shells out to git
+  // directly, bypassing our shim). Trust everything globally — the
+  // guest is per-job and disposable, so the security stance the check
+  // is enforcing doesn't apply here.
+  lines.push("/usr/bin/git.real config --system --add safe.directory '*' 2>/dev/null || true");
   return lines.join("\n");
 }
 

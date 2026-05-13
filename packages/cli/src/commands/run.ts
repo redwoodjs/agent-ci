@@ -15,9 +15,8 @@ import {
   getWorkingDirectory,
 } from "../output/working-directory.ts";
 import { debugCli } from "../output/debug.ts";
-import { executeLocalJob, getDocker } from "../runner/local-job.ts";
-import { executeMacosVmJob } from "../runner/macos-vm/macos-vm-job.ts";
-import { checkMacosVmHost } from "../runner/macos-vm/host-capability.ts";
+import { getDocker } from "../runner/local-job.ts";
+import { probeRuntimes, selectRuntime } from "../runner/runtime.ts";
 import {
   discoverRunnerImage,
   ensureRunnerImage,
@@ -48,7 +47,6 @@ import {
   classifyRunsOn,
   isUnsupportedOS,
   formatUnsupportedOSWarning,
-  type RunnerOSKind,
 } from "../runner/runs-on-compat.ts";
 import { resolveJobOutputs } from "../runner/result-builder.ts";
 import type { Job } from "../types.ts";
@@ -1209,20 +1207,32 @@ async function handleWorkflow(options: {
     steps: [],
   });
   const warnedUnsupportedOS = new Set<string>();
-  const macosVmHost = checkMacosVmHost();
+  // Probe every runtime's host capability once. ADR 0001 + CONTEXT.md
+  // describe the selection rules; priority order is [machinen, macos-vm,
+  // docker], with AGENT_CI_RUNTIME re-ordering candidates within a job's
+  // OS family.
+  const probedRuntimes = probeRuntimes();
+  const runtimeOverride = process.env.AGENT_CI_RUNTIME || null;
   const classifyJob = (ej: ExpandedJob) => {
     const labels = parseJobRunsOn(ej.workflowPath, ej.sourceTaskName ?? ej.taskName);
     return { labels, kind: classifyRunsOn(labels) };
   };
-  const canRunMacosHere = (kind: RunnerOSKind) => kind === "macos" && macosVmHost.supported;
   const maybeSkipUnsupportedOS = (ej: ExpandedJob): JobResult | null => {
     const { labels, kind } = classifyJob(ej);
-    if (!isUnsupportedOS(kind) || canRunMacosHere(kind)) {
+    if (selectRuntime(kind, probedRuntimes, runtimeOverride)) {
+      return null;
+    }
+    if (!isUnsupportedOS(kind)) {
+      // "linux" or "other" with no candidate runtime — should not happen
+      // because docker.checkHost() always returns supported. Defer to the
+      // existing dispatch error path rather than silently skipping.
       return null;
     }
     if (!warnedUnsupportedOS.has(ej.taskName)) {
       warnedUnsupportedOS.add(ej.taskName);
-      const capability = kind === "macos" && !macosVmHost.supported ? macosVmHost : undefined;
+      const macosVm = probedRuntimes.find((p) => p.runtime.name === "macos-vm");
+      const capability =
+        kind === "macos" && macosVm && !macosVm.host.supported ? macosVm.host : undefined;
       process.stderr.write(
         formatUnsupportedOSWarning(ej.taskName, labels, kind, capability) + "\n\n",
       );
@@ -1232,10 +1242,12 @@ async function handleWorkflow(options: {
   // Returns the executor for a job. Callers have already filtered out
   // OS-skipped jobs via maybeSkipUnsupportedOS.
   const runJobExecutor = (ej: ExpandedJob, job: Job): Promise<JobResult> => {
-    if (canRunMacosHere(classifyJob(ej).kind)) {
-      return executeMacosVmJob(job);
+    const { kind } = classifyJob(ej);
+    const runtime = selectRuntime(kind, probedRuntimes, runtimeOverride);
+    if (!runtime) {
+      throw new Error(`No runtime available for job ${ej.taskName} (runs-on kind: ${kind}).`);
     }
-    return executeLocalJob(job, { pauseOnFailure, store });
+    return runtime.execute(job, { pauseOnFailure, store });
   };
 
   // For single-job workflows, run directly without extra orchestration

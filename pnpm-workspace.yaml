@@ -3,3 +3,10 @@ packages:
   - "packages/dtu-github-actions"
   - "packages/ts-runner"
   - "apps/website"
+
+# @machinen/* are first-party packages co-authored by this repo's
+# maintainers, so the global 7-day minimumReleaseAge supply-chain guard
+# is skipped for them and their nested dependencies. Other packages
+# still observe the policy.
+minimumReleaseAgeExclude:
+  - "@machinen/*"

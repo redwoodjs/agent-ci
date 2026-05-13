@@ -1,0 +1,111 @@
+name: Machinen rootfs
+
+# Bakes the agent-ci machinen rootfs (debian-arm64 + nodejs/git/curl/jq/unzip +
+# GHA runner binary) and uploads it to the `machinen-rootfs-latest` rolling
+# release. The runtime downloads this asset on first machinen use.
+#
+# See docs/adr/0004-machinen-rootfs-as-release-asset.md.
+#
+# Manually triggered today (workflow_dispatch). Re-run when:
+#   - upstream actions/runner publishes a new patch we want to pick up
+#   - we add/remove apt packages from the bake spec (scripts/machinen-bake.mjs)
+#   - a security update lands in debian's apt mirror we want to bake in
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Release tag to upload the asset under"
+        required: false
+        default: "machinen-rootfs-latest"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ inputs.release_tag }}
+  cancel-in-progress: false
+
+jobs:
+  bake:
+    # arm64 darwin: GitHub-hosted M-series mac runner. Required because
+    # @machinen/runtime's VMM bindings only exist for arm64-darwin / arm64-linux,
+    # and `macos-15` is the smallest hosted runner that gives us either.
+    runs-on: macos-15
+    permissions:
+      contents: write
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.3.0
+        with:
+          version: 10.30.1
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - run: pnpm install
+
+      # @machinen/runtime ships VMM binaries non-executable in 0.1.1 across
+      # mke2fs / mksquashfs (see redwoodjs/machinen#309). The local-bake
+      # path needs them runnable; chmod here until upstream republishes.
+      - name: Workaround machinen#309 binary modes
+        run: |
+          find node_modules/.pnpm/@machinen+* \
+            -type f \( -name mke2fs -o -name mksquashfs -o -name gvproxy -o -name machinen-vm \) \
+            -exec chmod +x {} +
+
+      # @machinen/cli's first invocation populates ~/.machinen/runtime-v<ver>/bases/
+      # with the kernel/dtb/rootfs assets. We need them on the runner before
+      # provision() can boot the bake VM.
+      - name: Install @machinen/cli and warm base assets
+        env:
+          # The base assets live in a private GitHub release on redwoodjs/machinen.dev.
+          # Configure MACHINEN_RELEASE_TOKEN in the repo's secrets with a PAT that
+          # has `repo` scope on that release source.
+          GH_TOKEN: ${{ secrets.MACHINEN_RELEASE_TOKEN }}
+        run: |
+          npm install -g @machinen/cli@0.1.1
+          # First boot: machinen fetches base assets if not cached. Run a no-op
+          # cmd against a tiny image so we don't hold the runner for a full bake.
+          machinen boot -- /bin/true
+
+      - name: Bake rootfs
+        run: node scripts/machinen-bake.mjs --out dist/agent-ci-machinen-runner-arm64.tar.gz
+
+      - name: Verify rootfs tarball
+        run: |
+          ls -la dist/agent-ci-machinen-runner-arm64.tar.gz
+          # Sanity: assert the runner binary made it in.
+          tar -tzf dist/agent-ci-machinen-runner-arm64.tar.gz ./home/runner/run.sh \
+            || (echo "::error::baked rootfs is missing /home/runner/run.sh" && exit 1)
+          # Sanity: assert machinen guest tooling is present (this is what tells
+          # /init the rootfs is bootable — see redwoodjs/machinen#309 background).
+          tar -tzf dist/agent-ci-machinen-runner-arm64.tar.gz ./usr/sbin/machinen-supervisor \
+            || (echo "::error::baked rootfs is missing /usr/sbin/machinen-supervisor" && exit 1)
+
+      - name: Ensure rolling release exists
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          tag="${{ inputs.release_tag }}"
+          if ! gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release create "$tag" \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "Machinen rootfs (rolling)" \
+              --notes "Auto-managed rolling release for the agent-ci machinen rootfs. \
+              The tag does not correspond to an agent-ci version — it points at the most \
+              recent successful bake. See docs/adr/0004-machinen-rootfs-as-release-asset.md." \
+              --prerelease
+          fi
+
+      - name: Upload rootfs asset
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload "${{ inputs.release_tag }}" \
+            dist/agent-ci-machinen-runner-arm64.tar.gz \
+            --repo "$GITHUB_REPOSITORY" \
+            --clobber

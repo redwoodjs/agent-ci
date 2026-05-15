@@ -7,7 +7,19 @@ import { resolveDockerSocket } from "./docker-socket.ts";
 // Uses hello-world (~13 KB) to keep pull time minimal.
 const TEST_IMAGE = "hello-world:latest";
 
-describe("ensureImagePulled", () => {
+async function hasDocker(): Promise<boolean> {
+  try {
+    const socket = resolveDockerSocket();
+    await new Docker({ socketPath: socket.socketPath }).ping();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+const DOCKER_AVAILABLE = await hasDocker();
+
+describe.skipIf(!DOCKER_AVAILABLE)("ensureImagePulled", () => {
   let docker: Docker;
 
   beforeAll(async () => {

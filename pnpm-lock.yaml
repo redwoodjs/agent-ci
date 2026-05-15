@@ -141,8 +141,8 @@ importers:
         version: 4.0.18(@opentelemetry/api@1.9.0)(@types/node@22.19.11)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.47.1)(tsx@4.21.0)(yaml@2.8.2)
     optionalDependencies:
       '@machinen/runtime':
-        specifier: 0.1.1
-        version: 0.1.1
+        specifier: 0.3.3
+        version: 0.3.3
 
   packages/dtu-github-actions:
     dependencies:
@@ -1257,40 +1257,20 @@ packages:
   '@js-sdsl/ordered-map@4.4.2':
     resolution: {integrity: sha512-iUKgm52T8HOE/makSxjqoWhe95ZJA1/G1sYsGev2JDKUSS14KAgg1LHb+Ba+IPow0xflbnSkOsZcO08C7w1gYw==}
 
-  '@machinen/e2fsprogs-arm64-darwin@0.1.1':
-    resolution: {integrity: sha512-YkCnELB6kHt3LRtTF66TFh0sv5GItz3hD4Rl4dbbbZCtiKv93OA9tZdJ3n9KAO1PnbRqfDj/jwSCQFDrM6h78Q==}
-    cpu: [arm64]
-    os: [darwin]
-
-  '@machinen/e2fsprogs-arm64-linux@0.1.1':
-    resolution: {integrity: sha512-DkWLfiOK8TuCaY8bHWz4vFHDVh7a2E7iMtGXCSCiyr9RcM996nbFkcqR9UQkd5PopaNYo5K3KWdaKQKbT13qKQ==}
-    cpu: [arm64]
-    os: [linux]
-
-  '@machinen/runtime@0.1.1':
-    resolution: {integrity: sha512-zCHjpeUut3z0PwqqJ1IcaurZhqNglhc1szxUNzpgT865hGA3Sayy4PYZQ8779Rg6tk3p8YUz86Zv0sKwln5UWg==}
-
-  '@machinen/squashfs-tools-arm64-darwin@0.1.1':
-    resolution: {integrity: sha512-3z/g2AZ0SK0bLPvDCr0WLtJt4aWYfmq+oOpnA2k0HLrnkm5STgyZdfJHKldjeJJhc1EYiCzxaVK1GXnmXc44Dw==}
-    cpu: [arm64]
-    os: [darwin]
-
-  '@machinen/squashfs-tools-arm64-linux@0.1.1':
-    resolution: {integrity: sha512-Kmaj5BqFh5dwNlgrddWzMcDJ3WehCDE17PQUS8Mmz/lUhrj6n9vtJEcWdE3o8PhTSelZyCTxMdMGTI1QyH2cgg==}
-    cpu: [arm64]
-    os: [linux]
-
-  '@machinen/vmm-arm64-darwin@0.1.1':
-    resolution: {integrity: sha512-mHnZnFp4h0JTyg/7KF+jSPb/T85ro5LTMFhh16DHn0l5YcCN37SUuF50J6Hk9PGNKrSUUUOdCNUuRq4iS3Ygrg==}
+  '@machinen/native-arm64-darwin@0.3.3':
+    resolution: {integrity: sha512-8ZNkllnzvOaH+RZ9qCSrjC3EuhLxmWbmvz/+oIFfg56BUH4BEGtA2RslEFWElYnfJAm0AGPFAV7SKHkM4O64ig==}
     cpu: [arm64]
     os: [darwin]
     hasBin: true
 
-  '@machinen/vmm-arm64-linux@0.1.1':
-    resolution: {integrity: sha512-Q9wiSzXnh5mwEgXMLF4ULcOX5d+ysj++fSHiRZA71HsfI/VzYajCWQi+Z35wvdZUPTUCZgEi4OaVD2GsZEL43Q==}
+  '@machinen/native-arm64-linux@0.3.3':
+    resolution: {integrity: sha512-9uJTy4MJZvN9KB8jJBQHsdz9EWq88tXDJSr9030tEf8bK19GV5mVoSe63soR74w8MMMRT/piCbxSWmXLAUNINg==}
     cpu: [arm64]
     os: [linux]
     hasBin: true
+
+  '@machinen/runtime@0.3.3':
+    resolution: {integrity: sha512-lLKb/+G/V5Bab85Ec3d2VIuprGqdTsr5WxcuWqoeKHIheHDBn0d3bksu+q+Si5ecZAAsq5L1Fe8y32Lf2oIFng==}
 
   '@manypkg/find-root@1.1.0':
     resolution: {integrity: sha512-mki5uBvhHzO8kYYix/WRy2WX8S3B5wdVSc9D6KcU5lQNglP2yt58/VfLuAK49glRXChosY8ap2oJ1qgma3GUVA==}
@@ -5900,37 +5880,21 @@ snapshots:
 
   '@js-sdsl/ordered-map@4.4.2': {}
 
-  '@machinen/e2fsprogs-arm64-darwin@0.1.1':
+  '@machinen/native-arm64-darwin@0.3.3':
     optional: true
 
-  '@machinen/e2fsprogs-arm64-linux@0.1.1':
+  '@machinen/native-arm64-linux@0.3.3':
     optional: true
 
-  '@machinen/runtime@0.1.1':
+  '@machinen/runtime@0.3.3':
     dependencies:
       '@homebridge/node-pty-prebuilt-multiarch': 0.12.0
       debug: 4.4.3
     optionalDependencies:
-      '@machinen/e2fsprogs-arm64-darwin': 0.1.1
-      '@machinen/e2fsprogs-arm64-linux': 0.1.1
-      '@machinen/squashfs-tools-arm64-darwin': 0.1.1
-      '@machinen/squashfs-tools-arm64-linux': 0.1.1
-      '@machinen/vmm-arm64-darwin': 0.1.1
-      '@machinen/vmm-arm64-linux': 0.1.1
+      '@machinen/native-arm64-darwin': 0.3.3
+      '@machinen/native-arm64-linux': 0.3.3
     transitivePeerDependencies:
       - supports-color
-    optional: true
-
-  '@machinen/squashfs-tools-arm64-darwin@0.1.1':
-    optional: true
-
-  '@machinen/squashfs-tools-arm64-linux@0.1.1':
-    optional: true
-
-  '@machinen/vmm-arm64-darwin@0.1.1':
-    optional: true
-
-  '@machinen/vmm-arm64-linux@0.1.1':
     optional: true
 
   '@manypkg/find-root@1.1.0':

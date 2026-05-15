@@ -53,7 +53,7 @@
     "vitest": "^4.0.18"
   },
   "optionalDependencies": {
-    "@machinen/runtime": "0.1.1"
+    "@machinen/runtime": "0.3.3"
   },
   "engines": {
     "node": ">=22"

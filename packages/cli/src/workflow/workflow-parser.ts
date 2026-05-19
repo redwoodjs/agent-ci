@@ -1456,7 +1456,7 @@ export function extractVarRefs(filePath: string, taskName?: string): string[] {
 /**
  * Validate that all vars referenced in a workflow job are present in the
  * provided vars map. Throws with a descriptive message listing the missing
- * var names and the `--var` flags needed to supply them.
+ * var names and the `--var` / `--var-file` inputs needed to supply them.
  */
 export function validateVars(
   filePath: string,
@@ -1470,7 +1470,7 @@ export function validateVars(
   }
   throw new Error(
     `[Agent CI] Missing vars required by workflow job "${taskName}".\n` +
-      `Pass them via --var NAME=value (one flag per variable):\n\n` +
+      `Pass them via --var NAME=value (one flag per variable) or --var-file <path>:\n\n` +
       missing.map((n) => `  --var ${n}=<value>`).join("\n") +
       "\n",
   );

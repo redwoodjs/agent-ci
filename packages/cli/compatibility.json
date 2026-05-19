@@ -418,7 +418,7 @@
         {
           "key": "`vars.*`",
           "status": "supported",
-          "notes": "Repository / organization / environment variables. Resolved from `--var NAME=VALUE` CLI flags; unresolved `vars.*` references fail the run at pre-flight with a list of every missing name.",
+          "notes": "Repository / organization / environment variables. Resolved from `--var NAME=VALUE` CLI flags or JSON supplied via `--var-file <path>` / `--var-file -`; unresolved `vars.*` references fail the run at pre-flight with a list of every missing name.",
           "proof": [".github/workflows/smoke-vars-preflight.yml"]
         },
         {

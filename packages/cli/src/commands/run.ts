@@ -4,9 +4,11 @@ import { promisify } from "node:util";
 const execFileP = promisify(execFile);
 import path from "node:path";
 import fs from "node:fs";
+import os from "node:os";
 import type Docker from "dockerode";
 
 import { config, loadMachineSecrets, resolveRepoSlug } from "../config.ts";
+import { loadVarFiles } from "../workflow-vars.ts";
 import { getNextLogNum } from "../output/logger.ts";
 import {
   setWorkingDirectory,
@@ -98,6 +100,7 @@ type ParsedRunArgs = {
   commitStatus: boolean;
   maxJobs?: number;
   cliVars: Record<string, string>;
+  varFiles: string[];
 };
 
 function exitWithError(msg: string): never {
@@ -155,6 +158,7 @@ function parseRunArgs(args: string[]): ParsedRunArgs {
     noMatrix: false,
     commitStatus: false,
     cliVars: {},
+    varFiles: [],
   };
   for (let i = 1; i < args.length; i++) {
     const arg = args[i];
@@ -177,6 +181,18 @@ function parseRunArgs(args: string[]): ParsedRunArgs {
     } else if (arg === "--var" && args[i + 1]) {
       const [key, value] = parseVarFlag(args[++i]);
       parsed.cliVars[key] = value;
+    } else if (arg === "--var-file") {
+      const file = args[++i];
+      if (!file) {
+        exitWithError("[Agent CI] Error: --var-file expects a path or - for stdin");
+      }
+      parsed.varFiles.push(file);
+    } else if (arg.startsWith("--var-file=")) {
+      const file = arg.slice("--var-file=".length);
+      if (!file) {
+        exitWithError("[Agent CI] Error: --var-file expects a path or - for stdin");
+      }
+      parsed.varFiles.push(file);
     } else if (arg === "--github-token") {
       const { token, consumedNext } = resolveGithubTokenFlag(args, i);
       parsed.githubToken = token;
@@ -193,6 +209,48 @@ function parseRunArgs(args: string[]): ParsedRunArgs {
     parsed.githubToken = process.env.AGENT_CI_GITHUB_TOKEN;
   }
   return parsed;
+}
+
+function materializeStdinVarFileArgs(args: string[], varFiles: string[]): string[] {
+  const stdinCount = varFiles.filter((file) => file === "-").length;
+  if (stdinCount === 0) {
+    return args;
+  }
+  if (stdinCount > 1) {
+    exitWithError("[Agent CI] Error: --var-file - can only be used once");
+  }
+
+  let content: string;
+  try {
+    content = fs.readFileSync(0, "utf-8");
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    exitWithError(`[Agent CI] Error: Failed to read --var-file stdin: ${msg}`);
+  }
+
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "agent-ci-vars-"));
+  const tmpPath = path.join(tmpDir, "stdin-vars.json");
+  fs.writeFileSync(tmpPath, content, "utf-8");
+
+  const materialized = [...args];
+  for (let i = 1; i < materialized.length; i++) {
+    const arg = materialized[i];
+    if (arg === "--var-file" && materialized[i + 1] === "-") {
+      materialized[i + 1] = tmpPath;
+      i++;
+    } else if (arg === "--var-file=-") {
+      materialized[i] = `--var-file=${tmpPath}`;
+    }
+  }
+  return materialized;
+}
+
+function resolveWorkflowVars(parsed: ParsedRunArgs): Record<string, string> {
+  try {
+    return { ...loadVarFiles(parsed.varFiles), ...parsed.cliVars };
+  } catch (err) {
+    exitWithError(err instanceof Error ? err.message : String(err));
+  }
 }
 
 /**
@@ -301,7 +359,8 @@ export default async function runCmd(args: string[]): Promise<void> {
       forceDetached: isForceDetachedRequested(),
     })
   ) {
-    const { exitCode } = await runDetachedLauncher(args);
+    const launcherArgs = materializeStdinVarFileArgs(args, parsed.varFiles);
+    const { exitCode } = await runDetachedLauncher(launcherArgs);
     process.exit(exitCode);
   }
 
@@ -321,13 +380,14 @@ export default async function runCmd(args: string[]): Promise<void> {
   }
 
   const startedAt = new Date();
+  const workflowVars = resolveWorkflowVars(parsed);
   const runWorkflowsOpts = {
     sha: parsed.sha,
     pauseOnFailure: parsed.pauseOnFailure,
     noMatrix: parsed.noMatrix,
     githubToken: parsed.githubToken,
     maxJobs: parsed.maxJobs,
-    vars: parsed.cliVars,
+    vars: workflowVars,
   };
 
   if (parsed.runAll) {
@@ -515,7 +575,7 @@ async function pullUpstreamRunnerImage(docker: Docker): Promise<void> {
 
 /**
  * Scan every workflow for `${{ vars.FOO }}` references and exit with a
- * combined error listing the missing vars and the `--var` flags needed.
+ * combined error listing the missing vars and the `--var` / `--var-file` inputs needed.
  * Called at the start of a run so users find out before any setup work
  * happens.
  */
@@ -549,7 +609,7 @@ function preflightVars(workflowPaths: string[], vars: Record<string, string>): v
       return `  ${display}: ${m.missing.join(", ")}`;
     }),
     "",
-    `Pass them via --var NAME=value (one flag per variable):`,
+    `Pass them via --var NAME=value (one flag per variable) or --var-file <path>:`,
     "",
     ...Array.from(allMissing)
       .sort()

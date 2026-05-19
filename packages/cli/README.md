@@ -95,6 +95,8 @@ Run GitHub Actions workflow jobs locally.
 | `--no-matrix`              |       | Collapse all matrix combinations into a single job (uses first value of each key)                                                                            |
 | `--github-token [<token>]` |       | GitHub token for fetching remote reusable workflows (auto-resolves via `gh auth token` if no value given). Also available as `AGENT_CI_GITHUB_TOKEN` env var |
 | `--commit-status`          |       | Post a GitHub commit status after the run (requires `--github-token`)                                                                                        |
+| `--var KEY=VALUE`          |       | Provide a workflow variable (`${{ vars.KEY }}`); repeat for multiple                                                                                         |
+| `--var-file <path\|->`     |       | Load workflow variables from a JSON file, or use `-` to read JSON from stdin                                                                                 |
 
 ### `agent-ci retry`
 
@@ -142,7 +144,7 @@ agent-ci run -w .github/workflows/ci.yml --github-token
 
 ## Vars
 
-Workflow variables (`${{ vars.FOO }}`) are provided exclusively via the `--var` CLI flag. There's no file-based lookup and no fallback to shell environment variables — this keeps workflow vars distinct from shell env vars and ensures every value is explicit on the command line.
+Workflow variables (`${{ vars.FOO }}`) are provided via `--var` flags or a JSON `--var-file`. There's no fallback to shell environment variables — this keeps workflow vars distinct from shell env vars.
 
 ```bash
 agent-ci run -w .github/workflows/deploy.yml \
@@ -150,7 +152,25 @@ agent-ci run -w .github/workflows/deploy.yml \
   --var API_URL=https://api.example.com
 ```
 
-If a workflow references a var (`${{ vars.FOO }}`) and no matching `--var FOO=...` flag is passed, the run fails with a message listing the missing vars.
+`--var-file` accepts either a JSON object:
+
+```json
+{
+  "DEPLOY_ENV": "production",
+  "API_URL": "https://api.example.com"
+}
+```
+
+or GitHub CLI output:
+
+```bash
+gh variable list --json name,value --limit 1000 |
+  agent-ci run --all --var-file -
+```
+
+If the same variable appears in multiple places, later `--var-file` flags override earlier ones, and explicit `--var KEY=VALUE` flags override all file values.
+
+If a workflow references a var (`${{ vars.FOO }}`) and no matching var is supplied, the run fails with a message listing the missing vars.
 
 ---
 

@@ -94,6 +94,7 @@ function printUsage() {
   console.log(
     "      --var KEY=VALUE           Provide a workflow variable (${{ vars.KEY }}); repeat for multiple",
   );
+  console.log("      --var-file <path|->       Load workflow variables from JSON file or stdin");
   console.log("");
   console.log("Secrets:");
   console.log("  Workflow secrets (${{ secrets.FOO }}) are resolved from:");
@@ -102,7 +103,8 @@ function printUsage() {
   console.log("    3. --github-token automatically provides secrets.GITHUB_TOKEN");
   console.log("");
   console.log("Vars:");
-  console.log("  Workflow vars (${{ vars.FOO }}) must be provided via --var FOO=VALUE.");
+  console.log("  Workflow vars (${{ vars.FOO }}) can be provided via --var FOO=VALUE");
+  console.log("  or --var-file <path|-> (JSON object or gh variable list JSON).");
   console.log("  The run fails if any referenced var is missing.");
 }
 

@@ -1,5 +1,229 @@
 # @redwoodjs/agent-ci
 
+## 0.16.0
+
+### Minor Changes
+
+- c8da13a: Add `agent-ci run --var-file <path|->` for loading workflow variables from JSON files or GitHub CLI `gh variable list --json name,value` output piped on stdin. Explicit `--var KEY=VALUE` flags override file-provided values.
+
+  Refs #358.
+
+- ab075d9: chore: require Node 24 and drop `tsx`
+
+  Node 24 ships native TypeScript stripping as a stable feature, so we no
+  longer need the `tsx` runtime to execute `.ts` files. Every `tsx foo.ts`
+  invocation in package scripts becomes `node foo.ts`. `tsx` is removed
+  from `devDependencies` in every workspace.
+
+  To make this work with the codebase's existing import convention,
+  TypeScript is configured to emit `.js` paths in built output while
+  allowing source files to use real `.ts` extensions:
+  - `allowImportingTsExtensions: true`
+  - `rewriteRelativeImportExtensions: true`
+
+  All 72 source files have been mechanically updated: every relative
+  import that previously said `from "./foo.js"` now says
+  `from "./foo.ts"`. The compiled `dist/` output still emits the `.js`
+  extension, so consumers see no change.
+
+  Breaking change: the published packages now declare
+  `engines.node: ">=24"`. Node 22 is no longer supported.
+
+  CI: the `tests.yml` workflow bumps from Node 22 to Node 24. Smoke
+  workflows that set `node-version: 22` are left alone — they are
+  fixtures exercising specific Node versions via `actions/setup-node`,
+  not our project's runtime.
+
+### Patch Changes
+
+- c20a05b: perf(cli): parallelize the startup git calls
+
+  The first thing `agent-ci run` does is ask git for several pieces of
+  information: the current branch, the head commit SHA, the changed
+  files, the remote slug, and (when the tree is dirty) an ephemeral
+  commit that captures the working-tree state. Each call shelled out to
+  `execSync`, blocking the event loop for ~50–200 ms.
+
+  This change converts each of those helpers to use `execFile` via
+  `promisify`, so they return promises. `handleWorkflow` then runs them
+  concurrently with `Promise.all` instead of one at a time.
+
+  Functions converted:
+  - `getFirstRemoteUrl` and `resolveRepoSlug` in `config.ts`
+  - `computeDirtySha` in `runner/dirty-sha.ts`
+  - `getChangedFiles` in `workflow/workflow-parser.ts`
+  - `resolveHeadSha`, `resolveBaseSha`, and `persistRunResult` in
+    `commands/run.ts`
+
+  Switching from `execSync(command-string)` to `execFile("git", [args])`
+  also removes a shell escaping step on every call — args are passed as
+  an array, not a single string.
+
+  Refs #334.
+
+- 50933a6: chore: remove unused runtime dependencies
+
+  Three runtime dependencies were declared in `package.json` files but
+  never imported by any source file in the package:
+  - `log-update` from `@redwoodjs/agent-ci` (the diff-renderer module
+    replaced it long ago; only stale code comments remain).
+  - `jsonc-parser` from `dtu-github-actions`.
+  - `yaml` from `@redwoodjs/ts-runner` (the `cli` package still depends
+    on `yaml`; this only drops the unused declaration in `ts-runner`).
+
+  Smaller `node_modules`, smaller published packages, and one fewer
+  thing to keep up to date when the upstream releases a new version.
+  No runtime behaviour change.
+
+- 4b07e75: refactor(workflow-parser): split the GitHub Actions expression evaluator
+
+  Collapses the eight-parameter context that `resolveExprAtom` /
+  `evaluateExprValue` were threading through every recursive call into a single
+  `ExprContext` object, extracts each built-in function (`hashFiles`, `fromJSON`,
+  `toJSON`, `format`, `contains`, `startsWith`, `endsWith`, `join`) into its own
+  handler, and moves context-variable lookups (`runner.*`, `github.*`, `matrix.*`,
+  `secrets.*`, `vars.*`, `inputs.*`, `steps.*`, `needs.*`, `env.*`) into
+  `resolveContextRef`. `expandExpressions`'s public positional signature is
+  unchanged.
+
+  No behavioral changes.
+
+- 24387c7: perf(cli): lazy-load command modules so light commands skip the heavy dependency graph
+
+  Extracts the `run`, `retry`/`abort`, and `clean` commands into separate modules
+  loaded via dynamic `import()` from `cli.ts`. The dispatcher now only loads what
+  the invoked command actually needs.
+
+  Measured impact on `agent-ci --help`:
+  - Cold start: 240 ms → 20 ms
+  - Peak RSS: 88 MB → 42 MB
+
+  `--help` and unknown commands no longer load dockerode, @grpc/grpc-js,
+  protobufjs, ssh2, the runner graph, or the workflow parser. Behavior of every
+  command is unchanged; `--help`/`-h` now exits 0 (previously 1, which was a
+  quirk of falling through the dispatch chain).
+
+  Refs #334.
+
+- d0a8495: refactor(local-job): extract three helpers out of `executeLocalJob`
+
+  `executeLocalJob` had grown to ~860 lines and scored 73 on the
+  cognitive-complexity metric — the highest in the `cli` package after
+  the previous round of refactors. Three self-contained blocks of code
+  inside it have been moved into module-scope helpers:
+  - `pullContainerImageWithProgress(docker, image, store, containerName)`
+    — the ~100-line Docker pull with per-layer download / extract
+    progress reporting (direct-container mode).
+  - `seedRunnerBinaryToHost(docker, hostRunnerSeedDir)` — the one-time
+    extraction of the actions-runner binary from the seed image
+    (direct-container mode).
+  - `waitForContainerExit(container, waitPromise, timeoutMs)` — the
+    promise-race that force-stops the container if the runner does not
+    exit within the timeout.
+
+  `executeLocalJob` is now ~715 lines, cognitive 56. No behaviour
+  change; the full local smoke suite passes.
+
+- 2f2af0d: refactor(local-job): lift the timeline-sync closure to module scope
+
+  `executeLocalJob` had a ~190-line `updateStoreFromTimeline` closure
+  that read `timeline.json` plus the paused-signal file every 100ms and
+  updated the RunStateStore. The closure captured six mutable `let`
+  variables defined just above it; fallow's previous report flagged it
+  as the biggest remaining complexity hotspot (cognitive 70).
+
+  This change pulls the closure to module scope as two helpers:
+  - `syncTimelineToStore(state, ctx)` — drives one poll tick. Cognitive
+    score 22.
+  - `buildStepsFromTimeline(steps, state)` — folds the raw timeline
+    records into the `StepState[]` shape the renderer expects. Cognitive
+    score 45.
+
+  Both take an explicit `TimelineSyncState` object that the polling loop
+  mutates between ticks, plus a read-only `TimelineSyncContext` with the
+  paths, store reference, and `onNewPause` callback.
+
+  Also drops `padW` / `totalSteps` from the old closure — they were
+  computed but never used (legacy padding logic).
+
+  No behaviour change; the full local smoke suite passes 45/45.
+
+- 6b7802b: chore: relax published `engines.node` back to `>=22`
+
+  #351 bumped the published packages' `engines.node` to `>=24` along
+  with the development-side switch to Node's native TypeScript support.
+  End users never run our source files, only the compiled
+  `dist/cli.js`. That compiled output targets ES2020 and only uses APIs
+  available on Node 22 (the long-term support release), so the
+  published requirement was stricter than it needed to be.
+
+  This change:
+  - Sets `engines.node` to `>=22` in `@redwoodjs/agent-ci` and
+    `dtu-github-actions`. End users on Node 22 stop seeing the
+    "unsupported engine" warning.
+  - Adds `engines.node: ">=24"` to the repo-root `package.json` so
+    contributors keep getting an explicit signal that the development
+    scripts (which run `.ts` files directly through Node's native
+    type-stripping) need Node 24.
+
+  No code change.
+
+- 8d92c73: refactor(cli/run): split `runCmd` and `handleWorkflow` into focused helpers
+
+  `packages/cli/src/commands/run.ts` housed two very long orchestrator
+  functions. Static analysis (fallow health) scored them as the two
+  highest-complexity functions in the cli package:
+  - `runCmd` — cognitive 91, ~228 lines
+  - `handleWorkflow` — cognitive 136, ~717 lines
+
+  They mixed argument parsing, workflow discovery, matrix expansion,
+  resource classification, scheduling, wave execution, and final reporting
+  in a single body, which made each one hard to follow and hard to change.
+
+  This change pulls clearly bounded steps out into top-level helpers
+  without changing any observable behaviour:
+  - `parseRunArgs`, `parseJobsFlag`, `parseVarFlag`, `resolveGithubTokenFlag`,
+    `discoverRelevantWorkflows`, `resolveWorkflowArgPath`, `finalizeRun` —
+    carved out of `runCmd`.
+  - `expandJobs`, `classifyJobsResources`, `runWaveJobs` — carved out of
+    `handleWorkflow`. The `ExpandedJob` type is lifted to module scope so
+    the new helpers can take it.
+
+  New scores (fallow health):
+  - `runCmd`: cognitive 9 (was 91)
+  - `handleWorkflow`: cognitive 61 (was 136)
+  - `parseRunArgs`: cognitive 26 (new, replaces the inline arg loop)
+
+  No runtime behaviour change; full smoke suite passes.
+
+- a0d3bb0: chore: unexport helpers that were never imported externally
+
+  `log-prune.ts` and `generators.ts` had six identifiers marked `export`
+  that no other file actually imported:
+  - `DEFAULT_RETAIN_DAYS`, `DEFAULT_RETAIN_RUNS`, `DEFAULT_THROTTLE_MS`
+    (used only inside `log-prune.ts`)
+  - `toContextData`, `toTemplateTokenMapping`
+    (used only inside `generators.ts`)
+  - `toContainerTemplateToken`
+    (not used anywhere — wholly dead, removed)
+
+  Tightens the public surface so callers can't accidentally rely on
+  internal helpers, and gets a step closer to a clean dead-code report.
+  No runtime behaviour change.
+
+- Updated dependencies [c20a05b]
+- Updated dependencies [50933a6]
+- Updated dependencies [4b07e75]
+- Updated dependencies [c8da13a]
+- Updated dependencies [24387c7]
+- Updated dependencies [d0a8495]
+- Updated dependencies [2f2af0d]
+- Updated dependencies [ab075d9]
+- Updated dependencies [6b7802b]
+- Updated dependencies [8d92c73]
+- Updated dependencies [a0d3bb0]
+  - dtu-github-actions@0.16.0
+
 ## 0.15.1
 
 ### Patch Changes

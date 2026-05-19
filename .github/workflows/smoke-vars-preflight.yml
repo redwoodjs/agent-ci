@@ -102,11 +102,29 @@ jobs:
           fi
           echo "✅ Case 2 passed"
 
-      - name: Case 3 — all --var flags → run proceeds and job succeeds
+      - name: Case 3 — partial gh-style --var-file stdin → only still-missing var listed
+        working-directory: /tmp/vars-repro
+        run: |
+          set +e
+          out=$(printf '[{"name":"API_URL","value":"https://api.example.com"}]' | \
+            node "$GITHUB_WORKSPACE/packages/cli/dist/cli.js" \
+              run --workflow .github/workflows/test.yml --quiet \
+              --var-file - 2>&1)
+          rc=$?
+          set -e
+          echo "$out"
+          [ "$rc" -eq 1 ] || { echo "expected exit 1, got $rc"; exit 1; }
+          echo "$out" | grep -q -- "--var DEPLOY_ENV=<value>" || { echo "DEPLOY_ENV not listed"; exit 1; }
+          if echo "$out" | grep -q "API_URL=<value>"; then
+            echo "API_URL should not be listed when supplied by --var-file"; exit 1;
+          fi
+          echo "✅ Case 3 passed"
+
+      - name: Case 4 — all --var flags → run proceeds and job succeeds
         working-directory: /tmp/vars-repro
         run: |
           node "$GITHUB_WORKSPACE/packages/cli/dist/cli.js" \
             run --workflow .github/workflows/test.yml --quiet \
             --var API_URL=https://api.example.com \
             --var DEPLOY_ENV=production
-          echo "✅ Case 3 passed"
+          echo "✅ Case 4 passed"

@@ -44,6 +44,9 @@ dist
 # Output of 'npm pack'
 *.tgz
 
+# Local machinen dev VM artifacts
+.machinen/
+
 # pnpm store directory
 .pnpm-store
 

@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
-# Dev-only wrapper: runs agent-ci against local development code instead of
-# the published package. Uses Node's native TypeScript support (Node >=24).
-# Not intended for end users.
+# Dev-only wrapper: runs agent-ci against local development code (via tsx)
+# instead of the published package. Not intended for end users.
 set -euo pipefail
 
 SOURCE="${BASH_SOURCE[0]}"
@@ -18,4 +17,4 @@ pnpm --silent --dir "$REPO_ROOT/packages/dtu-github-actions" run build 2>/dev/nu
   pnpm --dir "$REPO_ROOT/packages/dtu-github-actions" run build
 
 # Run CLI from the caller's working directory
-exec node "$REPO_ROOT/packages/cli/src/cli.ts" "$@"
+exec "$REPO_ROOT/node_modules/.bin/tsx" "$REPO_ROOT/packages/cli/src/cli.ts" "$@"

@@ -63,9 +63,17 @@ apt-get install -y --no-install-recommends \
 rm -rf /var/lib/apt/lists/*
 
 export FNM_DIR=/opt/fnm
+eval "$(fnm env --shell bash)"
 fnm install ${NODE_VERSION}
 fnm default ${NODE_VERSION}
+fnm use ${NODE_VERSION}
 npm install -g pnpm@${PNPM_VERSION} ${PI_PACKAGE}
+NODE_PREFIX="$(npm prefix -g)"
+for bin in node npm npx corepack pnpm pi; do
+  if [ -e "$NODE_PREFIX/bin/$bin" ]; then
+    ln -sf "$NODE_PREFIX/bin/$bin" "/usr/local/bin/$bin"
+  fi
+done
 ln -sf /usr/bin/fdfind /usr/local/bin/fd
 node --version
 npm --version
@@ -80,6 +88,10 @@ cat > /root/.bashrc <<'EOF'
 export HOME=/root
 export SHELL=/bin/bash
 export TERM=\${TERM:-xterm-256color}
+export FNM_DIR=/opt/fnm
+if command -v fnm >/dev/null; then
+  eval "$(fnm env --shell bash)"
+fi
 export PI_CODING_AGENT_DIR=/root/.pi/agent
 cd /mnt/workspace 2>/dev/null || true
 EOF

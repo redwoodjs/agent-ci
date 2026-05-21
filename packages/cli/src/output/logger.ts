@@ -12,28 +12,46 @@ export function ensureLogDirs(): void {
   fs.mkdirSync(getRunsDir(), { recursive: true });
 }
 
-export function getNextLogNum(prefix: string): number {
-  const runsDir = getRunsDir();
-  if (!fs.existsSync(runsDir)) {
-    return 1;
+function runNumberFromDirName(prefix: string, name: string): number | null {
+  if (!name.startsWith(`${prefix}-`)) {
+    return null;
   }
 
-  const items = fs.readdirSync(runsDir, { withFileTypes: true });
-  const nums = items
-    .filter((item) => item.isDirectory() && item.name.startsWith(`${prefix}-`))
-    .map((item) => {
-      // Extract the trailing numeric run counter from a name like:
-      //   agent-ci-redwoodjssdk-14        → 14
-      //   agent-ci-redwoodjssdk-15-j1     → 15
-      //   agent-ci-redwoodjssdk-15-j1-m2  → 15
-      // Strategy: strip any -j<N>, -m<N>, -r<N> suffixes first, then grab the last number.
-      const baseName = item.name
-        .replace(/-j\d+(-m\d+)?(-r\d+)?$/, "")
-        .replace(/-m\d+(-r\d+)?$/, "")
-        .replace(/-r\d+$/, "");
-      const match = baseName.match(/-(\d+)$/);
-      return match ? parseInt(match[1], 10) : 0;
-    });
+  // Extract the trailing numeric run counter from a name like:
+  //   agent-ci-redwoodjssdk-14        → 14
+  //   agent-ci-redwoodjssdk-15-j1     → 15
+  //   agent-ci-redwoodjssdk-15-j1-m2  → 15
+  // Strategy: strip any -j<N>, -m<N>, -r<N> suffixes first, then grab the last number.
+  const baseName = name
+    .replace(/-j\d+(-m\d+)?(-r\d+)?$/, "")
+    .replace(/-m\d+(-r\d+)?$/, "")
+    .replace(/-r\d+$/, "");
+  const match = baseName.match(/-(\d+)$/);
+  return match ? parseInt(match[1], 10) : null;
+}
+
+function collectRunNums(dir: string, prefix: string): number[] {
+  if (!fs.existsSync(dir)) {
+    return [];
+  }
+
+  return fs
+    .readdirSync(dir, { withFileTypes: true })
+    .filter((item) => item.isDirectory())
+    .map((item) => runNumberFromDirName(prefix, item.name))
+    .filter((num): num is number => num !== null);
+}
+
+export function getNextLogNum(prefix: string): number {
+  const nums = [
+    ...collectRunNums(getRunsDir(), prefix),
+    // Stable log dirs outlive temporary run dirs. Count them too so a pruned
+    // `<workDir>/runs/agent-ci-N-*` cannot be reused while
+    // `<logsDir>/agent-ci-N-*/timeline.json` still exists. Otherwise the DTU
+    // appends the new run's timeline to stale records and the result builder can
+    // replay an old failure as the current run's outcome. See issue #341.
+    ...collectRunNums(getLogsDirectory(), prefix),
+  ];
 
   return nums.length > 0 ? Math.max(...nums) + 1 : 1;
 }
@@ -63,6 +81,23 @@ function allocateRunDir(prefix: string): { num: number; name: string; runDir: st
   }
 }
 
+function resetPerRunLogArtifacts(logDir: string): void {
+  // A stable log dir may outlive the temporary run dir. If a runner name is
+  // ever reused, stale timeline/output/step files must not be visible to the
+  // new run. Debug/output logs are opened with truncating streams elsewhere,
+  // but remove them here too so the directory is clean from the start.
+  for (const entry of [
+    "timeline.json",
+    "outputs.json",
+    "metadata.json",
+    "output.log",
+    "debug.log",
+  ]) {
+    fs.rmSync(path.join(logDir, entry), { force: true });
+  }
+  fs.rmSync(path.join(logDir, "steps"), { recursive: true, force: true });
+}
+
 export function createLogContext(prefix: string, preferredName?: string) {
   ensureLogDirs();
 
@@ -85,6 +120,7 @@ export function createLogContext(prefix: string, preferredName?: string) {
   // See issue #312.
   const logDir = path.join(getLogsDirectory(), name);
   fs.mkdirSync(logDir, { recursive: true });
+  resetPerRunLogArtifacts(logDir);
 
   return {
     num,

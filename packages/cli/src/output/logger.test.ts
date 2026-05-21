@@ -7,10 +7,12 @@ describe("Logger utilities", () => {
   let tmpDir: string;
   let logsDir: string;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "agent-ci-logger-test-"));
     logsDir = path.join(tmpDir, "logs-root");
     vi.resetModules();
+    const { setLogsDirectory } = await import("./logs-directory.ts");
+    setLogsDirectory(logsDir);
   });
 
   afterEach(() => {
@@ -57,6 +59,33 @@ describe("Logger utilities", () => {
       });
       expect(getNextLogNum("agent-ci")).toBe(16);
     });
+
+    it("does not reuse a run number while a stable log dir still exists (issue #341)", async () => {
+      const { setWorkingDirectory } = await import("./working-directory.ts");
+      const { setLogsDirectory } = await import("./logs-directory.ts");
+      const { getNextLogNum } = await import("./logger.ts");
+      setWorkingDirectory(tmpDir);
+      setLogsDirectory(logsDir);
+
+      // Reproduction for #341: workspace pruning removed `<workDir>/runs/agent-ci-15-j1`,
+      // but the stable log dir still has timeline.json. Reusing 15 would make
+      // the DTU merge a fresh passing timeline into stale failed records.
+      const staleLogDir = path.join(logsDir, "agent-ci-15-j1");
+      fs.mkdirSync(staleLogDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(staleLogDir, "timeline.json"),
+        JSON.stringify([
+          {
+            id: "old-task",
+            type: "Task",
+            name: "Check API.md is up to date",
+            result: "Failed",
+          },
+        ]),
+      );
+
+      expect(getNextLogNum("agent-ci")).toBe(16);
+    });
   });
 
   describe("createLogContext", () => {
@@ -88,6 +117,29 @@ describe("Logger utilities", () => {
       expect(ctx.name).toBe("agent-ci-redwoodjssdk-42");
       expect(ctx.runDir).toBe(path.join(tmpDir, "runs", "agent-ci-redwoodjssdk-42"));
       expect(ctx.logDir).toBe(path.join(logsDir, "agent-ci-redwoodjssdk-42"));
+    });
+
+    it("clears stale per-run log artifacts when a preferred log name is reused", async () => {
+      const { setWorkingDirectory } = await import("./working-directory.ts");
+      const { setLogsDirectory } = await import("./logs-directory.ts");
+      const { createLogContext } = await import("./logger.ts");
+      setWorkingDirectory(tmpDir);
+      setLogsDirectory(logsDir);
+
+      const staleLogDir = path.join(logsDir, "agent-ci-redwoodjssdk-42");
+      fs.mkdirSync(path.join(staleLogDir, "steps"), { recursive: true });
+      fs.writeFileSync(path.join(staleLogDir, "timeline.json"), "[]");
+      fs.writeFileSync(path.join(staleLogDir, "outputs.json"), "{}");
+      fs.writeFileSync(path.join(staleLogDir, "metadata.json"), "{}");
+      fs.writeFileSync(path.join(staleLogDir, "steps", "old.log"), "stale");
+
+      const ctx = createLogContext("agent-ci", "agent-ci-redwoodjssdk-42");
+
+      expect(ctx.logDir).toBe(staleLogDir);
+      expect(fs.existsSync(path.join(staleLogDir, "timeline.json"))).toBe(false);
+      expect(fs.existsSync(path.join(staleLogDir, "outputs.json"))).toBe(false);
+      expect(fs.existsSync(path.join(staleLogDir, "metadata.json"))).toBe(false);
+      expect(fs.existsSync(path.join(staleLogDir, "steps"))).toBe(false);
     });
 
     it("auto-increments when no preferredName given", async () => {

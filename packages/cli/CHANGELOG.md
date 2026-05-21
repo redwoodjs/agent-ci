@@ -1,5 +1,16 @@
 # @redwoodjs/agent-ci
 
+## 0.16.1
+
+### Patch Changes
+
+- 412d672: Fix remote actions referenced through deep sub-paths (for example `owner/repo/.github/actions/name@ref`) by passing the parent repository and action path separately to the runner.
+
+  Refs #362.
+
+- Updated dependencies [412d672]
+  - dtu-github-actions@0.16.1
+
 ## 0.16.0
 
 ### Minor Changes

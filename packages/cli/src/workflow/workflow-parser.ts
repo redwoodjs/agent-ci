@@ -889,6 +889,17 @@ function buildStepEnv(
   return { ...baseEnv, ...resolvedStep };
 }
 
+function splitRemoteActionReference(name: string): { name: string; path: string } {
+  const parts = name.split("/");
+  if (parts.length <= 2) {
+    return { name, path: "" };
+  }
+  return {
+    name: parts.slice(0, 2).join("/"),
+    path: parts.slice(2).join("/"),
+  };
+}
+
 export async function parseWorkflowSteps(
   filePath: string,
   taskName: string,
@@ -1020,20 +1031,29 @@ export async function parseWorkflowSteps(
           ...(condition !== undefined ? { condition } : {}),
         };
       } else if ("uses" in step) {
-        // Basic support for 'uses' steps
-        // Parse uses string: owner/repo@ref or ./.github/actions/foo (local)
+        // Basic support for 'uses' steps.
+        // Parse uses string: owner/repo[/path]@ref or ./.github/actions/foo (local).
+        // The runner expects remote sub-actions to be split into the parent
+        // repository name plus a separate path; otherwise it extracts the repo
+        // tarball under _actions/owner/repo/path/ref and then looks for
+        // action.yml at the wrong directory level.
         const uses = step.uses.toString();
         const isLocalAction = uses.startsWith("./");
         let name = uses;
         let ref = "";
+        let actionPath = "";
 
         if (!isLocalAction && uses.indexOf("@") >= 0) {
-          const parts = uses.split("@");
-          name = parts[0];
-          ref = parts[1];
+          const at = uses.lastIndexOf("@");
+          const rawName = uses.slice(0, at);
+          ref = uses.slice(at + 1);
+          const split = splitRemoteActionReference(rawName);
+          name = split.name;
+          actionPath = split.path;
         }
 
-        const isCheckout = !isLocalAction && name.trim().toLowerCase() === "actions/checkout";
+        const isCheckout =
+          !isLocalAction && actionPath === "" && name.trim().toLowerCase() === "actions/checkout";
         const stepWith = rawStep.with || {};
         const condition = parseStepIf(rawStep.if);
 
@@ -1048,7 +1068,7 @@ export async function parseWorkflowSteps(
             Name: isLocalAction ? "" : name,
             Ref: isLocalAction ? "" : ref,
             RepositoryType: isLocalAction ? "self" : "GitHub",
-            Path: isLocalAction ? uses : "",
+            Path: isLocalAction ? uses : actionPath,
           },
           Inputs: {
             // with: values from @actions/workflow-parser are expression objects; call toString() on each.

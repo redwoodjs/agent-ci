@@ -2029,6 +2029,25 @@ jobs:
     expect(ref.Path).toBe("");
   });
 
+  it("splits deep remote action sub-paths into repository name and path", async () => {
+    const filePath = writeWorkflowTree(`
+name: Deep Remote Action Test
+on: [push]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: shunkakinoki/actions/.github/actions/setup-bun@3397de0ac01b638fa41d3b2fb18ece4ee71c08d8
+`);
+    const steps = await parseWorkflowSteps(filePath, "test");
+    const ref = (steps[0] as any).Reference;
+
+    expect(ref.RepositoryType).toBe("GitHub");
+    expect(ref.Name).toBe("shunkakinoki/actions");
+    expect(ref.Ref).toBe("3397de0ac01b638fa41d3b2fb18ece4ee71c08d8");
+    expect(ref.Path).toBe(".github/actions/setup-bun");
+  });
+
   it("passes through with: inputs for local actions", async () => {
     const filePath = writeWorkflowTree(`
 name: Local Action Inputs Test

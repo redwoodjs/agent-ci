@@ -1,4 +1,5 @@
 packages:
+  - "packages/agent-ci-*"
   - "packages/cli"
   - "packages/dtu-github-actions"
   - "packages/ts-runner"

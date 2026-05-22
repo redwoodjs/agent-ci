@@ -1,0 +1,24 @@
+{
+  "name": "@redwoodjs/agent-ci-darwin-arm64",
+  "version": "0.16.1",
+  "description": "macOS arm64 native binary for @redwoodjs/agent-ci.",
+  "license": "FSL-1.1-MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/redwoodjs/agent-ci.git",
+    "directory": "packages/agent-ci-darwin-arm64"
+  },
+  "files": [
+    "bin",
+    "README.md"
+  ],
+  "os": [
+    "darwin"
+  ],
+  "cpu": [
+    "arm64"
+  ],
+  "publishConfig": {
+    "access": "public"
+  }
+}

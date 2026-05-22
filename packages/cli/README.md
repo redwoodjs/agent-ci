@@ -70,6 +70,29 @@ Agent CI runs against your **current working tree** — uncommitted changes are 
 
 Committing is optional, but it's a useful pattern: commit → run → fail → fix with `--pause-on-failure` → retry → commit the fix. When you do commit, the commit becomes a save point you can return to if the fix makes things worse. Your AI agent benefits from the same pattern — it can roll back to a known-good state before trying a different fix.
 
+### Native binary downloads
+
+The npm package keeps `npx @redwoodjs/agent-ci` working. Tagged releases also publish direct native binary archives and matching `.sha256` checksum files on GitHub Releases:
+
+```bash
+version=v0.16.1
+platform=macos-arm64 # linux-x64, linux-arm64, macos-x64, macos-arm64
+curl -LO "https://github.com/redwoodjs/agent-ci/releases/download/${version}/agent-ci-${version}-${platform}.tar.gz"
+curl -LO "https://github.com/redwoodjs/agent-ci/releases/download/${version}/agent-ci-${version}-${platform}.tar.gz.sha256"
+shasum -a 256 -c "agent-ci-${version}-${platform}.tar.gz.sha256"
+tar -xzf "agent-ci-${version}-${platform}.tar.gz"
+./agent-ci --help
+```
+
+Or use the shell installer with a selected prefix:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/redwoodjs/agent-ci/main/install.sh \
+  | sh -s -- --version v0.16.1 --prefix "$HOME/.local"
+```
+
+Until Rust workflow execution reaches full parity, the npm launcher keeps using the TypeScript execution path by default. To opt into the native Rust binary for parity testing, run with `AGENT_CI_FORCE_RUST=1`. To force the TypeScript path explicitly, run with `AGENT_CI_FORCE_TYPESCRIPT=1` or `AGENT_CI_FORCE_TS=1`.
+
 ### Retry a failed step
 
 ```bash

@@ -1,0 +1,89 @@
+name: Native Binaries
+
+on:
+  push:
+    branches:
+      - "__native-binaries-tags-only__"
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build ${{ matrix.name }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-x64
+            runner: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+          - name: linux-arm64
+            runner: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+          - name: macos-x64
+            runner: macos-13
+            target: x86_64-apple-darwin
+          - name: macos-arm64
+            runner: macos-15
+            target: aarch64-apple-darwin
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - name: Setup Rust
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          rustup target add ${{ matrix.target }}
+
+      - name: Build release binary
+        run: cargo build --release -p agent-ci --target ${{ matrix.target }}
+
+      - name: Stage binary
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist/${{ matrix.name }}
+          cp target/${{ matrix.target }}/release/agent-ci dist/${{ matrix.name }}/agent-ci
+          chmod +x dist/${{ matrix.name }}/agent-ci
+
+      - name: Ad-hoc sign macOS binary
+        if: ${{ startsWith(matrix.name, 'macos-') }}
+        run: codesign --force --sign - dist/${{ matrix.name }}/agent-ci
+
+      - name: Package archive and checksum
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME:-dev}"
+          archive="agent-ci-${version}-${{ matrix.name }}.tar.gz"
+          tar -C dist/${{ matrix.name }} -czf "dist/${archive}" agent-ci
+          (cd dist && shasum -a 256 "${archive}" > "${archive}.sha256")
+          echo "archive=${archive}" >> "$GITHUB_ENV"
+
+      - name: Upload native binary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: agent-ci-${{ matrix.name }}
+          path: |
+            dist/${{ env.archive }}
+            dist/${{ env.archive }}.sha256
+          if-no-files-found: error
+
+      - name: Publish GitHub Release assets
+        if: ${{ startsWith(github.ref, 'refs/tags/') }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || \
+            gh release create "$GITHUB_REF_NAME" --verify-tag --title "$GITHUB_REF_NAME" --notes "Native Agent CI binaries for $GITHUB_REF_NAME."
+          gh release upload "$GITHUB_REF_NAME" \
+            "dist/${archive}" \
+            "dist/${archive}.sha256" \
+            --clobber

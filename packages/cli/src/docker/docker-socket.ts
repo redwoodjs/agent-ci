@@ -1,36 +1,64 @@
-import fs from "fs";
-import os from "os";
-import path from "path";
-import { execSync } from "child_process";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
+import { execSync } from "node:child_process";
 import { debugRunner } from "../output/debug.ts";
 
 const DEFAULT_SOCKET = "/var/run/docker.sock";
 const DOCS_URL =
   "https://github.com/redwoodjs/agent-ci/blob/main/packages/cli/docs/docker-socket.md";
 
+type ExecSync = typeof execSync;
+
+export interface DockerSocketDeps {
+  existsSync?: (candidate: fs.PathLike) => boolean;
+  realpathSync?: (candidate: fs.PathLike) => string;
+  accessSync?: (candidate: fs.PathLike, mode?: number) => void;
+  execSync?: ExecSync;
+  homedir?: () => string;
+}
+
+interface ResolvedDockerSocketDeps {
+  existsSync: (candidate: fs.PathLike) => boolean;
+  realpathSync: (candidate: fs.PathLike) => string;
+  accessSync: (candidate: fs.PathLike, mode?: number) => void;
+  execSync: ExecSync;
+  homedir: () => string;
+}
+
+function resolveDeps(deps: DockerSocketDeps = {}): ResolvedDockerSocketDeps {
+  return {
+    existsSync: deps.existsSync ?? fs.existsSync,
+    realpathSync: deps.realpathSync ?? ((candidate) => fs.realpathSync(candidate).toString()),
+    accessSync: deps.accessSync ?? fs.accessSync,
+    execSync: deps.execSync ?? execSync,
+    homedir: deps.homedir ?? os.homedir,
+  };
+}
+
 // Docker Desktop's user-side socket path (same on macOS/Linux/Windows-WSL).
 // Its presence means Docker Desktop is running but the "Allow the default
 // Docker socket to be used" toggle in Settings → Advanced is off.
-function dockerDesktopRunningWithoutDefaultSocket(): boolean {
-  const home = os.homedir();
+function dockerDesktopRunningWithoutDefaultSocket(deps: ResolvedDockerSocketDeps): boolean {
+  const home = deps.homedir();
   if (!home) {
     return false;
   }
-  return fs.existsSync(path.join(home, ".docker", "run", "docker.sock"));
+  return deps.existsSync(path.join(home, ".docker", "run", "docker.sock"));
 }
 
-function socketFromDockerContext(): string | undefined {
+function socketFromDockerContext(deps: ResolvedDockerSocketDeps): string | undefined {
   try {
-    const json = execSync("docker context inspect", {
+    const json = deps.execSync("docker context inspect", {
       encoding: "utf8",
       stdio: ["pipe", "pipe", "pipe"],
       timeout: 5000,
     });
-    const data = JSON.parse(json);
+    const data = JSON.parse(json.toString());
     const host: string | undefined = data?.[0]?.Endpoints?.docker?.Host;
     if (host && host.startsWith("unix://")) {
       const socketPath = host.replace("unix://", "");
-      if (fs.existsSync(socketPath)) {
+      if (deps.existsSync(socketPath)) {
         return socketPath;
       }
       debugRunner(`Docker context points to ${socketPath} but it does not exist`);
@@ -84,7 +112,8 @@ export interface DockerSocket {
  *     `/var/run/docker.sock`.
  *  3. Neither → throw with a doc link.
  */
-export function resolveDockerSocket(): DockerSocket {
+export function resolveDockerSocket(deps: DockerSocketDeps = {}): DockerSocket {
+  const resolvedDeps = resolveDeps(deps);
   // 1. Explicit AGENT_CI_DOCKER_HOST wins.
   const envHost = process.env.AGENT_CI_DOCKER_HOST?.trim();
   if (envHost) {
@@ -93,23 +122,24 @@ export function resolveDockerSocket(): DockerSocket {
       return { socketPath: "", uri: envHost, bindMountPath: "" };
     }
     const socketPath = envHost.replace("unix://", "");
-    const resolved = resolveIfExists(socketPath);
+    const resolved = resolveIfExists(socketPath, resolvedDeps);
     if (resolved) {
       return { socketPath: resolved, uri: `unix://${resolved}`, bindMountPath: socketPath };
     }
     throw unusableSocketError(
       `AGENT_CI_DOCKER_HOST=${envHost} does not resolve to a working socket.`,
+      resolvedDeps,
     );
   }
 
   // 2. /var/run/docker.sock must exist. existsSync returns false for dangling
   //    symlinks, which is exactly the case we want to reject (stale provider state).
-  if (!fs.existsSync(DEFAULT_SOCKET)) {
-    throw unusableSocketError(`${DEFAULT_SOCKET} is missing or a dangling symlink.`);
+  if (!resolvedDeps.existsSync(DEFAULT_SOCKET)) {
+    throw unusableSocketError(`${DEFAULT_SOCKET} is missing or a dangling symlink.`, resolvedDeps);
   }
 
   // Happy path: we can R/W the socket directly.
-  const defaultResolved = resolveIfExists(DEFAULT_SOCKET);
+  const defaultResolved = resolveIfExists(DEFAULT_SOCKET, resolvedDeps);
   if (defaultResolved) {
     return {
       socketPath: defaultResolved,
@@ -122,7 +152,7 @@ export function resolveDockerSocket(): DockerSocket {
   // outside the `docker` group is the canonical case (#209) — the active
   // docker context tells us a path we *can* read, but we still bind-mount
   // /var/run/docker.sock because that's what the mount layer accepts.
-  const contextSocket = socketFromDockerContext();
+  const contextSocket = socketFromDockerContext(resolvedDeps);
   if (contextSocket) {
     return {
       socketPath: contextSocket,
@@ -133,17 +163,18 @@ export function resolveDockerSocket(): DockerSocket {
 
   throw unusableSocketError(
     `${DEFAULT_SOCKET} exists but is not readable, and no active docker context provides an alternative.`,
+    resolvedDeps,
   );
 }
 
-function unusableSocketError(detail: string): Error {
+function unusableSocketError(detail: string, deps: ResolvedDockerSocketDeps): Error {
   const lines = [
     `agent-ci couldn't use a Docker socket at /var/run/docker.sock.`,
     detail,
     ``,
     `A working Docker socket is required there (or set AGENT_CI_DOCKER_HOST explicitly).`,
   ];
-  if (dockerDesktopRunningWithoutDefaultSocket()) {
+  if (dockerDesktopRunningWithoutDefaultSocket(deps)) {
     lines.push(
       ``,
       `Docker Desktop is running but the default socket is disabled.`,
@@ -159,10 +190,10 @@ function unusableSocketError(detail: string): Error {
  * If `socketPath` exists (following symlinks) and is accessible, return the
  * real path.  Returns undefined otherwise so the caller can keep searching.
  */
-function resolveIfExists(socketPath: string): string | undefined {
+function resolveIfExists(socketPath: string, deps: ResolvedDockerSocketDeps): string | undefined {
   try {
-    const resolved = fs.realpathSync(socketPath);
-    fs.accessSync(resolved, fs.constants.R_OK | fs.constants.W_OK);
+    const resolved = deps.realpathSync(socketPath);
+    deps.accessSync(resolved, fs.constants.R_OK | fs.constants.W_OK);
     return resolved;
   } catch {
     return undefined;

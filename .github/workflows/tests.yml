@@ -28,6 +28,23 @@ jobs:
           cache: "pnpm"
       - run: pnpm install
       - run: pnpm check
+      - name: Setup Rust
+        run: |
+          if ! command -v cargo >/dev/null 2>&1; then
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+              | sh -s -- -y --profile minimal --default-toolchain stable
+            echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          fi
+          if [ -f "$HOME/.cargo/env" ]; then
+            . "$HOME/.cargo/env"
+          fi
+          rustup component add rustfmt clippy
+      - name: Check Rust
+        run: |
+          pnpm rust:fmt:check
+          pnpm rust:check
+          pnpm rust:clippy
+          pnpm rust:test
       - name: Test DTU
         run: pnpm --filter dtu-github-actions test
       - name: Test CLI

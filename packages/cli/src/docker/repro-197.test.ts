@@ -15,38 +15,31 @@
  * This file tests the full chain from filesystem state → socket resolution →
  * container bind string, so any regression in that chain fails here.
  */
-import { describe, it, expect, afterEach, vi } from "vitest";
-import fs from "node:fs";
-
-vi.mock("node:child_process", () => ({
-  execSync: vi.fn(),
-}));
+import { describe, it, expect, afterEach } from "vitest";
+import { resolveDockerSocket, type DockerSocketDeps } from "./docker-socket.ts";
 
 afterEach(() => {
-  vi.restoreAllMocks();
   delete process.env.AGENT_CI_DOCKER_HOST;
 });
 
-async function importFreshSocket() {
-  vi.resetModules();
-  return import("./docker-socket.ts");
-}
-
-describe("issue-197 reproduction: Docker Desktop bind mount path", () => {
-  it("resolves to the real path for API client but keeps the symlink path for bind mounts", async () => {
-    delete process.env.AGENT_CI_DOCKER_HOST;
-    // Simulate Docker Desktop: /var/run/docker.sock → ~/.docker/run/docker.sock
-    vi.spyOn(fs, "existsSync").mockReturnValue(true);
-    vi.spyOn(fs, "realpathSync").mockImplementation((p) => {
+function dockerDesktopDeps(): DockerSocketDeps {
+  return {
+    existsSync: () => true,
+    realpathSync: (p) => {
       if (String(p) === "/var/run/docker.sock") {
         return "/Users/test/.docker/run/docker.sock";
       }
       throw new Error("ENOENT");
-    });
-    vi.spyOn(fs, "accessSync").mockReturnValue(undefined);
+    },
+    accessSync: () => undefined,
+  };
+}
 
-    const { resolveDockerSocket } = await importFreshSocket();
-    const socket = resolveDockerSocket();
+describe("issue-197 reproduction: Docker Desktop bind mount path", () => {
+  it("resolves to the real path for API client but keeps the symlink path for bind mounts", () => {
+    delete process.env.AGENT_CI_DOCKER_HOST;
+    // Simulate Docker Desktop: /var/run/docker.sock → ~/.docker/run/docker.sock
+    const socket = resolveDockerSocket(dockerDesktopDeps());
 
     // Docker API client must use the resolved path so it can connect
     expect(socket.socketPath).toBe("/Users/test/.docker/run/docker.sock");
@@ -58,19 +51,10 @@ describe("issue-197 reproduction: Docker Desktop bind mount path", () => {
 
   it("container bind string uses /var/run/docker.sock, not the resolved path (the failing case)", async () => {
     delete process.env.AGENT_CI_DOCKER_HOST;
-    vi.spyOn(fs, "existsSync").mockReturnValue(true);
-    vi.spyOn(fs, "realpathSync").mockImplementation((p) => {
-      if (String(p) === "/var/run/docker.sock") {
-        return "/Users/test/.docker/run/docker.sock";
-      }
-      throw new Error("ENOENT");
-    });
-    vi.spyOn(fs, "accessSync").mockReturnValue(undefined);
 
-    const { resolveDockerSocket } = await importFreshSocket();
     const { buildContainerBinds } = await import("./container-config.ts");
 
-    const socket = resolveDockerSocket();
+    const socket = resolveDockerSocket(dockerDesktopDeps());
 
     // This is what local-job.ts does: use bindMountPath (not socketPath)
     const binds = buildContainerBinds({
@@ -94,13 +78,13 @@ describe("issue-197 reproduction: Docker Desktop bind mount path", () => {
     expect(binds).not.toContain("/Users/test/.docker/run/docker.sock:/var/run/docker.sock");
   });
 
-  it("AGENT_CI_DOCKER_HOST unix socket keeps the original path for bind mounts even if it resolves elsewhere", async () => {
+  it("AGENT_CI_DOCKER_HOST unix socket keeps the original path for bind mounts even if it resolves elsewhere", () => {
     process.env.AGENT_CI_DOCKER_HOST = "unix:///var/run/docker.sock";
-    vi.spyOn(fs, "realpathSync").mockReturnValue("/Users/test/.docker/run/docker.sock");
-    vi.spyOn(fs, "accessSync").mockReturnValue(undefined);
 
-    const { resolveDockerSocket } = await importFreshSocket();
-    const socket = resolveDockerSocket();
+    const socket = resolveDockerSocket({
+      realpathSync: () => "/Users/test/.docker/run/docker.sock",
+      accessSync: () => undefined,
+    });
 
     expect(socket.socketPath).toBe("/Users/test/.docker/run/docker.sock");
     expect(socket.bindMountPath).toBe("/var/run/docker.sock");

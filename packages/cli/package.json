@@ -23,7 +23,7 @@
     "directory": "packages/cli"
   },
   "bin": {
-    "agent-ci": "./dist/cli.js"
+    "agent-ci": "./dist/native-launcher.js"
   },
   "files": [
     "dist",
@@ -35,7 +35,7 @@
     "access": "public"
   },
   "scripts": {
-    "build": "tsgo",
+    "build": "tsgo && node -e \"const fs=require('node:fs'); for (const file of ['dist/native-launcher.js','dist/cli.js']) if (fs.existsSync(file)) fs.chmodSync(file, 0o755)\"",
     "typecheck": "tsgo",
     "agent-ci": "node src/cli.ts",
     "test": "vitest run"
@@ -51,6 +51,12 @@
     "@types/dockerode": "^3.3.34",
     "@types/node": "^22.10.2",
     "vitest": "^4.0.18"
+  },
+  "optionalDependencies": {
+    "@redwoodjs/agent-ci-darwin-arm64": "workspace:*",
+    "@redwoodjs/agent-ci-darwin-x64": "workspace:*",
+    "@redwoodjs/agent-ci-linux-arm64": "workspace:*",
+    "@redwoodjs/agent-ci-linux-x64": "workspace:*"
   },
   "engines": {
     "node": ">=22"

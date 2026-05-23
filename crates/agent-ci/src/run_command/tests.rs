@@ -610,15 +610,14 @@ fn fixture_plan_contracts_match_snapshots() {
             .get("workflow")
             .and_then(serde_json::Value::as_str)
             .expect("fixture plan should name workflow");
-        let mut args = RunArgs::default();
-        args.no_matrix = expected
+        let no_matrix = expected
             .get("args")
             .and_then(|args| args.get("noMatrix"))
             .and_then(serde_json::Value::as_bool)
             .unwrap_or(false);
         let workflow_path = manifest.join("fixtures/workflows").join(workflow_name);
         let workflow = parse_workflow_file(&workflow_path).expect("fixture workflow should parse");
-        let plan = plan_workflow_document(&args, &workflow, 1);
+        let plan = plan_workflow_document(&workflow, 1, no_matrix);
         let actual = plan_fixture_snapshot(&plan);
         assert_eq!(
             actual, expected["plan"],

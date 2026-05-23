@@ -53,12 +53,12 @@ Dependency direction: `agent-ci` → `agent-ci-runtime` → `agent-ci-core`. Not
 
 ### Migration phases
 
-| Phase | Work                                                    | Gate                          |
-| ----- | ------------------------------------------------------- | ----------------------------- |
-| RCS-1 | Extract `agent-ci-core` with workflow/expr/plan modules | `cargo test -p agent-ci-core` |
-| RCS-2 | Move docker/dtu/runner/macos_vm to `agent-ci-runtime`   | existing `cargo test` green   |
-| RCS-3 | Thin bin crate; `lib.rs` loses USAGE string             | `golden:cli`                  |
-| RCS-4 | Fixture contract CI (below)                             | TS + Rust both pass           |
+| Phase | Work                                                    | Gate                          | Status |
+| ----- | ------------------------------------------------------- | ----------------------------- | ------ |
+| RCS-1 | Extract `agent-ci-core` with workflow/expr/plan modules | `cargo test -p agent-ci-core` | Done   |
+| RCS-2 | Move docker/dtu/runner/macos_vm to `agent-ci-runtime`   | existing `cargo test` green   | Done   |
+| RCS-3 | Thin bin crate; `lib.rs` loses USAGE string             | `golden:cli`                  | Open   |
+| RCS-4 | Fixture contract CI (below)                             | TS + Rust both pass           | Done   |
 
 Each phase is a mergeable PR. No big-bang split.
 

@@ -1,5 +1,5 @@
 pub mod clean;
-pub use agent_ci_core::{expr, matrix, workflow};
+pub use agent_ci_core::{expr, matrix, plan, workflow};
 pub use agent_ci_runtime::{docker, dtu, macos_vm, runner, runner_image, workspace};
 pub mod distribution;
 pub mod env;

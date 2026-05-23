@@ -6,20 +6,24 @@ use crate::docker::{
 };
 use crate::dtu::{DtuHttpClient, start_ephemeral_dtu};
 use crate::env::resolve_repo_root;
-use crate::expr::{
-    ExpressionContext, RunnerContext, evaluate_job_if, expand_expressions,
-    uses_status_check_function,
-};
+use crate::expr::expand_expressions;
 use crate::macos_vm::{
-    CommandMacosVmRuntime, CommandRunnerBinaryIo, HostCapability, MacosVmJobPlan, SshCreds,
-    check_macos_vm_host, ensure_macos_runner_binary, execute_macos_vm_job,
-    resolve_macos_runner_version, resolve_macos_vm_image,
+    CommandMacosVmRuntime, CommandRunnerBinaryIo, HostCapability as MacosHostCapability,
+    MacosVmJobPlan, SshCreds, check_macos_vm_host, ensure_macos_runner_binary,
+    execute_macos_vm_job, resolve_macos_runner_version, resolve_macos_vm_image,
 };
-use crate::matrix::{MatrixContext, expand_workflow_jobs};
+pub use crate::plan::{
+    EffectiveSha, EffectiveShaSource, HostCapability, JobExecutionRoute, JobResultStatus,
+    JobRunDecision, NeedContext, PlannedJob, PlannedJobContainer, PlannedJobTarget, PlannedService,
+    PlannedStep, RunPlan, RunSelection, SkippedWorkflow, WorkflowRunPlan, decide_job_run,
+    execution_route_for_job, expression_context_for_job, expression_context_for_step,
+    extract_static_step_outputs, format_runs_on, needs_context_for_job, plan_workflow_document,
+    resolve_job_outputs, schedule_job_waves,
+};
 use crate::runner::{
     DtuControlPlane, DtuJobContainer, DtuJobSeed, DtuJobStep, DtuRunnerRegistration,
-    JobExecutionPlan, JobResult, NeedContext, PausedSignal, ServiceSpec, StepStatus,
-    execute_registered_runner_job_with_pause_observer, parse_timeline_steps,
+    JobExecutionPlan, JobResult, NeedContext as RuntimeNeedContext, PausedSignal, ServiceSpec,
+    StepStatus, execute_registered_runner_job_with_pause_observer, parse_timeline_steps,
     wrap_pause_on_failure_steps,
 };
 use crate::runner_image::{
@@ -33,8 +37,7 @@ use crate::state::{
     resolve_state_dir, write_run_result,
 };
 use crate::workflow::{
-    RunsOn, WorkflowDocument, WorkflowJob, WorkflowParseError, WorkflowStep, extract_events,
-    is_workflow_relevant, parse_workflow_file,
+    WorkflowDocument, WorkflowParseError, extract_events, is_workflow_relevant, parse_workflow_file,
 };
 use crate::workspace::sync_worktree_to_workspace;
 use std::collections::BTreeMap;
@@ -64,132 +67,12 @@ pub struct AllWorkflowDiscovery {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SkippedWorkflow {
-    pub path: PathBuf,
-    pub reason: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RunnableJob {
     pub id: String,
     pub display_name: String,
     pub runs_on: Option<String>,
     pub uses: Option<String>,
     pub step_count: usize,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RunPlan {
-    pub repo_root: PathBuf,
-    pub effective_sha: EffectiveSha,
-    pub selection: RunSelection,
-    pub workflows: Vec<WorkflowRunPlan>,
-    pub pause_on_failure: bool,
-    pub no_matrix: bool,
-    pub max_jobs: Option<u32>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum RunSelection {
-    SingleWorkflow,
-    AllRelevant {
-        branch: String,
-        changed_files: Vec<String>,
-        skipped: Vec<SkippedWorkflow>,
-    },
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct WorkflowRunPlan {
-    pub workflow_path: PathBuf,
-    pub diagnostics: Vec<String>,
-    pub jobs: Vec<PlannedJob>,
-    pub schedule: Vec<Vec<String>>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PlannedJob {
-    pub id: String,
-    pub display_name: String,
-    pub runner_name: String,
-    pub target: PlannedJobTarget,
-    pub needs: Vec<String>,
-    pub if_condition: Option<String>,
-    pub env: BTreeMap<String, String>,
-    pub outputs: BTreeMap<String, String>,
-    pub services: Vec<ServiceSpec>,
-    pub container: Option<DtuJobContainer>,
-    pub steps: Vec<PlannedStep>,
-    pub step_count: usize,
-    pub matrix_context: Option<MatrixContext>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PlannedStep {
-    pub id: Option<String>,
-    pub name: String,
-    pub index: usize,
-    pub run: Option<String>,
-    pub uses: Option<String>,
-    pub if_condition: Option<String>,
-    pub shell: Option<String>,
-    pub working_directory: Option<String>,
-    pub env: BTreeMap<String, String>,
-    pub with: BTreeMap<String, String>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum PlannedJobTarget {
-    Linux { runs_on: String },
-    MacOs { runs_on: String },
-    ReusableWorkflow { uses: String },
-    Unknown,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum JobResultStatus {
-    Success,
-    Failure,
-    Skipped,
-    Cancelled,
-}
-
-impl JobResultStatus {
-    const fn as_github_result(self) -> &'static str {
-        match self {
-            Self::Success => "success",
-            Self::Failure => "failure",
-            Self::Skipped => "skipped",
-            Self::Cancelled => "cancelled",
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum JobRunDecision {
-    Run,
-    Skip { reason: String },
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum JobExecutionRoute {
-    Linux,
-    MacOs,
-    Skip { reason: String },
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct EffectiveSha {
-    pub head_sha: String,
-    pub sha_ref: Option<String>,
-    pub source: EffectiveShaSource,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum EffectiveShaSource {
-    Explicit,
-    DirtyTree,
-    Head,
 }
 
 pub fn run_run_command(args: RunArgs, stdout: &mut impl Write, stderr: &mut impl Write) -> i32 {
@@ -259,8 +142,7 @@ pub use discovery::{
 };
 pub use events::job_lifecycle_events;
 pub use plan::{
-    decide_job_run, dtu_job_seed_for_planned_job, execution_route_for_job, plan_all_workflows,
-    plan_run, plan_workflow_document, runner_execution_plan_for_job, schedule_job_waves,
+    dtu_job_seed_for_planned_job, plan_all_workflows, plan_run, runner_execution_plan_for_job,
 };
 
 #[cfg(test)]

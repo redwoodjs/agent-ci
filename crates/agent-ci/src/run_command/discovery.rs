@@ -281,14 +281,6 @@ pub(super) fn resolve_repo_root_from_workflow(workflow_path: &Path, current_dir:
     }
 }
 
-pub(super) fn format_runs_on(runs_on: &RunsOn) -> String {
-    match runs_on {
-        RunsOn::Single(value) => value.clone(),
-        RunsOn::Labels(values) => values.join(", "),
-        RunsOn::Other(value) => value.clone(),
-    }
-}
-
 pub(super) fn now_nanos() -> u128 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)

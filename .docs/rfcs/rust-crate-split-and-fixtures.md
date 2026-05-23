@@ -104,9 +104,9 @@ crates/agent-ci/fixtures/
 2. Run `cargo test plan_fixture_my_case -- --nocapture` once to bless snapshot (or hand-write minimal JSON).
 3. PR must include both input and expected output.
 
-## Error model (parallel track)
+## Error model (follow-up hardening)
 
-Initial typed boundary coverage is in place for Docker socket resolution (`DockerSocketError`). Continue replacing `Result<T, String>` at crate boundaries with:
+Initial typed boundary coverage is in place for Docker socket resolution (`DockerSocketError`). Future hardening can continue replacing `Result<T, String>` at crate boundaries with:
 
 ```rust
 #[derive(Debug, thiserror::Error)]
@@ -115,9 +115,9 @@ pub enum Error { ... }
 
 Convert to user strings in `agent-ci` bin only. Prioritize `plan`, `docker`, `wave` modules first.
 
-## DTU typing (parallel track)
+## DTU typing (follow-up hardening)
 
-Replace `BTreeMap<String, Value>` job storage with:
+The runtime crate boundary is now in place for DTU internals. A later DTU-only refactor can replace `BTreeMap<String, Value>` job storage with:
 
 ```rust
 struct RunnerSession { ... }
@@ -130,7 +130,7 @@ struct DtuStateInner {
 
 Single `Mutex<DtuStateInner>`. Serialize to JSON at HTTP handlers only.
 
-## CLI (parallel track)
+## CLI (follow-up hardening)
 
 The CLI parser/help now lives in `agent-ci/src/cli.rs`; `lib.rs` only exposes modules and re-exports. A later ergonomics-only change can replace the hand-written usage string with `clap` derive while keeping `golden:cli` as the compatibility gate.
 
@@ -149,11 +149,11 @@ The CLI parser/help now lives in `agent-ci/src/cli.rs`; `lib.rs` only exposes mo
 - No file in `agent-ci-core` imports `std::process::Command`.
 - TS and Rust both pass fixture CI before RXP-090.
 
-## Open questions
+## Decisions
 
-1. Should fixtures live in-repo or a separate `agent-ci-fixtures` git submodule for TS/Rust consumers?
-2. Bless snapshots via `insta` crate or committed JSON?
-3. When to delete TS `workflow-parser.ts` — after fixture parity or after WASM bindgen eval?
+1. Fixtures live in-repo under `crates/agent-ci/fixtures` so Rust and TypeScript checks share one committed contract source.
+2. Snapshots are committed JSON, not `insta`, to keep TS consumption simple.
+3. TS `workflow-parser.ts` stays until the native path is the default and RXP-090 follow-ups decide the deletion point.
 
 ## References
 

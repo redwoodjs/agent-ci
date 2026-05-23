@@ -8,6 +8,7 @@
     "check:fix": "npm-run-all --parallel typecheck lint:fix format:fix",
     "compat:gen": "node scripts/gen-compatibility-md.mjs",
     "compat:check": "node scripts/gen-compatibility-md.mjs --check",
+    "fixtures:check": "node scripts/fixtures-check.mjs",
     "typecheck": "pnpm -r run typecheck",
     "lint": "oxlint --deny-warnings",
     "lint:fix": "oxlint --fix",

@@ -45,6 +45,10 @@ jobs:
           pnpm rust:check
           pnpm rust:clippy
           pnpm rust:test
+      - name: Check fixture contracts
+        run: |
+          cargo test -p agent-ci fixture_plan_contracts_match_snapshots
+          pnpm fixtures:check
       - name: Check native CLI golden output
         run: pnpm golden:cli
       - name: Check Rust smoke parity

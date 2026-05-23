@@ -1,6 +1,14 @@
 use super::*;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+#[test]
+fn macos_vm_concurrency_default_and_env_override() {
+    assert_eq!(macos_vm_concurrency_limit(None), 2);
+    assert_eq!(macos_vm_concurrency_limit(Some("4")), 4);
+    assert_eq!(macos_vm_concurrency_limit(Some("0")), 2);
+    assert_eq!(macos_vm_concurrency_limit(Some("nope")), 2);
+}
+
 fn temp_dir(name: &str) -> PathBuf {
     let nonce = SystemTime::now()
         .duration_since(UNIX_EPOCH)

@@ -45,6 +45,15 @@ jobs:
           pnpm rust:check
           pnpm rust:clippy
           pnpm rust:test
+      - name: Check native CLI golden output
+        run: pnpm golden:cli
+      - name: Check Rust smoke parity
+        run: |
+          if [ "${AGENT_CI_LOCAL:-}" = "true" ]; then
+            echo "Skipping nested Rust smoke parity inside agent-ci local validation."
+            exit 0
+          fi
+          pnpm rust:smoke:parity
       - name: Test DTU
         run: pnpm --filter dtu-github-actions test
       - name: Test CLI

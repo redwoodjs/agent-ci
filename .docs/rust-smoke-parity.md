@@ -9,6 +9,9 @@ This file tracks smoke workflow coverage for the native Rust rewrite.
 - `.github/workflows/smoke-binary.yml`
 - `.github/workflows/smoke-expressions.yml`
 - `.github/workflows/smoke-matrix.yml`
+- `.github/workflows/smoke-artifacts.yml`
+- `.github/workflows/smoke-docker-buildx.yml`
+- `.github/workflows/smoke-pause-pipe.yml`
 
 The default expectation is now successful Rust execution for every workflow in the smoke set. The old discovery-only gap is no longer accepted by this gate.
 

@@ -302,6 +302,7 @@ pub fn execute_macos_vm_job(
     plan: &MacosVmJobPlan,
 ) -> Result<MacosVmJobResult, String> {
     fs::create_dir_all(&plan.local_log_dir).map_err(|err| err.to_string())?;
+    let _permit = acquire_macos_vm_permit();
     let mut cleanup_errors = Vec::new();
     let result = (|| {
         if !runtime.image_exists(&plan.image)? {
@@ -373,6 +374,62 @@ pub fn execute_macos_vm_job(
             cleanup_errors.join("; ")
         )),
     }
+}
+
+struct MacosVmPermit;
+
+impl Drop for MacosVmPermit {
+    fn drop(&mut self) {
+        let (lock, cvar) = macos_vm_semaphore();
+        let mut state = lock.lock().expect("macOS VM semaphore lock");
+        state.active = state.active.saturating_sub(1);
+        cvar.notify_one();
+    }
+}
+
+struct MacosVmSemaphoreState {
+    limit: usize,
+    active: usize,
+}
+
+fn acquire_macos_vm_permit() -> MacosVmPermit {
+    let limit = macos_vm_concurrency_limit(
+        std::env::var("AGENT_CI_MACOS_VM_CONCURRENCY")
+            .ok()
+            .as_deref(),
+    );
+    let (lock, cvar) = macos_vm_semaphore();
+    let mut state = lock.lock().expect("macOS VM semaphore lock");
+    state.limit = limit;
+    while state.active >= state.limit {
+        state = cvar.wait(state).expect("macOS VM semaphore wait");
+    }
+    state.active += 1;
+    MacosVmPermit
+}
+
+fn macos_vm_semaphore() -> &'static (Mutex<MacosVmSemaphoreState>, Condvar) {
+    static SEMAPHORE: OnceLock<(Mutex<MacosVmSemaphoreState>, Condvar)> = OnceLock::new();
+    SEMAPHORE.get_or_init(|| {
+        (
+            Mutex::new(MacosVmSemaphoreState {
+                limit: macos_vm_concurrency_limit(
+                    std::env::var("AGENT_CI_MACOS_VM_CONCURRENCY")
+                        .ok()
+                        .as_deref(),
+                ),
+                active: 0,
+            }),
+            Condvar::new(),
+        )
+    })
+}
+
+pub fn macos_vm_concurrency_limit(env_value: Option<&str>) -> usize {
+    env_value
+        .and_then(|value| value.parse::<usize>().ok())
+        .filter(|value| *value >= 1)
+        .unwrap_or(2)
 }
 
 fn shell_escape(value: &str) -> String {

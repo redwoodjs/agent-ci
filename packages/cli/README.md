@@ -306,6 +306,12 @@ When using a remote daemon (`AGENT_CI_DOCKER_HOST=ssh://...`), `host-gateway` re
 
 ---
 
+## Native Rust concurrency status
+
+The opt-in native Rust runner currently executes each scheduled job wave sequentially. The older TypeScript runner still supports the hidden `--jobs` limiter, but the native CLI does not expose `--jobs` until Rust job-wave concurrency reaches parity. macOS VM jobs are still capped separately with `AGENT_CI_MACOS_VM_CONCURRENCY` (default: `2`) so Tart VMs are not oversubscribed when concurrency is enabled.
+
+---
+
 ## YAML compatibility
 
 See [compatibility.md](https://github.com/redwoodjs/agent-ci/blob/main/packages/cli/compatibility.md) for detailed GitHub Actions workflow syntax support.

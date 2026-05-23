@@ -3,6 +3,7 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
+use std::sync::{Condvar, Mutex, OnceLock};
 
 pub const DEFAULT_MACOS_IMAGE: &str = "ghcr.io/cirruslabs/macos-sequoia-xcode:latest";
 pub const DEFAULT_MACOS_RUNNER_VERSION: &str = "2.331.0";
@@ -28,8 +29,8 @@ pub use command::{
 };
 pub use execute::{
     CommandMacosVmRuntime, MacosVmJobPlan, MacosVmJobResult, MacosVmRuntime, VmCommandResult,
-    apply_dns_override, build_macos_runner_script, execute_macos_vm_job, sync_repo_to_vm,
-    wait_for_ip, wait_for_ssh,
+    apply_dns_override, build_macos_runner_script, execute_macos_vm_job,
+    macos_vm_concurrency_limit, sync_repo_to_vm, wait_for_ip, wait_for_ssh,
 };
 pub use host::check_macos_vm_host;
 pub use image::{ImageResolution, resolve_macos_vm_image};

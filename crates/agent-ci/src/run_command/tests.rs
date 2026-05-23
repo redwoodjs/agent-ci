@@ -591,17 +591,64 @@ fn clean_tree_defaults_to_head() {
 }
 
 #[test]
-fn fixture_two_job_chain_schedule() {
+fn fixture_plan_contracts_match_snapshots() {
     let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let workflow_path = manifest.join("fixtures/workflows/two-job-chain.yml");
-    let workflow = parse_workflow_file(&workflow_path).expect("fixture workflow should parse");
-    let plan = plan_workflow_document(&RunArgs::default(), &workflow, 1);
+    let plans_dir = manifest.join("fixtures/plans");
+    let mut entries = fs::read_dir(&plans_dir)
+        .expect("fixture plans directory should exist")
+        .collect::<Result<Vec<_>, _>>()
+        .expect("fixture plans should be readable");
+    entries.sort_by_key(|entry| entry.path());
+    assert!(entries.len() >= 10, "expected at least 10 plan fixtures");
 
-    assert_eq!(plan.jobs.len(), 2);
-    assert_eq!(plan.jobs[0].id, "build");
-    assert_eq!(plan.jobs[1].id, "deploy");
-    assert_eq!(
-        plan.schedule,
-        vec![vec!["build".to_owned()], vec!["deploy".to_owned()]]
-    );
+    for entry in entries {
+        let expected: serde_json::Value = serde_json::from_slice(
+            &fs::read(entry.path()).expect("fixture plan should be readable"),
+        )
+        .expect("fixture plan should be valid JSON");
+        let workflow_name = expected
+            .get("workflow")
+            .and_then(serde_json::Value::as_str)
+            .expect("fixture plan should name workflow");
+        let mut args = RunArgs::default();
+        args.no_matrix = expected
+            .get("args")
+            .and_then(|args| args.get("noMatrix"))
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false);
+        let workflow_path = manifest.join("fixtures/workflows").join(workflow_name);
+        let workflow = parse_workflow_file(&workflow_path).expect("fixture workflow should parse");
+        let plan = plan_workflow_document(&args, &workflow, 1);
+        let actual = plan_fixture_snapshot(&plan);
+        assert_eq!(
+            actual, expected["plan"],
+            "fixture mismatch for {workflow_name}"
+        );
+    }
+}
+
+fn plan_fixture_snapshot(plan: &WorkflowRunPlan) -> serde_json::Value {
+    serde_json::json!({
+        "jobs": plan.jobs.iter().map(|job| serde_json::json!({
+            "id": job.id,
+            "runnerName": job.runner_name,
+            "target": fixture_target(&job.target),
+            "needs": job.needs,
+            "if": job.if_condition,
+            "matrix": job.matrix_context,
+            "outputs": job.outputs.keys().cloned().collect::<Vec<_>>(),
+            "services": job.services.iter().map(|service| service.id.clone()).collect::<Vec<_>>(),
+            "container": job.container.as_ref().map(|container| container.image.clone()),
+        })).collect::<Vec<_>>(),
+        "schedule": plan.schedule,
+    })
+}
+
+fn fixture_target(target: &PlannedJobTarget) -> String {
+    match target {
+        PlannedJobTarget::Linux { runs_on } => format!("linux:{runs_on}"),
+        PlannedJobTarget::MacOs { runs_on } => format!("macos:{runs_on}"),
+        PlannedJobTarget::ReusableWorkflow { uses } => format!("reusable:{uses}"),
+        PlannedJobTarget::Unknown => "unknown".to_owned(),
+    }
 }

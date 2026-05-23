@@ -1,0 +1,14 @@
+name: Services Container
+on: push
+jobs:
+  integration:
+    runs-on: ubuntu-latest
+    container:
+      image: node:22
+    services:
+      redis:
+        image: redis:7
+      postgres:
+        image: postgres:16
+    steps:
+      - run: echo integration

@@ -1,0 +1,15 @@
+name: Outputs
+on: push
+jobs:
+  produce:
+    runs-on: ubuntu-latest
+    outputs:
+      artifact: ${{ steps.meta.outputs.artifact }}
+    steps:
+      - id: meta
+        run: echo "artifact=dist" >> "$GITHUB_OUTPUT"
+  consume:
+    needs: produce
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo ${{ needs.produce.outputs.artifact }}

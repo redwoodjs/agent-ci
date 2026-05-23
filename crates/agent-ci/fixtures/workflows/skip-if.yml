@@ -1,0 +1,8 @@
+name: Skip If
+on: push
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    if: ${{ false }}
+    steps:
+      - run: echo skipped

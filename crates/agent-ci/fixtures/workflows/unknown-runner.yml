@@ -1,0 +1,6 @@
+name: Unknown Runner
+on: push
+jobs:
+  unknown:
+    steps:
+      - run: echo unknown

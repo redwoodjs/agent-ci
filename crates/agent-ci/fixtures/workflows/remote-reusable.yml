@@ -1,0 +1,5 @@
+name: Remote Reusable
+on: push
+jobs:
+  lint:
+    uses: redwoodjs/actions/.github/workflows/lint.yml@main

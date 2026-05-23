@@ -22,6 +22,7 @@
     "golden:cli": "node scripts/golden-cli-rust.mjs",
     "rust:smoke:parity": "node scripts/rust-smoke-parity.mjs",
     "rust:perf": "node scripts/rust-performance.mjs",
+    "smoke:bench": "node scripts/smoke-benchmark.mjs",
     "agent-ci": "cd packages/dtu-github-actions && pnpm run build && cd ../cli && node src/cli.ts",
     "agent-ci-dev": "./scripts/agent-ci-dev.sh",
     "demo": "bash .docs/marketing/demo-recording/demo.sh",

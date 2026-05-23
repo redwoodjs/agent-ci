@@ -115,6 +115,7 @@ Run GitHub Actions workflow jobs locally.
 | `--quiet`                  | `-q`  | Suppress animated rendering (also enabled by `AI_AGENT=1`)                                                                                                   |
 | `--json`                   |       | Emit NDJSON event stream on stdout (also enabled by `AGENT_CI_JSON=1`); see [Agent output mode](#agent-output-mode-ndjson-event-stream)                      |
 | `--no-matrix`              |       | Collapse all matrix combinations into a single job (uses first value of each key)                                                                            |
+| `--jobs <N>`               | `-j`  | Maximum jobs to run at once                                                                                                                                  |
 | `--github-token [<token>]` |       | GitHub token for fetching remote reusable workflows (auto-resolves via `gh auth token` if no value given). Also available as `AGENT_CI_GITHUB_TOKEN` env var |
 | `--commit-status`          |       | Post a GitHub commit status after the run (requires `--github-token`)                                                                                        |
 | `--var KEY=VALUE`          |       | Provide a workflow variable (`${{ vars.KEY }}`); repeat for multiple                                                                                         |
@@ -308,7 +309,7 @@ When using a remote daemon (`AGENT_CI_DOCKER_HOST=ssh://...`), `host-gateway` re
 
 ## Native Rust concurrency status
 
-The opt-in native Rust runner currently executes each scheduled job wave sequentially. The older TypeScript runner still supports the hidden `--jobs` limiter, but the native CLI does not expose `--jobs` until Rust job-wave concurrency reaches parity. macOS VM jobs are still capped separately with `AGENT_CI_MACOS_VM_CONCURRENCY` (default: `2`) so Tart VMs are not oversubscribed when concurrency is enabled.
+The opt-in native Rust runner runs jobs in each dependency wave concurrently and honors the shared `--jobs` limit. macOS VM jobs are also capped separately with `AGENT_CI_MACOS_VM_CONCURRENCY` (default: `2`) so Tart VMs are not oversubscribed.
 
 ---
 

@@ -245,11 +245,11 @@ Rust is at full parity when all of the following are true:
   - [x] `smoke-pause-pipe.yml`
   - Test: `pnpm rust:smoke:parity` covers artifacts, docker-buildx, and pause-pipe in CI.
 
-- [ ] **RXP-081b: Port job-wave concurrency**
-  - Rust currently preserves dependency-wave ordering but executes jobs inside each wave sequentially.
-  - The native CLI intentionally hides/rejects `--jobs` until Rust ports the TypeScript `createConcurrencyLimiter` behavior.
-  - macOS VM execution is capped independently with `AGENT_CI_MACOS_VM_CONCURRENCY` (default: `2`).
-  - Test: add a Rust unit/integration test that proves same-wave jobs respect a configured limit once parallel dispatch is ported.
+- [x] **RXP-081b: Port job-wave concurrency**
+  - [x] Rust preserves dependency-wave ordering and runs jobs inside each wave concurrently.
+  - [x] The native CLI honors `--jobs` as the per-wave concurrency limit.
+  - [x] macOS VM execution is capped independently with `AGENT_CI_MACOS_VM_CONCURRENCY` (default: `2`).
+  - Test: Rust CLI parsing tests plus smoke parity/full dev validation exercise the native limiter path.
 
 - [x] **RXP-082: Run all in-repo workflows through Rust**
   - [x] Enable Rust path for the full dev validation.

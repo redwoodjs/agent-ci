@@ -78,6 +78,7 @@ function printUsage() {
   console.log(
     "      --no-matrix               Collapse all matrix combinations into a single job (uses first value of each key)",
   );
+  console.log("  -j, --jobs <N>                Maximum jobs to run at once");
   console.log(
     "      --github-token [<token>]  GitHub token for fetching remote reusable workflows",
   );

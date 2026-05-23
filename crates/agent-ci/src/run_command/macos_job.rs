@@ -10,6 +10,7 @@ pub(super) struct MacosExecutionContext<'a, W: Write> {
     pub(super) github_repo: &'a str,
     pub(super) dtu_url: &'a str,
     pub(super) dtu_port: &'a str,
+    pub(super) needs_context: BTreeMap<String, NeedContext>,
     pub(super) stderr: &'a mut W,
 }
 
@@ -25,6 +26,7 @@ pub(super) fn execute_macos_planned_job(
     let github_repo = ctx.github_repo;
     let dtu_url = ctx.dtu_url;
     let dtu_port = ctx.dtu_port;
+    let needs_context = ctx.needs_context;
     let stderr = ctx.stderr;
     let log_context = create_log_context(
         working_dir,
@@ -92,7 +94,7 @@ pub(super) fn execute_macos_planned_job(
     )?;
 
     let mut seed =
-        dtu_job_seed_for_planned_job(run_plan, workflow, job, github_repo, BTreeMap::new());
+        dtu_job_seed_for_planned_job(run_plan, workflow, job, github_repo, needs_context);
     seed.runner_work_dir = Some(PathBuf::from(&remote_work_dir));
     seed.runner_os = Some("macOS".to_owned());
     seed.runner_arch = Some("ARM64".to_owned());

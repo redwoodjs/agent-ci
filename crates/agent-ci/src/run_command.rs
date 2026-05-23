@@ -1,8 +1,8 @@
 use crate::RunArgs;
 use crate::docker::{
-    ContainerBindsOpts, ContainerCmdOpts, ContainerEnvOpts, DockerCliRuntime, DockerSocketProbe,
-    build_container_binds, build_container_cmd, build_container_env, resolve_docker_api_url,
-    resolve_docker_extra_hosts, resolve_docker_socket,
+    ContainerBindsOpts, ContainerCmdOpts, ContainerEnvOpts, DockerCliRuntime, DockerSocket,
+    DockerSocketProbe, build_container_binds, build_container_cmd, build_container_env,
+    resolve_docker_api_url, resolve_docker_extra_hosts, resolve_docker_socket,
 };
 use crate::dtu::{DtuHttpClient, start_ephemeral_dtu};
 use crate::env::resolve_repo_root;
@@ -86,6 +86,7 @@ pub struct RunPlan {
     pub workflows: Vec<WorkflowRunPlan>,
     pub pause_on_failure: bool,
     pub no_matrix: bool,
+    pub max_jobs: Option<u32>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -242,6 +243,7 @@ mod execute;
 mod host;
 mod macos_job;
 mod plan;
+mod wave;
 
 use discovery::*;
 use events::*;
@@ -249,6 +251,7 @@ use execute::*;
 use host::*;
 use macos_job::*;
 use plan::*;
+use wave::*;
 
 pub use discovery::{
     RunDiscoveryError, discover_all_workflows, discover_relevant_workflows, discover_workflow_run,

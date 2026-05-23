@@ -4,7 +4,7 @@ This file tracks smoke workflow coverage for the native Rust rewrite.
 
 ## Current smoke set
 
-`pnpm rust:smoke:parity` builds the Rust binary and executes these existing workflows end-to-end:
+`pnpm rust:smoke:parity` builds the Rust binary and executes these existing workflows end-to-end with `--jobs 2` to exercise native wave concurrency:
 
 - `.github/workflows/smoke-binary.yml`
 - `.github/workflows/smoke-expressions.yml`

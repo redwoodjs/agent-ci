@@ -33,7 +33,7 @@ if (build.status !== 0) {
 
 for (const workflow of smokeWorkflows) {
   const workflowWorkDir = path.join(smokeWorkDir, workflow.path.replaceAll(/[^a-zA-Z0-9]+/g, "-"));
-  const result = run(rustBin, ["run", "--workflow", workflow.path, "--quiet"], {
+  const result = run(rustBin, ["run", "--workflow", workflow.path, "--quiet", "--jobs", "2"], {
     env: { AGENT_CI_WORKING_DIR: workflowWorkDir },
   });
   if (result.status !== 0) {

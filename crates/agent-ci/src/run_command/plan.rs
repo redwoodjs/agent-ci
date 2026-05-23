@@ -14,6 +14,7 @@ pub fn plan_run(args: &RunArgs, current_dir: &Path) -> Result<RunPlan, RunDiscov
         workflows: vec![plan_workflow_document(args, &workflow, 1)],
         pause_on_failure: args.pause_on_failure,
         no_matrix: args.no_matrix,
+        max_jobs: args.max_jobs,
     })
 }
 
@@ -41,6 +42,7 @@ pub fn plan_all_workflows(
         workflows,
         pause_on_failure: args.pause_on_failure,
         no_matrix: args.no_matrix,
+        max_jobs: args.max_jobs,
     })
 }
 

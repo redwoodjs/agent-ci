@@ -1,4 +1,5 @@
 use super::*;
+use std::sync::Arc;
 
 pub(super) fn write_plan_summary(plan: &RunPlan, stdout: &mut impl Write) {
     match &plan.selection {
@@ -300,7 +301,7 @@ pub(super) fn execute_run_plan_inner(
                 }
             }
 
-            let shared = SharedExecutionContext {
+            let shared = Arc::new(SharedExecutionContext {
                 run_plan: plan.clone(),
                 workflow: workflow.clone(),
                 working_dir: working_dir.clone(),
@@ -316,7 +317,7 @@ pub(super) fn execute_run_plan_inner(
                 image: image.clone(),
                 docker_socket: docker_socket.clone(),
                 extra_hosts: extra_hosts.clone().unwrap_or_default(),
-            };
+            });
 
             let outcomes =
                 execute_wave_jobs(shared, wave_jobs, max_jobs, stdout, stderr, json_mode)?;

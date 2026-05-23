@@ -266,6 +266,8 @@ Rust is at full parity when all of the following are true:
 
 ## Phase 9 — Default switch and TypeScript removal
 
+See also [rust-crate-split-and-fixtures RFC](rfcs/rust-crate-split-and-fixtures.md) for the long-term fixture contract layer.
+
 - [ ] **RXP-090: Make Rust execution default**
   - [ ] Route npm launcher to native Rust binary by default.
   - [ ] Keep TypeScript fallback for one release.

@@ -134,7 +134,7 @@ pub(super) fn create_rust_run_directories(
         .join("cache/warm-modules")
         .join(&repo_slug)
         .join("no-lockfile");
-    let host_runner_dir = working_dir.join("runner");
+    let host_runner_dir = run_dir.join("runner");
     let workspace_dir = container_work_dir.join(repo_name).join(repo_name);
 
     let dirs = RustRunDirectories {

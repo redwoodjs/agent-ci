@@ -1,4 +1,5 @@
 use super::*;
+use std::sync::Arc;
 
 #[derive(Debug)]
 pub(super) struct WaveJob {
@@ -29,7 +30,6 @@ pub(super) struct SharedExecutionContext {
 
 #[derive(Debug)]
 pub(super) struct JobExecutionOutcome {
-    index: usize,
     pub(super) job_id: String,
     pub(super) result: JobResult,
     pub(super) status: JobResultStatus,
@@ -44,26 +44,41 @@ enum WorkerEvent {
         workflow_file: String,
         signal: PausedSignal,
     },
+}
+
+pub(super) enum ConcurrentWorkerEvent<R, E> {
+    Worker(E),
     Finished {
         index: usize,
-        outcome: Result<JobExecutionOutcome, String>,
+        outcome: Result<R, String>,
     },
 }
 
-pub(super) fn execute_wave_jobs(
-    shared: SharedExecutionContext,
-    wave_jobs: Vec<WaveJob>,
+type WaveWorkerEvent = ConcurrentWorkerEvent<JobExecutionOutcome, WorkerEvent>;
+type WaveWorkerTx = std::sync::mpsc::Sender<WaveWorkerEvent>;
+
+/// Run indexed jobs with at most `max_jobs` active workers.
+pub(super) fn run_concurrent_workers<T, R, E, F, H>(
     max_jobs: usize,
-    stdout: &mut impl Write,
-    stderr: &mut impl Write,
-    json_mode: bool,
-) -> Result<Vec<JobExecutionOutcome>, String> {
+    jobs: Vec<(usize, T)>,
+    run_job: F,
+    mut handle_worker_event: H,
+) -> Result<Vec<(usize, R)>, String>
+where
+    T: Send + 'static,
+    R: Send + 'static,
+    E: Send + 'static,
+    F: Fn(usize, T, &std::sync::mpsc::Sender<ConcurrentWorkerEvent<R, E>>) -> Result<R, String>
+        + Send
+        + Sync
+        + 'static,
+    H: FnMut(E),
+{
     let max_jobs = max_jobs.max(1);
-    let total = wave_jobs.len();
-    let mut pending = wave_jobs
-        .into_iter()
-        .collect::<std::collections::VecDeque<_>>();
-    let (tx, rx) = std::sync::mpsc::channel::<WorkerEvent>();
+    let total = jobs.len();
+    let mut pending = jobs.into_iter().collect::<std::collections::VecDeque<_>>();
+    let (tx, rx) = std::sync::mpsc::channel::<ConcurrentWorkerEvent<R, E>>();
+    let run_job = Arc::new(run_job);
     let mut handles = Vec::new();
     let mut active = 0_usize;
     let mut finished = 0_usize;
@@ -72,24 +87,69 @@ pub(super) fn execute_wave_jobs(
 
     while finished < total {
         while active < max_jobs && !pending.is_empty() {
-            let wave_job = pending.pop_front().expect("pending job");
-            let worker_shared = shared.clone();
+            let (index, job) = pending.pop_front().expect("pending job");
             let worker_tx = tx.clone();
+            let run_job = Arc::clone(&run_job);
             active += 1;
             handles.push(thread::spawn(move || {
-                let index = wave_job.index;
-                let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                    execute_wave_job(worker_shared, wave_job, &worker_tx)
+                let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    run_job(index, job, &worker_tx)
                 }))
                 .unwrap_or_else(|_| Err("job worker panicked".to_owned()));
-                let _ = worker_tx.send(WorkerEvent::Finished {
-                    index,
-                    outcome: result,
-                });
+                let _ = worker_tx.send(ConcurrentWorkerEvent::Finished { index, outcome });
             }));
         }
 
         match rx.recv().map_err(|err| err.to_string())? {
+            ConcurrentWorkerEvent::Worker(event) => handle_worker_event(event),
+            ConcurrentWorkerEvent::Finished { index, outcome } => {
+                active = active.saturating_sub(1);
+                finished += 1;
+                match outcome {
+                    Ok(value) => outcomes.push((index, value)),
+                    Err(err) if first_error.is_none() => {
+                        first_error = Some(format!("job {index} failed to execute: {err}"));
+                    }
+                    Err(_) => {}
+                }
+            }
+        }
+    }
+
+    for handle in handles {
+        handle
+            .join()
+            .map_err(|_| "job worker panicked during join".to_owned())?;
+    }
+
+    if let Some(err) = first_error {
+        return Err(err);
+    }
+
+    outcomes.sort_by_key(|(index, _)| *index);
+    Ok(outcomes)
+}
+
+pub(super) fn execute_wave_jobs(
+    shared: Arc<SharedExecutionContext>,
+    wave_jobs: Vec<WaveJob>,
+    max_jobs: usize,
+    stdout: &mut impl Write,
+    stderr: &mut impl Write,
+    json_mode: bool,
+) -> Result<Vec<JobExecutionOutcome>, String> {
+    let jobs = wave_jobs
+        .into_iter()
+        .map(|wave_job| (wave_job.index, wave_job))
+        .collect::<Vec<_>>();
+    let outcomes = run_concurrent_workers(
+        max_jobs,
+        jobs,
+        {
+            let shared = Arc::clone(&shared);
+            move |_index, wave_job, tx| execute_wave_job(Arc::clone(&shared), wave_job, tx)
+        },
+        |event| match event {
             WorkerEvent::Log(message) => {
                 let _ = write!(stderr, "{message}");
             }
@@ -107,39 +167,15 @@ pub(super) fn execute_wave_jobs(
                 &workflow_file,
                 signal,
             ),
-            WorkerEvent::Finished { index, outcome } => {
-                active = active.saturating_sub(1);
-                finished += 1;
-                match outcome {
-                    Ok(outcome) => outcomes.push(outcome),
-                    Err(err) => {
-                        if first_error.is_none() {
-                            first_error = Some(format!("job {index} failed to execute: {err}"));
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    for handle in handles {
-        handle
-            .join()
-            .map_err(|_| "job worker panicked during join".to_owned())?;
-    }
-
-    if let Some(err) = first_error {
-        return Err(err);
-    }
-
-    outcomes.sort_by_key(|outcome| outcome.index);
-    Ok(outcomes)
+        },
+    )?;
+    Ok(outcomes.into_iter().map(|(_, outcome)| outcome).collect())
 }
 
 fn execute_wave_job(
-    shared: SharedExecutionContext,
+    shared: Arc<SharedExecutionContext>,
     wave_job: WaveJob,
-    tx: &std::sync::mpsc::Sender<WorkerEvent>,
+    tx: &WaveWorkerTx,
 ) -> Result<JobExecutionOutcome, String> {
     match wave_job.route {
         JobExecutionRoute::Linux => execute_linux_wave_job(shared, wave_job, tx),
@@ -149,9 +185,9 @@ fn execute_wave_job(
 }
 
 fn execute_macos_wave_job(
-    shared: SharedExecutionContext,
+    shared: Arc<SharedExecutionContext>,
     wave_job: WaveJob,
-    tx: &std::sync::mpsc::Sender<WorkerEvent>,
+    tx: &WaveWorkerTx,
 ) -> Result<JobExecutionOutcome, String> {
     let mut stderr = Vec::new();
     let result = execute_macos_planned_job(MacosExecutionContext {
@@ -168,17 +204,17 @@ fn execute_macos_wave_job(
         stderr: &mut stderr,
     })?;
     if !stderr.is_empty() {
-        let _ = tx.send(WorkerEvent::Log(
+        let _ = tx.send(ConcurrentWorkerEvent::Worker(WorkerEvent::Log(
             String::from_utf8_lossy(&stderr).into_owned(),
-        ));
+        )));
     }
-    Ok(outcome_for_job(wave_job.index, &wave_job.job, result, None))
+    Ok(outcome_for_job(&wave_job.job, result, None))
 }
 
 fn execute_linux_wave_job(
-    shared: SharedExecutionContext,
+    shared: Arc<SharedExecutionContext>,
     wave_job: WaveJob,
-    tx: &std::sync::mpsc::Sender<WorkerEvent>,
+    tx: &WaveWorkerTx,
 ) -> Result<JobExecutionOutcome, String> {
     let job = &wave_job.job;
     let image = shared
@@ -285,26 +321,26 @@ fn execute_linux_wave_job(
     }
 
     let workflow_file = workflow_file_name(&shared.workflow);
-    let _ = tx.send(WorkerEvent::Log(format!(
+    let _ = tx.send(ConcurrentWorkerEvent::Worker(WorkerEvent::Log(format!(
         "[Agent CI] Starting runner {} ({} > {})\n  Logs: {}\n  DTU: {}\n",
         job.runner_name,
         workflow_file,
         job.display_name,
         execution_plan.log_dir.display(),
         shared.dtu_container_url,
-    )));
+    ))));
 
     let mut dtu_client = DtuHttpClient::new(&shared.dtu_url);
     let mut docker_runtime = DockerCliRuntime::default();
     let runner_name = job.runner_name.clone();
     let job_display_name = job.display_name.clone();
     let mut on_pause = |signal: PausedSignal| {
-        let _ = tx.send(WorkerEvent::Paused {
+        let _ = tx.send(ConcurrentWorkerEvent::Worker(WorkerEvent::Paused {
             runner_name: runner_name.clone(),
             job_display_name: job_display_name.clone(),
             workflow_file: workflow_file.clone(),
             signal,
-        });
+        }));
     };
     let result = execute_registered_runner_job_with_pause_observer(
         &mut dtu_client,
@@ -313,16 +349,10 @@ fn execute_linux_wave_job(
         &seed,
         &mut on_pause,
     )?;
-    Ok(outcome_for_job(
-        wave_job.index,
-        job,
-        result,
-        Some(&execution_plan.log_dir),
-    ))
+    Ok(outcome_for_job(job, result, Some(&execution_plan.log_dir)))
 }
 
 fn outcome_for_job(
-    index: usize,
     job: &PlannedJob,
     result: JobResult,
     log_dir: Option<&Path>,
@@ -337,7 +367,6 @@ fn outcome_for_job(
     step_outputs.extend(extract_static_step_outputs(job));
     let outputs = resolve_job_outputs(&job.outputs, &step_outputs);
     JobExecutionOutcome {
-        index,
         job_id: job.id.clone(),
         result,
         status,
@@ -359,4 +388,55 @@ pub(super) fn default_max_concurrent_jobs() -> usize {
         .map(usize::from)
         .map(|cpu_count| (cpu_count / 2).max(1))
         .unwrap_or(1)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::time::Duration;
+
+    #[test]
+    fn concurrent_pool_respects_max_jobs() {
+        let active = Arc::new(AtomicUsize::new(0));
+        let peak = Arc::new(AtomicUsize::new(0));
+        let jobs = (0..6).map(|index| (index, index)).collect::<Vec<_>>();
+
+        let outcomes = run_concurrent_workers(
+            2,
+            jobs,
+            {
+                let active = Arc::clone(&active);
+                let peak = Arc::clone(&peak);
+                move |_index, _job, _tx| {
+                    let current = active.fetch_add(1, Ordering::SeqCst) + 1;
+                    let _ = peak.fetch_max(current, Ordering::SeqCst);
+                    thread::sleep(Duration::from_millis(30));
+                    active.fetch_sub(1, Ordering::SeqCst);
+                    Ok(())
+                }
+            },
+            |_: ()| {},
+        )
+        .expect("pool should succeed");
+
+        assert_eq!(outcomes.len(), 6);
+        assert_eq!(peak.load(Ordering::SeqCst), 2);
+    }
+
+    #[test]
+    fn concurrent_pool_preserves_job_order() {
+        let jobs = (0..4).map(|index| (index, index)).collect::<Vec<_>>();
+        let outcomes = run_concurrent_workers(
+            4,
+            jobs,
+            |_index, job, _tx| {
+                thread::sleep(Duration::from_millis(((4 - job) * 10) as u64));
+                Ok(job * 10)
+            },
+            |_: ()| {},
+        )
+        .expect("pool should succeed");
+        assert_eq!(outcomes, vec![(0, 0), (1, 10), (2, 20), (3, 30)]);
+    }
 }

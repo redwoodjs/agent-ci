@@ -589,3 +589,19 @@ fn clean_tree_defaults_to_head() {
     assert_eq!(effective.sha_ref, Some("HEAD".to_owned()));
     assert_eq!(effective.source, EffectiveShaSource::Head);
 }
+
+#[test]
+fn fixture_two_job_chain_schedule() {
+    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let workflow_path = manifest.join("fixtures/workflows/two-job-chain.yml");
+    let workflow = parse_workflow_file(&workflow_path).expect("fixture workflow should parse");
+    let plan = plan_workflow_document(&RunArgs::default(), &workflow, 1);
+
+    assert_eq!(plan.jobs.len(), 2);
+    assert_eq!(plan.jobs[0].id, "build");
+    assert_eq!(plan.jobs[1].id, "deploy");
+    assert_eq!(
+        plan.schedule,
+        vec![vec!["build".to_owned()], vec!["deploy".to_owned()]]
+    );
+}

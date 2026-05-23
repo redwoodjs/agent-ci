@@ -1,0 +1,15 @@
+{
+  "probe": {
+    "env": {},
+    "existingPaths": ["/Users/me/.docker/run/docker.sock"],
+    "accessiblePaths": [],
+    "realpaths": {},
+    "dockerContextHost": null,
+    "home": "/Users/me"
+  },
+  "expectedErrorContains": [
+    "/var/run/docker.sock is missing or a dangling symlink",
+    "Docker Desktop is running but the default socket is disabled",
+    "docs/docker-socket.md"
+  ]
+}

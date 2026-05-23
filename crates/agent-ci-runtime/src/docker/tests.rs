@@ -1,4 +1,5 @@
 use super::*;
+use serde_json::{Value, json};
 
 fn probe() -> DockerSocketProbe {
     DockerSocketProbe {
@@ -8,6 +9,117 @@ fn probe() -> DockerSocketProbe {
         realpaths: BTreeMap::new(),
         docker_context_host: None,
         home: Some(PathBuf::from("/home/me")),
+    }
+}
+
+#[test]
+fn docker_socket_fixture_contracts_match_snapshots() {
+    let fixtures =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../agent-ci/fixtures/docker-socket");
+    let mut entries = fs::read_dir(&fixtures)
+        .expect("docker socket fixtures directory should exist")
+        .collect::<Result<Vec<_>, _>>()
+        .expect("docker socket fixtures should be readable")
+        .into_iter()
+        .filter(|entry| {
+            entry
+                .path()
+                .extension()
+                .is_some_and(|extension| extension == "json")
+        })
+        .collect::<Vec<_>>();
+    entries.sort_by_key(|entry| entry.path());
+    assert!(!entries.is_empty(), "expected docker socket fixtures");
+
+    for entry in entries {
+        let fixture: Value = serde_json::from_slice(
+            &fs::read(entry.path()).expect("docker socket fixture should be readable"),
+        )
+        .expect("docker socket fixture should be valid JSON");
+        let probe = probe_from_fixture(&fixture["probe"]);
+        match (resolve_docker_socket(&probe), fixture.get("expected")) {
+            (Ok(socket), Some(expected)) => assert_eq!(
+                json!({
+                    "socketPath": socket.socket_path,
+                    "uri": socket.uri,
+                    "bindMountPath": socket.bind_mount_path,
+                }),
+                *expected,
+                "docker socket fixture mismatch: {}",
+                entry.path().display()
+            ),
+            (Err(err), None) => {
+                for expected in fixture["expectedErrorContains"]
+                    .as_array()
+                    .expect("error fixture should list expected substrings")
+                {
+                    let expected = expected
+                        .as_str()
+                        .expect("expected substring should be string");
+                    assert!(
+                        err.contains(expected),
+                        "docker socket fixture {} error should contain {expected:?}: {err}",
+                        entry.path().display()
+                    );
+                }
+            }
+            (Ok(_), None) => panic!("fixture should have failed: {}", entry.path().display()),
+            (Err(err), Some(_)) => panic!(
+                "fixture should have resolved: {}: {err}",
+                entry.path().display()
+            ),
+        }
+    }
+}
+
+fn probe_from_fixture(value: &Value) -> DockerSocketProbe {
+    let env = value
+        .get("env")
+        .and_then(Value::as_object)
+        .map(|object| {
+            object
+                .iter()
+                .filter_map(|(key, value)| {
+                    value.as_str().map(|value| (key.clone(), value.to_owned()))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    let string_set = |key: &str| {
+        value
+            .get(key)
+            .and_then(Value::as_array)
+            .map(|values| {
+                values
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .map(str::to_owned)
+                    .collect()
+            })
+            .unwrap_or_default()
+    };
+    let realpaths = value
+        .get("realpaths")
+        .and_then(Value::as_object)
+        .map(|object| {
+            object
+                .iter()
+                .filter_map(|(key, value)| {
+                    value.as_str().map(|value| (key.clone(), value.to_owned()))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    DockerSocketProbe {
+        env,
+        existing_paths: string_set("existingPaths"),
+        accessible_paths: string_set("accessiblePaths"),
+        realpaths,
+        docker_context_host: value
+            .get("dockerContextHost")
+            .and_then(Value::as_str)
+            .map(ToOwned::to_owned),
+        home: value.get("home").and_then(Value::as_str).map(PathBuf::from),
     }
 }
 

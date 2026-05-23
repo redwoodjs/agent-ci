@@ -30,7 +30,7 @@ pub use config::{
     parse_container_options, resolve_docker_api_url, resolve_docker_extra_hosts,
 };
 pub use runtime::DockerCliRuntime;
-pub use socket::{DockerSocket, DockerSocketProbe, resolve_docker_socket};
+pub use socket::{DockerSocket, DockerSocketError, DockerSocketProbe, resolve_docker_socket};
 
 #[cfg(test)]
 mod tests;

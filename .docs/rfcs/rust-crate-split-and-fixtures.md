@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed — companion to [rust-native-binary-rewrite.md](./rust-native-binary-rewrite.md) and [rust-execution-parity-plan.md](../rust-execution-parity-plan.md).
+Implemented — companion to [rust-native-binary-rewrite.md](./rust-native-binary-rewrite.md) and [rust-execution-parity-plan.md](../rust-execution-parity-plan.md).
 
 ## Problem
 
@@ -57,7 +57,7 @@ Dependency direction: `agent-ci` → `agent-ci-runtime` → `agent-ci-core`. Not
 | ----- | ------------------------------------------------------- | ----------------------------- | ------ |
 | RCS-1 | Extract `agent-ci-core` with workflow/expr/plan modules | `cargo test -p agent-ci-core` | Done   |
 | RCS-2 | Move docker/dtu/runner/macos_vm to `agent-ci-runtime`   | existing `cargo test` green   | Done   |
-| RCS-3 | Thin bin crate; `lib.rs` loses USAGE string             | `golden:cli`                  | Open   |
+| RCS-3 | Thin bin crate; `lib.rs` loses USAGE string             | `golden:cli`                  | Done   |
 | RCS-4 | Fixture contract CI (below)                             | TS + Rust both pass           | Done   |
 
 Each phase is a mergeable PR. No big-bang split.
@@ -79,20 +79,24 @@ crates/agent-ci/fixtures/
 ### Contract rules
 
 1. **Plans** — JSON snapshots of `RunPlan` with stable fields only (job ids, schedule waves, runner names, routes). Omit timestamps and absolute paths.
-2. **Events** — Normalized NDJSON: strip `ts`, `runId`, volatile paths before compare.
-3. **Run results** — Schema version + job names + status; omit duration jitter in unit fixtures.
-4. **TS runner** — Add `pnpm fixtures:check` that runs the same loader against TS plan/output functions (Phase RCS-4).
+2. **Events** — Normalized NDJSON: strip `ts`, `runId`, durations, and volatile paths before compare.
+3. **Run results** — Schema version + job names + status; omit timestamps, SHAs, absolute paths, and duration jitter in unit fixtures.
+4. **Docker socket** — Probe input + expected socket URI/bind mount, or expected error substrings.
+5. **TS runner** — `pnpm fixtures:check` runs the same loader against TS plan/output/socket helpers (Phase RCS-4).
 
 ### CI integration
 
-Add to `.github/workflows/tests.yml` after Rust unit tests:
+`.github/workflows/tests.yml` runs the fixture contracts after Rust unit tests:
 
 ```yaml
-- name: Check Rust fixture contracts
-  run: cargo test -p agent-ci fixtures::
+- name: Check fixture contracts
+  run: |
+    cargo test -p agent-ci-core fixture
+    cargo test -p agent-ci-runtime docker_socket_fixture_contracts_match_snapshots
+    pnpm fixtures:check
 ```
 
-Future: optional job `fixtures:check:ts` comparing TS output to the same files.
+`pnpm fixtures:check` compares the TypeScript plan, event, run-result, and Docker socket helpers to the same committed fixtures.
 
 ### Adding a fixture
 
@@ -102,7 +106,7 @@ Future: optional job `fixtures:check:ts` comparing TS output to the same files.
 
 ## Error model (parallel track)
 
-Replace `Result<T, String>` at crate boundaries with:
+Initial typed boundary coverage is in place for Docker socket resolution (`DockerSocketError`). Continue replacing `Result<T, String>` at crate boundaries with:
 
 ```rust
 #[derive(Debug, thiserror::Error)]
@@ -128,14 +132,14 @@ Single `Mutex<DtuStateInner>`. Serialize to JSON at HTTP handlers only.
 
 ## CLI (parallel track)
 
-Replace hand-written `USAGE` in `lib.rs` with `clap` derive. Generate help golden from `CommandFactory::command().render_help()` or shared JSON spec consumed by TS.
+The CLI parser/help now lives in `agent-ci/src/cli.rs`; `lib.rs` only exposes modules and re-exports. A later ergonomics-only change can replace the hand-written usage string with `clap` derive while keeping `golden:cli` as the compatibility gate.
 
 ## Wave executor
 
-`run_command/wave.rs` owns concurrent job dispatch:
+`agent-ci-runtime/src/wave.rs` owns the generic concurrent worker pool, while `run_command/wave.rs` keeps Agent CI-specific job dispatch:
 
 - `SharedExecutionContext` behind `Arc` (no per-worker clone).
-- `run_concurrent_pool` — testable concurrency primitive with unit tests for `max_jobs`.
+- `run_concurrent_workers` — testable concurrency primitive with unit tests for `max_jobs`.
 - Future: global session limiter for `--all` wraps multiple `execute_wave_jobs` calls.
 
 ## Success criteria

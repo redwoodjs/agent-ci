@@ -1,0 +1,17 @@
+{
+  "probe": {
+    "env": {},
+    "existingPaths": ["/var/run/docker.sock"],
+    "accessiblePaths": ["/Users/me/.docker/run/docker.sock"],
+    "realpaths": {
+      "/var/run/docker.sock": "/Users/me/.docker/run/docker.sock"
+    },
+    "dockerContextHost": null,
+    "home": "/Users/me"
+  },
+  "expected": {
+    "socketPath": "/Users/me/.docker/run/docker.sock",
+    "uri": "unix:///Users/me/.docker/run/docker.sock",
+    "bindMountPath": "/var/run/docker.sock"
+  }
+}

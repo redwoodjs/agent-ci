@@ -8,6 +8,31 @@ pub struct DockerSocket {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DockerSocketError {
+    message: String,
+}
+
+impl DockerSocketError {
+    pub fn new(message: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+        }
+    }
+
+    pub fn contains(&self, needle: &str) -> bool {
+        self.message.contains(needle)
+    }
+}
+
+impl std::fmt::Display for DockerSocketError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(&self.message)
+    }
+}
+
+impl std::error::Error for DockerSocketError {}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DockerSocketProbe {
     pub env: BTreeMap<String, String>,
     pub existing_paths: BTreeSet<String>,
@@ -63,7 +88,7 @@ impl DockerSocketProbe {
     }
 }
 
-pub fn resolve_docker_socket(probe: &DockerSocketProbe) -> Result<DockerSocket, String> {
+pub fn resolve_docker_socket(probe: &DockerSocketProbe) -> Result<DockerSocket, DockerSocketError> {
     if let Some(env_host) = probe
         .env
         .get("AGENT_CI_DOCKER_HOST")
@@ -143,7 +168,7 @@ fn active_docker_context_host() -> Option<String> {
     (!value.is_empty() && value != "<no value>").then_some(value)
 }
 
-fn unusable_socket_error(probe: &DockerSocketProbe, detail: &str) -> String {
+fn unusable_socket_error(probe: &DockerSocketProbe, detail: &str) -> DockerSocketError {
     let mut lines = vec![
         "agent-ci couldn't use a Docker socket at /var/run/docker.sock.".to_owned(),
         detail.to_owned(),
@@ -160,5 +185,5 @@ fn unusable_socket_error(probe: &DockerSocketProbe, detail: &str) -> String {
         ]);
     }
     lines.extend([String::new(), format!("See: {DOCS_URL}")]);
-    lines.join("\n")
+    DockerSocketError::new(lines.join("\n"))
 }

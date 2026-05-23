@@ -291,8 +291,10 @@ pub(super) fn execute_run_plan_inner(
                     image = Some(ensure_runner_image(&mut docker_runtime, &resolved)?);
                 }
                 if docker_socket.is_none() {
-                    docker_socket =
-                        Some(resolve_docker_socket(&DockerSocketProbe::from_process())?);
+                    docker_socket = Some(
+                        resolve_docker_socket(&DockerSocketProbe::from_process())
+                            .map_err(|err| err.to_string())?,
+                    );
                 }
                 if extra_hosts.is_none() {
                     extra_hosts = Some(

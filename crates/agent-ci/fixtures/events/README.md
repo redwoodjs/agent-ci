@@ -1,4 +1,3 @@
 # Event fixtures
 
-Future normalized NDJSON event contracts. Strip volatile fields such as `ts`, run IDs,
-runner-specific paths, and durations before comparing.
+Normalized NDJSON event contracts. Fixture input uses JSON arrays for readability; checks strip volatile fields such as `ts`, `runId`, `durationMs`, and log paths before comparing.

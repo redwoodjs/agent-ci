@@ -21,6 +21,7 @@ name = "agent-ci-core"
 version = "0.0.0"
 dependencies = [
  "globset",
+ "serde",
  "serde_json",
  "serde_yaml",
  "sha2",

@@ -169,12 +169,14 @@ fn find_missing_tool(error_content: &str) -> Option<String> {
         if lower.contains("command not found") || lower.contains(": not found") {
             let not_found_at = lower.find("not found")?;
             let before = &line[..not_found_at];
-            let tool = before
-                .split(':')
-                .rev()
-                .map(str::trim)
-                .find(|segment| !segment.is_empty() && segment.parse::<u32>().is_err())?;
-            return Some(tool.trim_end_matches("command").trim().to_owned());
+            let tool = before.split(':').rev().map(str::trim).find_map(|segment| {
+                if segment.is_empty() || segment.parse::<u32>().is_ok() {
+                    return None;
+                }
+                let candidate = segment.trim_end_matches("command").trim();
+                (!candidate.is_empty()).then(|| candidate.to_owned())
+            })?;
+            return Some(tool);
         }
         if let Some(after) = lower.split("linker ").nth(1) {
             let tool = after

@@ -33,7 +33,6 @@ Commands:
 Options:
   -w, --workflow <path>         Path to the workflow file
   -a, --all                     Discover and run all relevant workflows
-  -j, --jobs <n>                Max concurrent containers (auto-detected from CPU/memory)
   -p, --pause-on-failure         Pause on step failure for interactive debugging
   -q, --quiet                   Suppress animated rendering (also enabled by AI_AGENT=1)
       --json                    Emit NDJSON event stream on stdout (also enabled by AGENT_CI_JSON=1)
@@ -96,7 +95,6 @@ pub struct RunArgs {
     pub no_matrix: bool,
     pub github_token: GithubTokenFlag,
     pub commit_status: bool,
-    pub max_jobs: Option<u32>,
     pub cli_vars: Vec<(String, String)>,
     pub var_files: Vec<String>,
 }
@@ -223,7 +221,8 @@ fn parse_run_args(args: &[String]) -> Result<RunArgs, String> {
             "--no-matrix" => parsed.no_matrix = true,
             "--jobs" | "-j" => {
                 let raw = take_next(args, &mut index, arg)?;
-                parsed.max_jobs = Some(parse_positive_u32(&raw, "--jobs")?);
+                parse_positive_u32(&raw, "--jobs")?;
+                return Err("--jobs is not supported by the native runner yet".to_owned());
             }
             "--commit-status" => parsed.commit_status = true,
             "--var" => {
@@ -248,7 +247,8 @@ fn parse_run_args(args: &[String]) -> Result<RunArgs, String> {
                 if let Some(value) = arg.strip_prefix("--workflow=") {
                     parsed.workflow = Some(value.to_owned());
                 } else if let Some(value) = arg.strip_prefix("--jobs=") {
-                    parsed.max_jobs = Some(parse_positive_u32(value, "--jobs")?);
+                    parse_positive_u32(value, "--jobs")?;
+                    return Err("--jobs is not supported by the native runner yet".to_owned());
                 } else if let Some(value) = arg.strip_prefix("--var=") {
                     parsed.cli_vars.push(parse_var_flag(value)?);
                 } else if let Some(value) = arg.strip_prefix("--var-file=") {
@@ -375,8 +375,6 @@ mod tests {
             "--quiet",
             "--json",
             "--no-matrix",
-            "--jobs",
-            "3",
             "--github-token",
             "ghp_token",
             "--commit-status",
@@ -397,7 +395,6 @@ mod tests {
                 no_matrix: true,
                 github_token: GithubTokenFlag::Value("ghp_token".to_owned()),
                 commit_status: true,
-                max_jobs: Some(3),
                 cli_vars: vec![("FOO".to_owned(), "bar".to_owned())],
                 var_files: vec!["vars.json".to_owned()],
             }))
@@ -444,6 +441,10 @@ mod tests {
         assert_eq!(
             parse_cli(["run", "--jobs", "0"]),
             ParsedCli::Error("--jobs must be a positive integer".to_owned())
+        );
+        assert_eq!(
+            parse_cli(["run", "--jobs", "2"]),
+            ParsedCli::Error("--jobs is not supported by the native runner yet".to_owned())
         );
         assert_eq!(
             parse_cli(["retry", "--from-step", "nope"]),

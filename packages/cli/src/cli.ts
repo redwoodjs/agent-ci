@@ -68,9 +68,6 @@ function printUsage() {
   console.log("Options:");
   console.log("  -w, --workflow <path>         Path to the workflow file");
   console.log("  -a, --all                     Discover and run all relevant workflows");
-  console.log(
-    "  -j, --jobs <n>                Max concurrent containers (auto-detected from CPU/memory)",
-  );
   console.log("  -p, --pause-on-failure         Pause on step failure for interactive debugging");
   console.log(
     "  -q, --quiet                   Suppress animated rendering (also enabled by AI_AGENT=1)",

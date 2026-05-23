@@ -12,8 +12,29 @@ permissions:
   contents: write
 
 jobs:
+  validate:
+    name: Validate Rust workspace
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - name: Setup Rust
+        run: |
+          rustup toolchain install stable --profile minimal --component clippy --component rustfmt
+          rustup default stable
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Run clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Run tests
+        run: cargo test --workspace --all-targets
+
   build:
     name: Build ${{ matrix.name }}
+    needs: validate
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false

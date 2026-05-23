@@ -111,7 +111,6 @@ Run GitHub Actions workflow jobs locally.
 | -------------------------- | ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `--workflow <path>`        | `-w`  | Path to the workflow file                                                                                                                                    |
 | `--all`                    | `-a`  | Discover and run all relevant workflows for the current branch                                                                                               |
-| `--jobs <n>`               | `-j`  | Max concurrent containers (overrides auto-detection)                                                                                                         |
 | `--pause-on-failure`       | `-p`  | Pause on step failure for interactive debugging                                                                                                              |
 | `--quiet`                  | `-q`  | Suppress animated rendering (also enabled by `AI_AGENT=1`)                                                                                                   |
 | `--json`                   |       | Emit NDJSON event stream on stdout (also enabled by `AGENT_CI_JSON=1`); see [Agent output mode](#agent-output-mode-ndjson-event-stream)                      |
@@ -304,31 +303,6 @@ If your setup is custom, use environment overrides:
 - `AGENT_CI_DOCKER_BRIDGE_GATEWAY` — fallback gateway IP used when Agent CI runs inside Docker and cannot detect its container IP, and as an explicit DTU host override outside Docker when `AGENT_CI_DTU_HOST` is not set
 
 When using a remote daemon (`AGENT_CI_DOCKER_HOST=ssh://...`), `host-gateway` resolves relative to the remote Docker host. If DTU is not reachable from that host, set `AGENT_CI_DTU_HOST` and `AGENT_CI_DOCKER_EXTRA_HOSTS` explicitly for your network.
-
----
-
-## Concurrency
-
-When running multiple workflows (`--all`), Agent CI limits how many containers run at the same time to avoid running out of memory.
-
-The limit is auto-detected using two factors:
-
-- **CPU**: `floor(cpuCount / 2)`
-- **Memory**: `floor(availableDockerMemory / 4GB)`
-
-Whichever is lower wins. For example, on a machine with 14 CPUs and a Docker VM with 12 GB of RAM, the CPU limit is 7 and the memory limit is 2 — so 2 containers run at a time.
-
-To check available memory, Agent CI reads `MemAvailable` from `/proc/meminfo` inside the Docker VM. This accounts for the VM's kernel, daemon, and any other running containers. If that fails, it falls back to `docker info` total memory minus 4 GB.
-
-You can override the auto-detected limit with `--jobs`:
-
-```bash
-# Run at most 4 containers at a time
-npx @redwoodjs/agent-ci run --all --jobs 4
-
-# Run one at a time (safest, slowest)
-npx @redwoodjs/agent-ci run --all --jobs 1
-```
 
 ---
 

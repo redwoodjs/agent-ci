@@ -1,6 +1,9 @@
 use std::collections::VecDeque;
+use std::process::Command;
 use std::sync::Arc;
 use std::thread;
+
+const BYTES_PER_CONTAINER: u64 = 4 * 1024 * 1024 * 1024;
 
 pub enum ConcurrentWorkerEvent<R, E> {
     Worker(E),
@@ -8,6 +11,72 @@ pub enum ConcurrentWorkerEvent<R, E> {
         index: usize,
         outcome: Result<R, String>,
     },
+}
+
+pub fn default_max_concurrent_jobs() -> usize {
+    default_max_concurrent_jobs_from(
+        thread::available_parallelism()
+            .map(usize::from)
+            .unwrap_or(1),
+        docker_available_memory_bytes(),
+    )
+}
+
+pub fn default_max_concurrent_jobs_from(
+    cpu_count: usize,
+    docker_available_memory_bytes: Option<u64>,
+) -> usize {
+    let cpu_limit = (cpu_count / 2).max(1);
+    let Some(available_memory) = docker_available_memory_bytes else {
+        return cpu_limit;
+    };
+    let memory_limit =
+        usize::try_from(available_memory / BYTES_PER_CONTAINER).unwrap_or(usize::MAX);
+    cpu_limit.min(memory_limit).max(1)
+}
+
+fn docker_available_memory_bytes() -> Option<u64> {
+    docker_mem_available_from_busybox().or_else(docker_mem_available_from_info)
+}
+
+fn docker_mem_available_from_busybox() -> Option<u64> {
+    let output = Command::new("docker")
+        .args([
+            "run",
+            "--rm",
+            "busybox",
+            "grep",
+            "MemAvailable",
+            "/proc/meminfo",
+        ])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    parse_mem_available_kb(&String::from_utf8_lossy(&output.stdout)).map(|kb| kb * 1024)
+}
+
+fn docker_mem_available_from_info() -> Option<u64> {
+    let output = Command::new("docker")
+        .args(["info", "--format", "{{.MemTotal}}"])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let total = String::from_utf8_lossy(&output.stdout)
+        .trim()
+        .parse::<u64>()
+        .ok()?;
+    Some(total.saturating_sub(BYTES_PER_CONTAINER))
+}
+
+fn parse_mem_available_kb(raw: &str) -> Option<u64> {
+    raw.lines().find_map(|line| {
+        let rest = line.trim().strip_prefix("MemAvailable:")?.trim();
+        rest.split_whitespace().next()?.parse::<u64>().ok()
+    })
 }
 
 /// Run indexed jobs with at most `max_jobs` active workers, preserving output order.
@@ -86,8 +155,36 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::Value;
+    use std::fs;
+    use std::path::PathBuf;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::time::Duration;
+
+    #[test]
+    fn default_job_limit_fixture_vectors_match_typescript_contract() {
+        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../agent-ci/fixtures/job-limits/default-max-concurrent-jobs.json");
+        let fixtures = serde_json::from_slice::<Vec<Value>>(&fs::read(path).unwrap()).unwrap();
+
+        for fixture in fixtures {
+            let cpu_count = fixture["cpuCount"].as_u64().unwrap() as usize;
+            let memory = fixture["dockerAvailableMemoryBytes"].as_u64();
+            let expected = fixture["expected"].as_u64().unwrap() as usize;
+            assert_eq!(
+                default_max_concurrent_jobs_from(cpu_count, memory),
+                expected
+            );
+        }
+    }
+
+    #[test]
+    fn parses_mem_available_from_proc_meminfo() {
+        assert_eq!(
+            parse_mem_available_kb("MemAvailable:    12345 kB\n"),
+            Some(12345)
+        );
+    }
 
     #[test]
     fn concurrent_pool_respects_max_jobs() {

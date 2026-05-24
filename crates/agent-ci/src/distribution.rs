@@ -157,6 +157,25 @@ mod tests {
     }
 
     #[test]
+    fn npm_platform_packages_stage_bin_entrypoints_in_tree() {
+        let manifest = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let root = manifest.parent().unwrap().parent().unwrap();
+        for target in native_targets() {
+            let package_dir = root
+                .join("packages")
+                .join(format!("agent-ci-{}", target.npm_package_suffix));
+            assert!(
+                package_dir.join("bin/agent-ci").exists(),
+                "{} should include bin/agent-ci",
+                package_dir.display()
+            );
+            let package_json = std::fs::read_to_string(package_dir.join("package.json")).unwrap();
+            assert!(package_json.contains("\"bin\""));
+            assert!(package_json.contains("\"agent-ci\": \"bin/agent-ci\""));
+        }
+    }
+
+    #[test]
     fn macos_targets_are_notarization_candidates() {
         for target in native_targets() {
             assert_eq!(target.notarize, target.name.starts_with("macos-"));

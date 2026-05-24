@@ -31,6 +31,7 @@ crates/
     expr/
     matrix/
     plan/                 # RunPlan, schedule, decide, route (no execute)
+    reusable/             # reusable workflow expansion + refs
     events/               # NDJSON event types + serialization
     state/                # run-result.json types
 
@@ -40,7 +41,7 @@ crates/
     runner/
     macos_vm/
     workspace/
-    wave/                 # ConcurrentJobPool, SharedExecutionContext
+    wave/                 # ConcurrentJobPool + default concurrency limits
 
   agent-ci/               # binary + lib re-exports for tests
     main.rs               # exit codes, stdio only
@@ -74,6 +75,7 @@ crates/agent-ci/fixtures/
   events/                 # expected NDJSON lines per scenario
   run-results/            # expected run-result.json
   docker-socket/          # env + expected resolution (from existing TS tests)
+  job-limits/             # CPU/memory default concurrency vectors
 ```
 
 ### Contract rules
@@ -82,7 +84,8 @@ crates/agent-ci/fixtures/
 2. **Events** — Normalized NDJSON: strip `ts`, `runId`, durations, and volatile paths before compare.
 3. **Run results** — Schema version + job names + status; omit timestamps, SHAs, absolute paths, and duration jitter in unit fixtures.
 4. **Docker socket** — Probe input + expected socket URI/bind mount, or expected error substrings.
-5. **TS runner** — `pnpm fixtures:check` runs the same loader against TS plan/output/socket helpers (Phase RCS-4).
+5. **Job limits** — Shared CPU/memory vectors for the default concurrency calculation.
+6. **TS runner** — `pnpm fixtures:check` runs the same loader against TS plan/output/socket helpers (Phase RCS-4).
 
 ### CI integration
 
@@ -96,7 +99,7 @@ crates/agent-ci/fixtures/
     pnpm fixtures:check
 ```
 
-`pnpm fixtures:check` compares the TypeScript plan, event, run-result, and Docker socket helpers to the same committed fixtures.
+`pnpm fixtures:check` compares the TypeScript plan, event, run-result, Docker socket, and job-limit helpers to the same committed fixtures.
 
 ### Adding a fixture
 

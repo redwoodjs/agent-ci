@@ -183,12 +183,70 @@ pub(super) fn execute_run_plan(
     }
 }
 
+fn execute_all_workflows_parallel(
+    plan: &RunPlan,
+    stdout: &mut impl Write,
+    stderr: &mut impl Write,
+    json_mode: bool,
+) -> Result<i32, String> {
+    let max_jobs = plan
+        .max_jobs
+        .map_or_else(default_max_concurrent_jobs, |value| {
+            usize::try_from(value).unwrap_or(usize::MAX).max(1)
+        });
+    let jobs = plan
+        .workflows
+        .iter()
+        .cloned()
+        .enumerate()
+        .map(|(index, workflow)| {
+            let sub_plan = RunPlan {
+                repo_root: plan.repo_root.clone(),
+                effective_sha: plan.effective_sha.clone(),
+                selection: RunSelection::SingleWorkflow,
+                workflows: vec![workflow],
+                pause_on_failure: plan.pause_on_failure,
+                no_matrix: plan.no_matrix,
+                // The outer worker pool is the global limiter for --all. Each
+                // workflow advances one job at a time so active jobs stay under
+                // the same cap TypeScript applies across workflow fan-out.
+                max_jobs: Some(1),
+            };
+            (index, sub_plan)
+        })
+        .collect::<Vec<_>>();
+
+    let outcomes = agent_ci_runtime::wave::run_concurrent_workers(
+        max_jobs,
+        jobs,
+        move |_, sub_plan, _tx| {
+            let mut out = Vec::new();
+            let mut err = Vec::new();
+            let status = execute_run_plan_inner(&sub_plan, &mut out, &mut err, json_mode)?;
+            Ok((status, out, err))
+        },
+        |_: ()| {},
+    )?;
+
+    let mut failed = false;
+    for (_, (status, out, err)) in outcomes {
+        failed |= status != 0;
+        stdout.write_all(&out).map_err(|err| err.to_string())?;
+        stderr.write_all(&err).map_err(|err| err.to_string())?;
+    }
+    Ok(if failed { 1 } else { 0 })
+}
+
 pub(super) fn execute_run_plan_inner(
     plan: &RunPlan,
     stdout: &mut impl Write,
     stderr: &mut impl Write,
     json_mode: bool,
 ) -> Result<i32, String> {
+    if matches!(plan.selection, RunSelection::AllRelevant { .. }) && plan.workflows.len() > 1 {
+        return execute_all_workflows_parallel(plan, stdout, stderr, json_mode);
+    }
+
     let started_at = event_timestamp();
     let process_env = std::env::vars().collect::<BTreeMap<_, _>>();
     let home = std::env::var_os("HOME")

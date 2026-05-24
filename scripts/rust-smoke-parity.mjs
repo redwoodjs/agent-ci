@@ -19,7 +19,7 @@ const smokeWorkflows = [
 
 function run(command, args, options = {}) {
   return spawnSync(command, args, {
-    cwd: root,
+    cwd: options.cwd ?? root,
     encoding: "utf8",
     env: { ...process.env, ...options.env },
     stdio: options.stdio ?? "pipe",
@@ -48,3 +48,35 @@ for (const workflow of smokeWorkflows) {
   }
   console.log(`✓ ${workflow.path} executed successfully`);
 }
+
+const allRepo = path.join(smokeWorkDir, "all-mode-repo");
+fs.mkdirSync(path.join(allRepo, ".github/workflows"), { recursive: true });
+run("git", ["init"], { cwd: allRepo });
+fs.writeFileSync(path.join(allRepo, "README.md"), "all smoke\n");
+fs.writeFileSync(
+  path.join(allRepo, ".github/workflows/one.yml"),
+  "on: workflow_dispatch\njobs:\n  one:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo one\n",
+);
+fs.writeFileSync(
+  path.join(allRepo, ".github/workflows/two.yml"),
+  "on: workflow_dispatch\njobs:\n  two:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo two\n",
+);
+run("git", ["add", "."], { cwd: allRepo });
+run("git", ["-c", "user.email=test@example.com", "-c", "user.name=Test", "commit", "-m", "init"], {
+  cwd: allRepo,
+});
+const allResult = spawnSync(rustBin, ["run", "--all", "--quiet", "--jobs", "2"], {
+  cwd: allRepo,
+  encoding: "utf8",
+  env: {
+    ...process.env,
+    AGENT_CI_WORKING_DIR: path.join(smokeWorkDir, "all-mode-work"),
+  },
+  stdio: "pipe",
+});
+if (allResult.status !== 0) {
+  throw new Error(
+    `--all smoke: expected Rust execution to succeed, got ${allResult.status}\nstdout:\n${allResult.stdout}\nstderr:\n${allResult.stderr}`,
+  );
+}
+console.log("✓ --all smoke executed successfully");

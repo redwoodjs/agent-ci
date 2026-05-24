@@ -181,7 +181,7 @@ fn builds_runner_execution_plan_and_dtu_seed_for_planned_job() {
     let execution = runner_execution_plan_for_job(
         workflow,
         job,
-        crate::runner_image::UPSTREAM_RUNNER_IMAGE,
+        agent_ci_runtime::runner_image::UPSTREAM_RUNNER_IMAGE,
         log_dir.clone(),
         signals_dir.clone(),
         plan.pause_on_failure,
@@ -191,7 +191,10 @@ fn builds_runner_execution_plan_and_dtu_seed_for_planned_job() {
     assert_eq!(execution.workflow, "ci.yml");
     assert_eq!(execution.job_id, "test");
     assert_eq!(execution.runner_name, "agent-ci-1-j2");
-    assert_eq!(execution.image, crate::runner_image::UPSTREAM_RUNNER_IMAGE);
+    assert_eq!(
+        execution.image,
+        agent_ci_runtime::runner_image::UPSTREAM_RUNNER_IMAGE
+    );
     assert_eq!(execution.log_dir, log_dir);
     assert_eq!(execution.signals_dir, signals_dir);
     assert!(execution.pause_on_failure);
@@ -314,7 +317,7 @@ fn human_summary_prints_failures_status_duration_and_hints() {
         duration_ms: 1500,
         failed_step: Some("Run tests".to_owned()),
         debug_log_path: None,
-        steps: vec![crate::runner::StepResult {
+        steps: vec![agent_ci_runtime::runner::StepResult {
             name: "Run tests".to_owned(),
             status: StepStatus::Failed,
             log_path: Some(step_log),
@@ -500,7 +503,7 @@ fn job_lifecycle_events_match_launcher_event_shapes() {
         duration_ms: 42,
         failed_step: None,
         debug_log_path: None,
-        steps: vec![crate::runner::StepResult {
+        steps: vec![agent_ci_runtime::runner::StepResult {
             name: "Run tests".to_owned(),
             status: StepStatus::Passed,
             log_path: None,
@@ -588,66 +591,4 @@ fn clean_tree_defaults_to_head() {
     assert_eq!(effective.head_sha, head);
     assert_eq!(effective.sha_ref, Some("HEAD".to_owned()));
     assert_eq!(effective.source, EffectiveShaSource::Head);
-}
-
-#[test]
-fn fixture_plan_contracts_match_snapshots() {
-    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let plans_dir = manifest.join("fixtures/plans");
-    let mut entries = fs::read_dir(&plans_dir)
-        .expect("fixture plans directory should exist")
-        .collect::<Result<Vec<_>, _>>()
-        .expect("fixture plans should be readable");
-    entries.sort_by_key(|entry| entry.path());
-    assert!(entries.len() >= 10, "expected at least 10 plan fixtures");
-
-    for entry in entries {
-        let expected: serde_json::Value = serde_json::from_slice(
-            &fs::read(entry.path()).expect("fixture plan should be readable"),
-        )
-        .expect("fixture plan should be valid JSON");
-        let workflow_name = expected
-            .get("workflow")
-            .and_then(serde_json::Value::as_str)
-            .expect("fixture plan should name workflow");
-        let no_matrix = expected
-            .get("args")
-            .and_then(|args| args.get("noMatrix"))
-            .and_then(serde_json::Value::as_bool)
-            .unwrap_or(false);
-        let workflow_path = manifest.join("fixtures/workflows").join(workflow_name);
-        let workflow = parse_workflow_file(&workflow_path).expect("fixture workflow should parse");
-        let plan = plan_workflow_document(&workflow, 1, no_matrix);
-        let actual = plan_fixture_snapshot(&plan);
-        assert_eq!(
-            actual, expected["plan"],
-            "fixture mismatch for {workflow_name}"
-        );
-    }
-}
-
-fn plan_fixture_snapshot(plan: &WorkflowRunPlan) -> serde_json::Value {
-    serde_json::json!({
-        "jobs": plan.jobs.iter().map(|job| serde_json::json!({
-            "id": job.id,
-            "runnerName": job.runner_name,
-            "target": fixture_target(&job.target),
-            "needs": job.needs,
-            "if": job.if_condition,
-            "matrix": job.matrix_context,
-            "outputs": job.outputs.keys().cloned().collect::<Vec<_>>(),
-            "services": job.services.iter().map(|service| service.id.clone()).collect::<Vec<_>>(),
-            "container": job.container.as_ref().map(|container| container.image.clone()),
-        })).collect::<Vec<_>>(),
-        "schedule": plan.schedule,
-    })
-}
-
-fn fixture_target(target: &PlannedJobTarget) -> String {
-    match target {
-        PlannedJobTarget::Linux { runs_on } => format!("linux:{runs_on}"),
-        PlannedJobTarget::MacOs { runs_on } => format!("macos:{runs_on}"),
-        PlannedJobTarget::ReusableWorkflow { uses } => format!("reusable:{uses}"),
-        PlannedJobTarget::Unknown => "unknown".to_owned(),
-    }
 }

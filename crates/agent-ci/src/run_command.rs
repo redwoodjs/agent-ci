@@ -1,18 +1,11 @@
 use crate::RunArgs;
-use crate::docker::{
-    ContainerBindsOpts, ContainerCmdOpts, ContainerEnvOpts, DockerCliRuntime, DockerSocket,
-    DockerSocketProbe, build_container_binds, build_container_cmd, build_container_env,
-    resolve_docker_api_url, resolve_docker_extra_hosts, resolve_docker_socket,
-};
-use crate::dtu::{DtuHttpClient, start_ephemeral_dtu};
 use crate::env::resolve_repo_root;
-use crate::expr::expand_expressions;
-use crate::macos_vm::{
-    CommandMacosVmRuntime, CommandRunnerBinaryIo, HostCapability as MacosHostCapability,
-    MacosVmJobPlan, SshCreds, check_macos_vm_host, ensure_macos_runner_binary,
-    execute_macos_vm_job, resolve_macos_runner_version, resolve_macos_vm_image,
+use crate::state::{
+    JobResultInput, RunResultInput, StateDirEnv, StepResultInput,
+    StepResultStatus as StateStepResultStatus, create_log_context, resolve_logs_dir,
+    resolve_state_dir, write_run_result,
 };
-pub use crate::plan::{
+pub use agent_ci_core::plan::{
     EffectiveSha, EffectiveShaSource, HostCapability, JobExecutionRoute, JobResultStatus,
     JobRunDecision, NeedContext, PlannedJob, PlannedJobContainer, PlannedJobTarget, PlannedService,
     PlannedStep, RunPlan, RunSelection, SkippedWorkflow, WorkflowRunPlan, decide_job_run,
@@ -20,26 +13,31 @@ pub use crate::plan::{
     extract_static_step_outputs, format_runs_on, needs_context_for_job, plan_workflow_document,
     resolve_job_outputs, schedule_job_waves,
 };
-use crate::runner::{
-    DtuControlPlane, DtuJobContainer, DtuJobSeed, DtuJobStep, DtuRunnerRegistration,
-    JobExecutionPlan, JobResult, NeedContext as RuntimeNeedContext, PausedSignal, ServiceSpec,
-    StepStatus, execute_registered_runner_job_with_pause_observer, parse_timeline_steps,
+use agent_ci_core::workflow::{
+    WorkflowDocument, WorkflowParseError, extract_events, is_workflow_relevant, parse_workflow_file,
+};
+use agent_ci_runtime::docker::{
+    ContainerBindsOpts, ContainerCmdOpts, ContainerEnvOpts, DockerCliRuntime, DockerSocket,
+    DockerSocketProbe, build_container_binds, build_container_cmd, build_container_env,
+    resolve_docker_api_url, resolve_docker_extra_hosts, resolve_docker_socket,
+};
+use agent_ci_runtime::dtu::{DtuHttpClient, start_ephemeral_dtu};
+use agent_ci_runtime::macos_vm::{
+    CommandMacosVmRuntime, CommandRunnerBinaryIo, HostCapability as MacosHostCapability,
+    MacosVmJobPlan, SshCreds, check_macos_vm_host, ensure_macos_runner_binary,
+    execute_macos_vm_job, resolve_macos_runner_version, resolve_macos_vm_image,
+};
+use agent_ci_runtime::runner::{
+    DtuControlPlane, DtuRunnerRegistration, JobResult, PausedSignal, StepStatus,
+    execute_registered_runner_job_with_pause_observer, parse_timeline_steps,
     wrap_pause_on_failure_steps,
 };
-use crate::runner_image::{
+use agent_ci_runtime::runner_image::{
     detect_missing_tool_hint as detect_runner_image_missing_tool_hint,
     detect_toolcache_hint as detect_runner_image_toolcache_hint, discover_runner_image,
     ensure_runner_image,
 };
-use crate::state::{
-    JobResultInput, RunResultInput, StateDirEnv, StepResultInput,
-    StepResultStatus as StateStepResultStatus, create_log_context, resolve_logs_dir,
-    resolve_state_dir, write_run_result,
-};
-use crate::workflow::{
-    WorkflowDocument, WorkflowParseError, extract_events, is_workflow_relevant, parse_workflow_file,
-};
-use crate::workspace::sync_worktree_to_workspace;
+use agent_ci_runtime::workspace::sync_worktree_to_workspace;
 use std::collections::BTreeMap;
 use std::fs;
 use std::io::{IsTerminal, Write};
@@ -128,6 +126,7 @@ mod macos_job;
 mod plan;
 mod wave;
 
+use agent_ci_runtime::wave::default_max_concurrent_jobs;
 use discovery::*;
 use events::*;
 use execute::*;
@@ -136,14 +135,13 @@ use macos_job::*;
 use plan::*;
 use wave::*;
 
+pub use agent_ci_runtime::runner::{dtu_job_seed_for_planned_job, runner_execution_plan_for_job};
 pub use discovery::{
     RunDiscoveryError, discover_all_workflows, discover_relevant_workflows, discover_workflow_run,
     get_changed_files, resolve_effective_sha, runnable_jobs,
 };
 pub use events::job_lifecycle_events;
-pub use plan::{
-    dtu_job_seed_for_planned_job, plan_all_workflows, plan_run, runner_execution_plan_for_job,
-};
+pub use plan::{plan_all_workflows, plan_run};
 
 #[cfg(test)]
 mod tests;

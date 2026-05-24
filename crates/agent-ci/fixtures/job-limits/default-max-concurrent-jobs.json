@@ -1,0 +1,22 @@
+[
+  {
+    "cpuCount": 8,
+    "dockerAvailableMemoryBytes": 34359738368,
+    "expected": 4
+  },
+  {
+    "cpuCount": 8,
+    "dockerAvailableMemoryBytes": 6442450944,
+    "expected": 1
+  },
+  {
+    "cpuCount": 2,
+    "dockerAvailableMemoryBytes": 34359738368,
+    "expected": 1
+  },
+  {
+    "cpuCount": 8,
+    "dockerAvailableMemoryBytes": null,
+    "expected": 4
+  }
+]

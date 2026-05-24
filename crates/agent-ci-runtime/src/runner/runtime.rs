@@ -10,6 +10,19 @@ pub struct ServiceSpec {
     pub health_cmd: Option<String>,
 }
 
+impl From<&agent_ci_core::plan::PlannedService> for ServiceSpec {
+    fn from(service: &agent_ci_core::plan::PlannedService) -> Self {
+        Self {
+            id: service.id.clone(),
+            image: service.image.clone(),
+            env: service.env.clone(),
+            ports: service.ports.clone(),
+            options: service.options.clone(),
+            health_cmd: service.health_cmd.clone(),
+        }
+    }
+}
+
 impl ServiceSpec {
     pub(super) fn to_payload(&self) -> Value {
         let env = self

@@ -31,6 +31,7 @@ dependencies = [
 name = "agent-ci-runtime"
 version = "0.0.0"
 dependencies = [
+ "agent-ci-core",
  "serde",
  "serde_json",
  "sha1",

@@ -40,7 +40,7 @@ pub struct DtuJobSeed {
     pub runner_arch: Option<String>,
     pub env: BTreeMap<String, String>,
     pub outputs: BTreeMap<String, String>,
-    pub needs_context: BTreeMap<String, NeedContext>,
+    pub needs_context: BTreeMap<String, agent_ci_core::plan::NeedContext>,
     pub container: Option<DtuJobContainer>,
     pub services: Vec<ServiceSpec>,
     pub matrix_context: Option<BTreeMap<String, String>>,
@@ -56,6 +56,18 @@ pub struct DtuJobContainer {
     pub options: Option<String>,
 }
 
+impl From<&agent_ci_core::plan::PlannedJobContainer> for DtuJobContainer {
+    fn from(container: &agent_ci_core::plan::PlannedJobContainer) -> Self {
+        Self {
+            image: container.image.clone(),
+            env: container.env.clone(),
+            ports: container.ports.clone(),
+            volumes: container.volumes.clone(),
+            options: container.options.clone(),
+        }
+    }
+}
+
 impl DtuJobContainer {
     fn to_payload(&self) -> Value {
         json!({
@@ -65,18 +77,6 @@ impl DtuJobContainer {
             "volumes": self.volumes,
             "options": self.options,
         })
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct NeedContext {
-    pub result: String,
-    pub outputs: BTreeMap<String, String>,
-}
-
-impl NeedContext {
-    fn to_payload(&self) -> Value {
-        json!({ "result": self.result, "outputs": self.outputs })
     }
 }
 
@@ -109,7 +109,7 @@ impl DtuJobSeed {
             "runnerArch": self.runner_arch,
             "env": self.env,
             "outputs": self.outputs,
-            "needs": self.needs_context.iter().map(|(key, value)| (key.clone(), value.to_payload())).collect::<serde_json::Map<_, _>>(),
+            "needs": self.needs_context.iter().map(|(key, value)| (key.clone(), json!({ "result": value.result, "outputs": value.outputs }))).collect::<serde_json::Map<_, _>>(),
             "container": self.container.as_ref().map(DtuJobContainer::to_payload),
             "services": self.services.iter().map(ServiceSpec::to_payload).collect::<Vec<_>>(),
             "matrix": self.matrix_context.clone().unwrap_or_default(),

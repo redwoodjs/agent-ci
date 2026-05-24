@@ -72,6 +72,9 @@ jobs:
           cp target/${{ matrix.target }}/release/agent-ci dist/${{ matrix.name }}/agent-ci
           chmod +x dist/${{ matrix.name }}/agent-ci
 
+      - name: Stage npm platform package binary
+        run: pnpm native:stage-packages
+
       - name: Ad-hoc sign macOS binary
         if: ${{ startsWith(matrix.name, 'macos-') }}
         run: codesign --force --sign - dist/${{ matrix.name }}/agent-ci

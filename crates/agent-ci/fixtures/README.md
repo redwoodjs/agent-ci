@@ -7,9 +7,10 @@ Machine-readable contracts for the native Rust implementation. See
 
 - `workflows/` — workflow YAML inputs
 - `plans/` — expected planning output (schedule waves, job ids) loaded by Rust and TypeScript fixture checks
-- `events/` — future normalized NDJSON event contracts
-- `run-results/` — future normalized run-result JSON contracts
-- `docker-socket/` — future Docker socket resolution contracts
+- `events/` — normalized NDJSON event contracts
+- `run-results/` — normalized run-result JSON contracts
+- `docker-socket/` — Docker socket resolution contracts
+- `job-limits/` — default concurrency limit vectors
 
 Add a workflow + expected plan snapshot together. Keep snapshots stable: no absolute paths,
 timestamps, or host-specific values.

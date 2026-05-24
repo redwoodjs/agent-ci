@@ -302,10 +302,3 @@ fn workflow_file_name(workflow: &WorkflowRunPlan) -> String {
         .unwrap_or("workflow.yml")
         .to_owned()
 }
-
-pub(super) fn default_max_concurrent_jobs() -> usize {
-    thread::available_parallelism()
-        .map(usize::from)
-        .map(|cpu_count| (cpu_count / 2).max(1))
-        .unwrap_or(1)
-}

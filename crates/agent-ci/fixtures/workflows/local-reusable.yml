@@ -1,0 +1,5 @@
+name: Local Reusable
+on: push
+jobs:
+  lint:
+    uses: ./.github/workflows/lint.yml

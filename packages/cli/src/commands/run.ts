@@ -176,6 +176,8 @@ function parseRunArgs(args: string[]): ParsedRunArgs {
       parsed.noMatrix = true;
     } else if ((arg === "--jobs" || arg === "-j") && args[i + 1]) {
       parsed.maxJobs = parseJobsFlag(args[++i]);
+    } else if (arg.startsWith("--jobs=")) {
+      parsed.maxJobs = parseJobsFlag(arg.slice("--jobs=".length));
     } else if (arg === "--commit-status") {
       parsed.commitStatus = true;
     } else if (arg === "--var" && args[i + 1]) {

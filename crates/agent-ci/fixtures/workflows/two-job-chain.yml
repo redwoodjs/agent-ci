@@ -1,0 +1,12 @@
+name: Two Job Chain
+on: push
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo build
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo deploy

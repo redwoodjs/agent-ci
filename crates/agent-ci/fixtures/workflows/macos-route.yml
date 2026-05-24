@@ -1,0 +1,7 @@
+name: macOS Route
+on: push
+jobs:
+  ios:
+    runs-on: macos-14
+    steps:
+      - run: echo macos

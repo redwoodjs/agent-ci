@@ -95,6 +95,18 @@ function getDockerAvailableMemoryBytes(): number | undefined {
 /** Estimated memory per container: runner binary + Ubuntu + heavy workloads (vitest, full builds). */
 const BYTES_PER_CONTAINER = 4 * 1024 * 1024 * 1024; // 4 GB
 
+export function getDefaultMaxConcurrentJobsFromInputs(
+  cpuCount: number,
+  dockerAvailableMemoryBytes: number | undefined,
+): number {
+  const cpuLimit = Math.floor(cpuCount / 2);
+  if (dockerAvailableMemoryBytes == null) {
+    return Math.max(1, cpuLimit);
+  }
+  const memLimit = Math.floor(dockerAvailableMemoryBytes / BYTES_PER_CONTAINER);
+  return Math.max(1, Math.min(cpuLimit, memLimit));
+}
+
 /**
  * Determine the default max concurrent jobs based on CPU count and available
  * Docker memory. Takes the minimum of both to avoid OOM kills.
@@ -105,14 +117,5 @@ const BYTES_PER_CONTAINER = 4 * 1024 * 1024 * 1024; // 4 GB
  * Minimum of 1.
  */
 export function getDefaultMaxConcurrentJobs(): number {
-  const cpuCount = os.cpus().length;
-  const cpuLimit = Math.floor(cpuCount / 2);
-
-  const availableMem = getDockerAvailableMemoryBytes();
-  if (availableMem == null) {
-    return Math.max(1, cpuLimit);
-  }
-
-  const memLimit = Math.floor(availableMem / BYTES_PER_CONTAINER);
-  return Math.max(1, Math.min(cpuLimit, memLimit));
+  return getDefaultMaxConcurrentJobsFromInputs(os.cpus().length, getDockerAvailableMemoryBytes());
 }

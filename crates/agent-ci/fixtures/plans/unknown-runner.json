@@ -1,0 +1,7 @@
+{
+  "workflow": "unknown-runner.yml",
+  "plan": {
+    "jobs": [],
+    "schedule": []
+  }
+}

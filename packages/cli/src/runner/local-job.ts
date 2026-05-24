@@ -575,15 +575,22 @@ export async function executeLocalJob(
   // ── Prepare directories ───────────────────────────────────────────────────
   // When running nested (another agent-ci is our parent), include a short
   // hostname suffix in the prefix so sibling container names don't collide
-  // with a concurrent nested run inside a different parent container.
-  const nestedHost = fs.existsSync("/.dockerenv") ? process.env.HOSTNAME?.slice(0, 12) : "";
+  // with a concurrent nested run inside a different parent container. Some
+  // runner images do not expose /.dockerenv, so also trust the env that our
+  // outer runner injects into job containers.
+  const isNestedContainer =
+    fs.existsSync("/.dockerenv") ||
+    process.env.AGENT_CI_LOCAL === "true" ||
+    process.env.AGENT_CI_LOCAL_SYNC === "true";
+  const nestedHost = isNestedContainer ? process.env.HOSTNAME?.slice(0, 12) : "";
   const prefix = nestedHost ? `agent-ci-${nestedHost}` : "agent-ci";
+  const preferredContainerName = nestedHost ? `${prefix}-${job.runnerName}` : job.runnerName;
   const {
     name: containerName,
     runDir,
     logDir,
     debugLogPath,
-  } = createLogContext(prefix, job.runnerName);
+  } = createLogContext(prefix, preferredContainerName);
 
   // Register the job in the store so the render loop can show the boot spinner
   store?.addJob(

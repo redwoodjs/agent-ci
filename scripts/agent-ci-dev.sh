@@ -13,6 +13,11 @@ done
 SCRIPT_DIR="$(cd "$(dirname "$SOURCE")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
+if [[ "${AGENT_CI_FORCE_RUST:-}" == "1" && "${AGENT_CI_FORCE_TYPESCRIPT:-}" != "1" && "${AGENT_CI_FORCE_TS:-}" != "1" ]]; then
+  cargo build --manifest-path "$REPO_ROOT/Cargo.toml" -p agent-ci
+  exec "$REPO_ROOT/target/debug/agent-ci" "$@"
+fi
+
 # Build dtu-github-actions (suppress pnpm lifecycle noise)
 pnpm --silent --dir "$REPO_ROOT/packages/dtu-github-actions" run build 2>/dev/null || \
   pnpm --dir "$REPO_ROOT/packages/dtu-github-actions" run build

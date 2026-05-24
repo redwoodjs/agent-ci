@@ -1,0 +1,13 @@
+name: Status Functions
+on: push
+jobs:
+  first:
+    runs-on: ubuntu-latest
+    steps:
+      - run: exit 1
+  cleanup:
+    needs: first
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo cleanup

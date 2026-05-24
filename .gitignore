@@ -17,6 +17,9 @@ dist
 # TypeScript
 *.tsbuildinfo
 
+# Rust
+/target
+
 # IDEs and editors
 .vscode/
 .idea/

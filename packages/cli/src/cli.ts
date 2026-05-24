@@ -68,9 +68,6 @@ function printUsage() {
   console.log("Options:");
   console.log("  -w, --workflow <path>         Path to the workflow file");
   console.log("  -a, --all                     Discover and run all relevant workflows");
-  console.log(
-    "  -j, --jobs <n>                Max concurrent containers (auto-detected from CPU/memory)",
-  );
   console.log("  -p, --pause-on-failure         Pause on step failure for interactive debugging");
   console.log(
     "  -q, --quiet                   Suppress animated rendering (also enabled by AI_AGENT=1)",
@@ -81,6 +78,7 @@ function printUsage() {
   console.log(
     "      --no-matrix               Collapse all matrix combinations into a single job (uses first value of each key)",
   );
+  console.log("  -j, --jobs <N>                Maximum jobs to run at once");
   console.log(
     "      --github-token [<token>]  GitHub token for fetching remote reusable workflows",
   );

@@ -6,6 +6,9 @@ on:
     paths:
       - ".changeset/**"
       - "packages/**"
+      - "crates/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
       - "pnpm-lock.yaml"
       - ".github/workflows/release.yml"
 
@@ -34,6 +37,19 @@ jobs:
           registry-url: https://registry.npmjs.org
       - run: pnpm install
       - run: pnpm check
+      - name: Setup Rust
+        run: |
+          if ! command -v cargo >/dev/null 2>&1; then
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+              | sh -s -- -y --profile minimal --default-toolchain stable
+            echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          fi
+      - name: Check Rust
+        run: |
+          pnpm rust:fmt:check
+          pnpm rust:check
+          pnpm rust:clippy
+          pnpm rust:test
       - run: pnpm --include-workspace-root=false -r test
       - name: Create Release PR or Publish
         id: changesets

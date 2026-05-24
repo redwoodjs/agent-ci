@@ -70,6 +70,29 @@ Agent CI runs against your **current working tree** — uncommitted changes are 
 
 Committing is optional, but it's a useful pattern: commit → run → fail → fix with `--pause-on-failure` → retry → commit the fix. When you do commit, the commit becomes a save point you can return to if the fix makes things worse. Your AI agent benefits from the same pattern — it can roll back to a known-good state before trying a different fix.
 
+### Native binary downloads
+
+The npm package keeps `npx @redwoodjs/agent-ci` working. Tagged releases also publish direct native binary archives and matching `.sha256` checksum files on GitHub Releases:
+
+```bash
+version=v0.16.1
+platform=macos-arm64 # linux-x64, linux-arm64, macos-x64, macos-arm64
+curl -LO "https://github.com/redwoodjs/agent-ci/releases/download/${version}/agent-ci-${version}-${platform}.tar.gz"
+curl -LO "https://github.com/redwoodjs/agent-ci/releases/download/${version}/agent-ci-${version}-${platform}.tar.gz.sha256"
+shasum -a 256 -c "agent-ci-${version}-${platform}.tar.gz.sha256"
+tar -xzf "agent-ci-${version}-${platform}.tar.gz"
+./agent-ci --help
+```
+
+Or use the shell installer with a selected prefix:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/redwoodjs/agent-ci/main/install.sh \
+  | sh -s -- --version v0.16.1 --prefix "$HOME/.local"
+```
+
+Until Rust workflow execution reaches full parity, the npm launcher keeps using the TypeScript execution path by default. To opt into the native Rust binary for parity testing, run with `AGENT_CI_FORCE_RUST=1`. To force the TypeScript path explicitly, run with `AGENT_CI_FORCE_TYPESCRIPT=1` or `AGENT_CI_FORCE_TS=1`.
+
 ### Retry a failed step
 
 ```bash
@@ -88,11 +111,11 @@ Run GitHub Actions workflow jobs locally.
 | -------------------------- | ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `--workflow <path>`        | `-w`  | Path to the workflow file                                                                                                                                    |
 | `--all`                    | `-a`  | Discover and run all relevant workflows for the current branch                                                                                               |
-| `--jobs <n>`               | `-j`  | Max concurrent containers (overrides auto-detection)                                                                                                         |
 | `--pause-on-failure`       | `-p`  | Pause on step failure for interactive debugging                                                                                                              |
 | `--quiet`                  | `-q`  | Suppress animated rendering (also enabled by `AI_AGENT=1`)                                                                                                   |
 | `--json`                   |       | Emit NDJSON event stream on stdout (also enabled by `AGENT_CI_JSON=1`); see [Agent output mode](#agent-output-mode-ndjson-event-stream)                      |
 | `--no-matrix`              |       | Collapse all matrix combinations into a single job (uses first value of each key)                                                                            |
+| `--jobs <N>`               | `-j`  | Maximum jobs to run at once                                                                                                                                  |
 | `--github-token [<token>]` |       | GitHub token for fetching remote reusable workflows (auto-resolves via `gh auth token` if no value given). Also available as `AGENT_CI_GITHUB_TOKEN` env var |
 | `--commit-status`          |       | Post a GitHub commit status after the run (requires `--github-token`)                                                                                        |
 | `--var KEY=VALUE`          |       | Provide a workflow variable (`${{ vars.KEY }}`); repeat for multiple                                                                                         |
@@ -284,28 +307,9 @@ When using a remote daemon (`AGENT_CI_DOCKER_HOST=ssh://...`), `host-gateway` re
 
 ---
 
-## Concurrency
+## Native Rust concurrency status
 
-When running multiple workflows (`--all`), Agent CI limits how many containers run at the same time to avoid running out of memory.
-
-The limit is auto-detected using two factors:
-
-- **CPU**: `floor(cpuCount / 2)`
-- **Memory**: `floor(availableDockerMemory / 4GB)`
-
-Whichever is lower wins. For example, on a machine with 14 CPUs and a Docker VM with 12 GB of RAM, the CPU limit is 7 and the memory limit is 2 — so 2 containers run at a time.
-
-To check available memory, Agent CI reads `MemAvailable` from `/proc/meminfo` inside the Docker VM. This accounts for the VM's kernel, daemon, and any other running containers. If that fails, it falls back to `docker info` total memory minus 4 GB.
-
-You can override the auto-detected limit with `--jobs`:
-
-```bash
-# Run at most 4 containers at a time
-npx @redwoodjs/agent-ci run --all --jobs 4
-
-# Run one at a time (safest, slowest)
-npx @redwoodjs/agent-ci run --all --jobs 1
-```
+The opt-in native Rust runner runs jobs in each dependency wave concurrently and honors the shared `--jobs` limit. macOS VM jobs are also capped separately with `AGENT_CI_MACOS_VM_CONCURRENCY` (default: `2`) so Tart VMs are not oversubscribed.
 
 ---
 

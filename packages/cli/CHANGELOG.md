@@ -1,5 +1,16 @@
 # @redwoodjs/agent-ci
 
+## 0.16.2
+
+### Patch Changes
+
+- b619fc7: Avoid reusing runner numbers while stable log directories still exist, and clear stale per-run timeline/log artifacts when a runner name is reused, so old `timeline.json` records cannot be merged into a fresh run and reported as a false failure.
+
+  Refs #341.
+
+- Updated dependencies [b619fc7]
+  - dtu-github-actions@0.16.2
+
 ## 0.16.1
 
 ### Patch Changes

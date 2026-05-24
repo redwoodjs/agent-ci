@@ -55,18 +55,18 @@ fn starts_ephemeral_server_and_closes_cleanly() {
 
     assert!(server.url.starts_with("http://127.0.0.1:"));
     assert!(server.container_url.starts_with("http://container.local:"));
-    let (status, body) = request(&server, "GET", "/_dtu/dump", None);
-    assert_eq!(status, 200);
-    assert!(String::from_utf8(body).unwrap().contains("runnerLogs"));
+    let (status, _) = request(&server, "GET", "/_dtu/dump", None);
+    assert_eq!(status, 404);
 
     server.close();
 }
 
 #[test]
 fn http_client_registers_runner_and_seeds_targeted_job() {
-    let server = start_ephemeral_dtu(temp_dir("client"), None).unwrap();
+    let log_root = temp_dir("client-logs-root");
+    let server = start_ephemeral_dtu_with_log_root(temp_dir("client"), &log_root, None).unwrap();
     let mut client = DtuHttpClient::new(&server.url);
-    let log_dir = temp_dir("client-logs");
+    let log_dir = log_root.join("client-logs");
 
     client
         .register_runner(&DtuRunnerRegistration {
@@ -109,14 +109,55 @@ fn http_client_registers_runner_and_seeds_targeted_job() {
         })
         .unwrap();
 
-    let (status, dump) = json_request(&server, "GET", "/_dtu/dump", Value::Null);
-    assert_eq!(status, 200);
-    assert_eq!(dump["runnerJobs"]["runner-a"]["id"], "job-1");
     assert_eq!(
-        dump["runnerLogs"]["runner-a"].as_str(),
-        Some(log_dir.to_string_lossy().as_ref())
+        server.state.runner_jobs.lock().unwrap()["runner-a"]["id"],
+        "job-1"
+    );
+    assert_eq!(
+        server.state.runner_logs.lock().unwrap()["runner-a"].as_str(),
+        log_dir.to_string_lossy().as_ref()
     );
     server.close();
+}
+
+#[test]
+fn rejects_runner_log_dirs_outside_allowed_root() {
+    let server = start_ephemeral_dtu_with_log_root(
+        temp_dir("client-reject-cache"),
+        temp_dir("client-reject-logs"),
+        None,
+    )
+    .unwrap();
+    let outside = temp_dir("outside-logs");
+
+    let (status, body) = json_request(
+        &server,
+        "POST",
+        "/_dtu/start-runner",
+        json!({ "runnerName": "runner-a", "logDir": outside }),
+    );
+
+    assert_eq!(status, 400);
+    assert!(body["error"].as_str().unwrap().contains("logDir"));
+    server.close();
+}
+
+#[test]
+fn drop_closes_ephemeral_server() {
+    let port = {
+        let server = start_ephemeral_dtu(temp_dir("drop"), None).unwrap();
+        let port = server.port;
+        assert!(TcpStream::connect(("127.0.0.1", port)).is_ok());
+        port
+    };
+
+    for _ in 0..50 {
+        if TcpStream::connect(("127.0.0.1", port)).is_err() {
+            return;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    panic!("DTU port {port} was still accepting connections after drop");
 }
 
 #[test]
@@ -154,8 +195,9 @@ fn seeds_jobs_and_dispatches_to_runner_session() {
 
 #[test]
 fn timeline_feed_writes_sanitized_step_logs() {
-    let server = start_ephemeral_dtu(temp_dir("feed"), None).unwrap();
-    let log_dir = temp_dir("feed-logs");
+    let log_root = temp_dir("feed-logs-root");
+    let server = start_ephemeral_dtu_with_log_root(temp_dir("feed"), &log_root, None).unwrap();
+    let log_dir = log_root.join("feed-logs");
     let mut client = DtuHttpClient::new(&server.url);
     client
         .register_runner(&DtuRunnerRegistration {

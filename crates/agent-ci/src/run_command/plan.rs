@@ -11,7 +11,10 @@ pub fn plan_run(args: &RunArgs, current_dir: &Path) -> Result<RunPlan, RunDiscov
         repo_root: discovery.repo_root.clone(),
         effective_sha: discovery.effective_sha.clone(),
         selection: RunSelection::SingleWorkflow,
-        workflows: vec![plan_workflow_document(&workflow, 1, args.no_matrix)],
+        workflows: vec![
+            try_plan_workflow_document(&workflow, 1, args.no_matrix)
+                .map_err(RunDiscoveryError::WorkflowParse)?,
+        ],
         pause_on_failure: args.pause_on_failure,
         no_matrix: args.no_matrix,
         max_jobs: args.max_jobs,
@@ -28,11 +31,10 @@ pub fn plan_all_workflows(
 
     for (index, path) in discovery.relevant.iter().enumerate() {
         let workflow = parse_workflow_file(path)?;
-        workflows.push(plan_workflow_document(
-            &workflow,
-            (index + 1) as u32,
-            args.no_matrix,
-        ));
+        workflows.push(
+            try_plan_workflow_document(&workflow, (index + 1) as u32, args.no_matrix)
+                .map_err(RunDiscoveryError::WorkflowParse)?,
+        );
     }
 
     Ok(RunPlan {

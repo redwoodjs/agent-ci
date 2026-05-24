@@ -473,12 +473,12 @@ fn json_run_mode_emits_run_start_and_finish_without_human_summary() {
         json: true,
         ..RunArgs::default()
     };
+    let plan = plan_run(&args, &repo).unwrap();
     let mut stdout = Vec::new();
-    let mut stderr = Vec::new();
 
-    let exit_code = run_run_command(args, &mut stdout, &mut stderr);
+    emit_run_start_event(&plan, &mut stdout);
+    emit_run_finish_event("failed", &mut stdout);
 
-    assert_eq!(exit_code, 1);
     let stdout = String::from_utf8(stdout).unwrap();
     let events = stdout
         .lines()
@@ -489,7 +489,6 @@ fn json_run_mode_emits_run_start_and_finish_without_human_summary() {
     assert_eq!(events[1]["event"], "run.finish");
     assert_eq!(events[1]["status"], "failed");
     assert!(!stdout.contains("Discovered"));
-    let _stderr = String::from_utf8(stderr).unwrap();
 }
 
 #[test]

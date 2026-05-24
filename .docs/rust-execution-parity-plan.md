@@ -54,13 +54,13 @@ Rust is at full parity when all of the following are true:
   - [x] Port `needs` result propagation.
   - [x] Port `if` evaluation for jobs.
   - [x] Preserve `always()`, `success()`, `failure()`, and skipped-job behavior.
-  - Test: Rust scheduler tests mirroring TypeScript scheduler fixtures.
+  - Test: Rust scheduler tests mirroring TypeScript scheduler fixtures; revalidated for schedule-keyed matrix leg results, aggregate `needs.<job>.result`, and cyclic dependency errors.
 
 - [x] **RXP-012: Matrix orchestration parity**
   - [x] Wire expanded matrix jobs into the scheduler.
   - [x] Preserve runner names and strategy metadata.
   - [x] Preserve `--no-matrix` collapse behavior.
-  - Test: Rust matrix smoke plus `.github/workflows/smoke-matrix.yml`.
+  - Test: Rust matrix smoke plus `.github/workflows/smoke-matrix.yml`; revalidated with the shared `matrix-needs-aggregate` fixture and schedule-keyed needs propagation.
 
 - [x] **RXP-013: NDJSON event stream parity**
   - [x] Emit `run.start`, `job.start`, `step.start`, `step.finish`, `job.finish`, `run.finish`.

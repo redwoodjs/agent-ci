@@ -167,6 +167,7 @@ fn plan(root: &Path) -> MacosVmJobPlan {
         creds: SshCreds {
             user: "admin".to_owned(),
             password: "admin".to_owned(),
+            reverse_tunnel: None,
         },
         dtu_url: "http://127.0.0.1:3000".to_owned(),
         runner_token: "token".to_owned(),
@@ -255,6 +256,7 @@ fn tart_and_ssh_argv_builders_match_expected_commands() {
     let creds = SshCreds {
         user: "admin".to_owned(),
         password: "pw".to_owned(),
+        reverse_tunnel: None,
     };
     let ssh = ssh_args("192.168.64.2", &creds, &["true".to_owned()]);
     assert_eq!(ssh.program, "sshpass");
@@ -307,6 +309,7 @@ fn waiters_poll_for_ip_and_ssh_then_dns_override_runs() {
     let creds = SshCreds {
         user: "admin".to_owned(),
         password: "pw".to_owned(),
+        reverse_tunnel: None,
     };
 
     let ip = wait_for_ip(&mut runtime, "vm", 3).unwrap();

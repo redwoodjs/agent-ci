@@ -258,7 +258,7 @@ fn builds_container_binds_with_optional_caches() {
     assert!(binds.contains(&"/signals:/tmp/agent-ci-signals".to_owned()));
     assert!(binds.contains(&"/yarn:/home/runner/.cache/yarn".to_owned()));
     assert!(binds.contains(&"/cypress:/home/runner/.cache/Cypress".to_owned()));
-    assert!(binds.contains(&"/warm:/home/runner/_work/repo/repo/node_modules".to_owned()));
+    assert!(!binds.iter().any(|bind| bind.contains("/node_modules")));
 }
 
 #[test]

@@ -160,6 +160,15 @@ pub fn plan_workflow_document(
     base_run_num: u32,
     no_matrix: bool,
 ) -> WorkflowRunPlan {
+    try_plan_workflow_document(workflow, base_run_num, no_matrix)
+        .expect("workflow job dependencies should be acyclic")
+}
+
+pub fn try_plan_workflow_document(
+    workflow: &WorkflowDocument,
+    base_run_num: u32,
+    no_matrix: bool,
+) -> Result<WorkflowRunPlan, String> {
     let diagnostics = workflow
         .diagnostics
         .iter()
@@ -188,14 +197,14 @@ pub fn plan_workflow_document(
         })
         .collect::<Vec<_>>();
 
-    let schedule = schedule_job_waves(&jobs);
+    let schedule = try_schedule_job_waves(&jobs)?;
 
-    WorkflowRunPlan {
+    Ok(WorkflowRunPlan {
         workflow_path: workflow.path.clone(),
         diagnostics,
         jobs,
         schedule,
-    }
+    })
 }
 
 pub fn merged_job_env(workflow: &WorkflowDocument, job: &WorkflowJob) -> BTreeMap<String, String> {
@@ -363,6 +372,10 @@ pub fn expression_context_for_job(
 }
 
 pub fn schedule_job_waves(jobs: &[PlannedJob]) -> Vec<Vec<String>> {
+    try_schedule_job_waves(jobs).expect("job dependencies should be acyclic")
+}
+
+pub fn try_schedule_job_waves(jobs: &[PlannedJob]) -> Result<Vec<Vec<String>>, String> {
     let mut expanded_keys_by_job_id = BTreeMap::<String, Vec<String>>::new();
     for job in jobs {
         expanded_keys_by_job_id
@@ -398,8 +411,8 @@ pub fn schedule_job_waves(jobs: &[PlannedJob]) -> Vec<Vec<String>> {
             .collect::<Vec<_>>();
 
         if wave.is_empty() {
-            waves.push(remaining.keys().cloned().collect());
-            break;
+            let cyclic = remaining.keys().cloned().collect::<Vec<_>>().join(", ");
+            return Err(format!("cyclic job dependencies: {cyclic}"));
         }
 
         for job_id in &wave {
@@ -409,7 +422,7 @@ pub fn schedule_job_waves(jobs: &[PlannedJob]) -> Vec<Vec<String>> {
         waves.push(wave);
     }
 
-    waves
+    Ok(waves)
 }
 
 pub fn schedule_key(job: &PlannedJob) -> String {
@@ -448,19 +461,15 @@ pub fn decide_job_run(
     job: &PlannedJob,
     completed_results: &BTreeMap<String, JobResultStatus>,
 ) -> JobRunDecision {
-    let needs_results = job
-        .needs
-        .iter()
-        .map(|need| {
-            (
-                need.clone(),
-                completed_results
-                    .get(need)
-                    .copied()
-                    .unwrap_or(JobResultStatus::Skipped),
-            )
-        })
-        .collect::<BTreeMap<_, _>>();
+    decide_job_run_with_jobs(job, std::slice::from_ref(job), completed_results)
+}
+
+pub fn decide_job_run_with_jobs(
+    job: &PlannedJob,
+    all_jobs: &[PlannedJob],
+    completed_results: &BTreeMap<String, JobResultStatus>,
+) -> JobRunDecision {
+    let needs_results = aggregated_needs_results(job, all_jobs, completed_results);
     let default_success = needs_results
         .values()
         .all(|result| *result == JobResultStatus::Success);
@@ -534,19 +543,112 @@ pub fn needs_context_for_job(
     completed_results: &BTreeMap<String, JobResultStatus>,
     completed_outputs: &BTreeMap<String, BTreeMap<String, String>>,
 ) -> BTreeMap<String, NeedContext> {
+    needs_context_for_job_with_jobs(
+        job,
+        std::slice::from_ref(job),
+        completed_results,
+        completed_outputs,
+    )
+}
+
+pub fn needs_context_for_job_with_jobs(
+    job: &PlannedJob,
+    all_jobs: &[PlannedJob],
+    completed_results: &BTreeMap<String, JobResultStatus>,
+    completed_outputs: &BTreeMap<String, BTreeMap<String, String>>,
+) -> BTreeMap<String, NeedContext> {
     job.needs
         .iter()
         .map(|need| {
-            let result = completed_results
-                .get(need)
-                .copied()
-                .unwrap_or(JobResultStatus::Skipped)
+            let result = aggregate_need_result(need, all_jobs, completed_results)
                 .as_github_result()
                 .to_owned();
-            let outputs = completed_outputs.get(need).cloned().unwrap_or_default();
+            let outputs = aggregate_need_outputs(need, all_jobs, completed_outputs);
             (need.clone(), NeedContext { result, outputs })
         })
         .collect()
+}
+
+pub fn aggregated_needs_results(
+    job: &PlannedJob,
+    all_jobs: &[PlannedJob],
+    completed_results: &BTreeMap<String, JobResultStatus>,
+) -> BTreeMap<String, JobResultStatus> {
+    job.needs
+        .iter()
+        .map(|need| {
+            (
+                need.clone(),
+                aggregate_need_result(need, all_jobs, completed_results),
+            )
+        })
+        .collect()
+}
+
+pub fn aggregate_need_result(
+    need: &str,
+    all_jobs: &[PlannedJob],
+    completed_results: &BTreeMap<String, JobResultStatus>,
+) -> JobResultStatus {
+    let leg_results = all_jobs
+        .iter()
+        .filter(|job| job.id == need)
+        .map(schedule_key)
+        .map(|key| {
+            completed_results
+                .get(&key)
+                .copied()
+                .unwrap_or(JobResultStatus::Skipped)
+        })
+        .collect::<Vec<_>>();
+
+    if leg_results.is_empty() {
+        completed_results
+            .get(need)
+            .copied()
+            .unwrap_or(JobResultStatus::Skipped)
+    } else {
+        aggregate_matrix_status(&leg_results)
+    }
+}
+
+pub fn aggregate_matrix_status(legs: &[JobResultStatus]) -> JobResultStatus {
+    if legs.is_empty() {
+        return JobResultStatus::Skipped;
+    }
+    if legs.contains(&JobResultStatus::Failure) {
+        return JobResultStatus::Failure;
+    }
+    if legs.contains(&JobResultStatus::Cancelled) {
+        return JobResultStatus::Cancelled;
+    }
+    if legs.contains(&JobResultStatus::Skipped) {
+        return JobResultStatus::Skipped;
+    }
+    JobResultStatus::Success
+}
+
+fn aggregate_need_outputs(
+    need: &str,
+    all_jobs: &[PlannedJob],
+    completed_outputs: &BTreeMap<String, BTreeMap<String, String>>,
+) -> BTreeMap<String, String> {
+    let mut outputs = BTreeMap::new();
+    let mut found_leg = false;
+    for key in all_jobs
+        .iter()
+        .filter(|job| job.id == need)
+        .map(schedule_key)
+    {
+        found_leg = true;
+        if let Some(leg_outputs) = completed_outputs.get(&key) {
+            outputs.extend(leg_outputs.clone());
+        }
+    }
+    if !found_leg {
+        outputs.extend(completed_outputs.get(need).cloned().unwrap_or_default());
+    }
+    outputs
 }
 
 pub fn extract_static_step_outputs(job: &PlannedJob) -> BTreeMap<String, String> {

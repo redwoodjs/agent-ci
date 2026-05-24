@@ -337,6 +337,8 @@ fn wraps_script_steps_with_pause_retry_loop() {
     let script = steps[0].run.as_ref().unwrap();
     assert!(script.contains("/tmp/agent-ci-signals"));
     assert!(script.contains("__STEP_INDEX=1"));
+    assert!(script.contains("__WORKDIR=\"${PWD:-}\""));
+    assert!(script.contains("cd / && cd \"$__WORKDIR\""));
     assert!(script.contains("echo build && exit 1"));
     assert!(script.contains("Build'\\''s step"));
     assert_eq!(steps[1].run, None);

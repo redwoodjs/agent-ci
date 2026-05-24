@@ -53,6 +53,7 @@ pub fn tart_list_args() -> CommandSpec {
 pub struct SshCreds {
     pub user: String,
     pub password: String,
+    pub reverse_tunnel: Option<String>,
 }
 
 pub fn ssh_args(ip: &str, creds: &SshCreds, remote_cmd: &[String]) -> CommandSpec {
@@ -68,8 +69,12 @@ pub fn ssh_args(ip: &str, creds: &SshCreds, remote_cmd: &[String]) -> CommandSpe
         "LogLevel=ERROR".to_owned(),
         "-o".to_owned(),
         "ConnectTimeout=5".to_owned(),
-        format!("{}@{ip}", creds.user),
     ];
+    if let Some(tunnel) = &creds.reverse_tunnel {
+        args.push("-R".to_owned());
+        args.push(tunnel.clone());
+    }
+    args.push(format!("{}@{ip}", creds.user));
     args.extend(remote_cmd.iter().cloned());
     CommandSpec::new("sshpass", args)
 }

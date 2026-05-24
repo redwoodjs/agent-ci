@@ -35,15 +35,11 @@ for (const workflow of smokeWorkflows) {
   const workflowWorkDir = path.join(smokeWorkDir, workflow.path.replaceAll(/[^a-zA-Z0-9]+/g, "-"));
   const result = run(rustBin, ["run", "--workflow", workflow.path, "--quiet", "--jobs", "2"], {
     env: { AGENT_CI_WORKING_DIR: workflowWorkDir },
+    stdio: "inherit",
   });
   if (result.status !== 0) {
     throw new Error(
-      `${workflow.path}: expected Rust smoke execution to succeed, got ${result.status}\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}`,
-    );
-  }
-  if (result.stderr.includes("Rust workflow execution is not implemented yet")) {
-    throw new Error(
-      `${workflow.path}: Rust execution still reports the tracked gap\n${result.stderr}`,
+      `${workflow.path}: expected Rust smoke execution to succeed, got ${result.status}`,
     );
   }
   console.log(`✓ ${workflow.path} executed successfully`);
@@ -72,11 +68,9 @@ const allResult = spawnSync(rustBin, ["run", "--all", "--quiet", "--jobs", "2"],
     ...process.env,
     AGENT_CI_WORKING_DIR: path.join(smokeWorkDir, "all-mode-work"),
   },
-  stdio: "pipe",
+  stdio: "inherit",
 });
 if (allResult.status !== 0) {
-  throw new Error(
-    `--all smoke: expected Rust execution to succeed, got ${allResult.status}\nstdout:\n${allResult.stdout}\nstderr:\n${allResult.stderr}`,
-  );
+  throw new Error(`--all smoke: expected Rust execution to succeed, got ${allResult.status}`);
 }
 console.log("✓ --all smoke executed successfully");

@@ -1,9 +1,17 @@
 use std::collections::VecDeque;
 use std::process::Command;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, OnceLock};
 use std::thread;
+use std::time::{Duration, Instant};
 
-const BYTES_PER_CONTAINER: u64 = 4 * 1024 * 1024 * 1024;
+const BYTES_PER_CONTAINER: u64 = 6 * 1024 * 1024 * 1024;
+const DOCKER_MEMORY_CACHE_TTL: Duration = Duration::from_secs(30);
+
+#[derive(Debug, Clone, Copy)]
+struct DockerMemoryCache {
+    measured_at: Instant,
+    value: Option<u64>,
+}
 
 pub enum ConcurrentWorkerEvent<R, E> {
     Worker(E),
@@ -36,7 +44,27 @@ pub fn default_max_concurrent_jobs_from(
 }
 
 fn docker_available_memory_bytes() -> Option<u64> {
-    docker_mem_available_from_busybox().or_else(docker_mem_available_from_info)
+    static CACHE: OnceLock<Mutex<Option<DockerMemoryCache>>> = OnceLock::new();
+    let cache = CACHE.get_or_init(|| Mutex::new(None));
+    let now = Instant::now();
+
+    if let Some(cached) = cache
+        .lock()
+        .ok()
+        .and_then(|guard| *guard)
+        .filter(|cached| now.duration_since(cached.measured_at) < DOCKER_MEMORY_CACHE_TTL)
+    {
+        return cached.value;
+    }
+
+    let value = docker_mem_available_from_busybox().or_else(docker_mem_available_from_info);
+    if let Ok(mut guard) = cache.lock() {
+        *guard = Some(DockerMemoryCache {
+            measured_at: now,
+            value,
+        });
+    }
+    value
 }
 
 fn docker_mem_available_from_busybox() -> Option<u64> {
@@ -105,7 +133,6 @@ where
     let mut active = 0_usize;
     let mut finished = 0_usize;
     let mut outcomes = Vec::new();
-    let mut first_error = None::<String>;
 
     while finished < total {
         while active < max_jobs && !pending.is_empty() {
@@ -129,10 +156,7 @@ where
                 finished += 1;
                 match outcome {
                     Ok(value) => outcomes.push((index, value)),
-                    Err(err) if first_error.is_none() => {
-                        first_error = Some(format!("job {index} failed to execute: {err}"));
-                    }
-                    Err(_) => {}
+                    Err(err) => drop(err),
                 }
             }
         }
@@ -142,10 +166,6 @@ where
         handle
             .join()
             .map_err(|_| "job worker panicked during join".to_owned())?;
-    }
-
-    if let Some(err) = first_error {
-        return Err(err);
     }
 
     outcomes.sort_by_key(|(index, _)| *index);
@@ -212,6 +232,27 @@ mod tests {
 
         assert_eq!(outcomes.len(), 6);
         assert_eq!(peak.load(Ordering::SeqCst), 2);
+    }
+
+    #[test]
+    fn concurrent_pool_keeps_successful_outcomes_when_a_worker_fails() {
+        let jobs = (0..3).map(|index| (index, index)).collect::<Vec<_>>();
+
+        let outcomes = run_concurrent_workers(
+            3,
+            jobs,
+            |_index, job, _tx| {
+                if job == 1 {
+                    Err("boom".to_owned())
+                } else {
+                    Ok(job)
+                }
+            },
+            |_: ()| {},
+        )
+        .expect("pool should not fail the whole wave for one worker error");
+
+        assert_eq!(outcomes, vec![(0, 0), (2, 2)]);
     }
 
     #[test]

@@ -1,6 +1,6 @@
 use super::*;
 use agent_ci_runtime::wave::{ConcurrentWorkerEvent, run_concurrent_workers};
-use std::sync::Arc;
+use std::sync::{Arc, Condvar, Mutex};
 
 #[derive(Debug)]
 pub(super) struct WaveJob {
@@ -24,6 +24,7 @@ pub(super) struct SharedExecutionContext {
     pub(super) docker_api_url: String,
     pub(super) repo_url: String,
     pub(super) dtu_host: String,
+    pub(super) job_limiter: Option<Arc<SharedJobLimiter>>,
     pub(super) image: Option<String>,
     pub(super) docker_socket: Option<DockerSocket>,
     pub(super) extra_hosts: Vec<String>,
@@ -31,10 +32,63 @@ pub(super) struct SharedExecutionContext {
 
 #[derive(Debug)]
 pub(super) struct JobExecutionOutcome {
-    pub(super) job_id: String,
+    pub(super) schedule_key: String,
     pub(super) result: JobResult,
     pub(super) status: JobResultStatus,
     pub(super) outputs: BTreeMap<String, String>,
+}
+
+#[derive(Debug)]
+pub(super) struct SharedJobLimiter {
+    state: Mutex<JobLimiterState>,
+    available: Condvar,
+}
+
+#[derive(Debug)]
+struct JobLimiterState {
+    active: usize,
+    max: usize,
+}
+
+#[derive(Debug)]
+struct JobPermit<'a> {
+    limiter: &'a SharedJobLimiter,
+}
+
+impl SharedJobLimiter {
+    pub(super) fn new(max: usize) -> Self {
+        Self {
+            state: Mutex::new(JobLimiterState {
+                active: 0,
+                max: max.max(1),
+            }),
+            available: Condvar::new(),
+        }
+    }
+
+    fn acquire(&self) -> JobPermit<'_> {
+        let mut state = self.state.lock().expect("job limiter lock poisoned");
+        while state.active >= state.max {
+            state = self
+                .available
+                .wait(state)
+                .expect("job limiter lock poisoned while waiting");
+        }
+        state.active += 1;
+        JobPermit { limiter: self }
+    }
+}
+
+impl Drop for JobPermit<'_> {
+    fn drop(&mut self) {
+        let mut state = self
+            .limiter
+            .state
+            .lock()
+            .expect("job limiter lock poisoned while releasing");
+        state.active = state.active.saturating_sub(1);
+        self.limiter.available.notify_one();
+    }
 }
 
 enum WorkerEvent {
@@ -67,7 +121,13 @@ pub(super) fn execute_wave_jobs(
         jobs,
         {
             let shared = Arc::clone(&shared);
-            move |_index, wave_job, tx| execute_wave_job(Arc::clone(&shared), wave_job, tx)
+            move |_index, wave_job, tx| match execute_wave_job(Arc::clone(&shared), wave_job, tx) {
+                Ok(outcome) => Ok(outcome),
+                Err(error) => {
+                    let (job, err) = *error;
+                    Ok(failed_outcome_for_job(&shared.workflow, &job, &err))
+                }
+            }
         },
         |event| match event {
             WorkerEvent::Log(message) => {
@@ -96,12 +156,15 @@ fn execute_wave_job(
     shared: Arc<SharedExecutionContext>,
     wave_job: WaveJob,
     tx: &WaveWorkerTx,
-) -> Result<JobExecutionOutcome, String> {
-    match wave_job.route {
-        JobExecutionRoute::Linux => execute_linux_wave_job(shared, wave_job, tx),
-        JobExecutionRoute::MacOs => execute_macos_wave_job(shared, wave_job, tx),
+) -> Result<JobExecutionOutcome, Box<(PlannedJob, String)>> {
+    let job = wave_job.job.clone();
+    let _permit = shared.job_limiter.as_ref().map(|limiter| limiter.acquire());
+    let result = match wave_job.route {
+        JobExecutionRoute::Linux => execute_linux_wave_job(Arc::clone(&shared), wave_job, tx),
+        JobExecutionRoute::MacOs => execute_macos_wave_job(Arc::clone(&shared), wave_job, tx),
         JobExecutionRoute::Skip { reason } => Err(format!("unexpected skipped job: {reason}")),
-    }
+    };
+    result.map_err(|err| Box::new((job, err)))
 }
 
 fn execute_macos_wave_job(
@@ -239,6 +302,7 @@ fn execute_linux_wave_job(
     if let Some(runner_work_dir) = &runner_work_dir_override {
         seed.runner_work_dir = Some(PathBuf::from(runner_work_dir));
     }
+    add_dtu_host_to_job_container_options(&mut seed, &shared.dtu_host);
 
     let workflow_file = workflow_file_name(&shared.workflow);
     let _ = tx.send(ConcurrentWorkerEvent::Worker(WorkerEvent::Log(format!(
@@ -272,6 +336,34 @@ fn execute_linux_wave_job(
     Ok(outcome_for_job(job, result, Some(&execution_plan.log_dir)))
 }
 
+fn add_dtu_host_to_job_container_options(
+    seed: &mut agent_ci_runtime::runner::DtuJobSeed,
+    dtu_host: &str,
+) {
+    let Some(container) = seed.container.as_mut() else {
+        return;
+    };
+    if dtu_host.parse::<std::net::IpAddr>().is_ok() {
+        return;
+    }
+    let add_host = format!("--add-host {dtu_host}:host-gateway");
+    if container
+        .options
+        .as_deref()
+        .is_some_and(|options| options.contains(&add_host))
+    {
+        return;
+    }
+    container.options = Some(
+        container
+            .options
+            .as_deref()
+            .map(str::trim)
+            .filter(|options| !options.is_empty())
+            .map_or(add_host.clone(), |options| format!("{options} {add_host}")),
+    );
+}
+
 fn outcome_for_job(
     job: &PlannedJob,
     result: JobResult,
@@ -287,10 +379,32 @@ fn outcome_for_job(
     step_outputs.extend(extract_static_step_outputs(job));
     let outputs = resolve_job_outputs(&job.outputs, &step_outputs);
     JobExecutionOutcome {
-        job_id: job.id.clone(),
+        schedule_key: schedule_key(job),
         result,
         status,
         outputs,
+    }
+}
+
+fn failed_outcome_for_job(
+    workflow: &WorkflowRunPlan,
+    job: &PlannedJob,
+    err: &str,
+) -> JobExecutionOutcome {
+    JobExecutionOutcome {
+        schedule_key: schedule_key(job),
+        result: JobResult {
+            name: job.display_name.clone(),
+            workflow: workflow_file_name(workflow),
+            succeeded: false,
+            paused: false,
+            duration_ms: 0,
+            failed_step: Some(format!("failed to execute job: {err}")),
+            debug_log_path: None,
+            steps: Vec::new(),
+        },
+        status: JobResultStatus::Failure,
+        outputs: BTreeMap::new(),
     }
 }
 

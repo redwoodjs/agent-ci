@@ -9,9 +9,10 @@ pub use agent_ci_core::plan::{
     EffectiveSha, EffectiveShaSource, HostCapability, JobExecutionRoute, JobResultStatus,
     JobRunDecision, NeedContext, PlannedJob, PlannedJobContainer, PlannedJobTarget, PlannedService,
     PlannedStep, RunPlan, RunSelection, SkippedWorkflow, WorkflowRunPlan, decide_job_run,
-    execution_route_for_job, expression_context_for_job, expression_context_for_step,
-    extract_static_step_outputs, format_runs_on, needs_context_for_job, plan_workflow_document,
-    resolve_job_outputs, schedule_job_waves,
+    decide_job_run_with_jobs, execution_route_for_job, expression_context_for_job,
+    expression_context_for_step, extract_static_step_outputs, format_runs_on,
+    needs_context_for_job, needs_context_for_job_with_jobs, plan_workflow_document,
+    resolve_job_outputs, schedule_job_waves, schedule_key, try_plan_workflow_document,
 };
 use agent_ci_core::workflow::{
     WorkflowDocument, WorkflowParseError, extract_events, is_workflow_relevant, parse_workflow_file,
@@ -21,7 +22,7 @@ use agent_ci_runtime::docker::{
     DockerSocketProbe, build_container_binds, build_container_cmd, build_container_env,
     resolve_docker_api_url, resolve_docker_extra_hosts, resolve_docker_socket,
 };
-use agent_ci_runtime::dtu::{DtuHttpClient, start_ephemeral_dtu};
+use agent_ci_runtime::dtu::{DtuHttpClient, start_ephemeral_dtu_with_log_root};
 use agent_ci_runtime::macos_vm::{
     CommandMacosVmRuntime, CommandRunnerBinaryIo, HostCapability as MacosHostCapability,
     MacosVmJobPlan, SshCreds, check_macos_vm_host, ensure_macos_runner_binary,

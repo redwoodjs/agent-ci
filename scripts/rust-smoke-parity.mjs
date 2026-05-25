@@ -14,7 +14,10 @@ const smokeWorkflows = [
   { path: ".github/workflows/smoke-expressions.yml" },
   { path: ".github/workflows/smoke-matrix.yml" },
   { path: ".github/workflows/smoke-artifacts.yml" },
-  { path: ".github/workflows/smoke-pause-pipe.yml" },
+  // smoke-pause-pipe.yml intentionally stays out of this nested Rust parity
+  // loop: it exercises the TypeScript dev launcher in a pipe and can block the
+  // parent Rust runner while the child waits for a retry/abort signal. The
+  // standalone smoke workflow continues to cover issue #315 directly.
 ];
 
 function run(command, args, options = {}) {

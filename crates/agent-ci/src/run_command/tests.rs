@@ -208,6 +208,47 @@ fn builds_runner_execution_plan_and_dtu_seed_for_planned_job() {
 }
 
 #[test]
+#[cfg(unix)]
+fn detached_tail_exits_77_on_pause_without_waiting_for_worker_exit() {
+    let dir = temp_dir("detached-pause");
+    let log_path = dir.join("worker.log");
+    fs::write(&log_path, "").unwrap();
+    let pause_event = r#"{"event":"run.paused","runner":"agent-ci-1-j1","retry_cmd":"agent-ci retry --name agent-ci-1-j1"}"#;
+    let mut child = Command::new("sh")
+        .args([
+            "-c",
+            "printf '%s\n' \"$1\" >> \"$2\"; sleep 10",
+            "sh",
+            pause_event,
+        ])
+        .arg(&log_path)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    let start = Instant::now();
+    let mut stdout = Vec::new();
+
+    let exit_code = tail_detached_worker(&log_path, &mut child, &mut stdout);
+
+    assert_eq!(exit_code, PAUSED_EXIT_CODE);
+    assert!(
+        start.elapsed() < Duration::from_secs(2),
+        "launcher should return when the pause sentinel appears, not after the worker exits"
+    );
+    assert!(
+        child.try_wait().unwrap().is_none(),
+        "detached worker should keep running after the foreground launcher returns 77"
+    );
+    let output = String::from_utf8(stdout).unwrap();
+    assert!(output.contains("\"event\":\"run.paused\""));
+    assert!(output.contains("Job paused. Worker continues in background."));
+
+    let _ = child.kill();
+    let _ = child.wait();
+}
+
+#[test]
 fn plan_routes_macos_runs_on_to_macos_target() {
     let repo = init_repo();
     let workflow = write_macos_workflow(&repo);

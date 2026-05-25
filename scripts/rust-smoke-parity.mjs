@@ -8,12 +8,12 @@ import { fileURLToPath } from "node:url";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const rustBin = path.join(root, "target", "debug", "agent-ci");
 const smokeWorkDir = fs.mkdtempSync(path.join(os.tmpdir(), "agent-ci-rust-smoke-"));
+const smokeWorkflowTimeoutMs = 10 * 60 * 1000;
 const smokeWorkflows = [
   { path: ".github/workflows/smoke-binary.yml" },
   { path: ".github/workflows/smoke-expressions.yml" },
   { path: ".github/workflows/smoke-matrix.yml" },
   { path: ".github/workflows/smoke-artifacts.yml" },
-  { path: ".github/workflows/smoke-docker-buildx.yml" },
   { path: ".github/workflows/smoke-pause-pipe.yml" },
 ];
 
@@ -23,7 +23,19 @@ function run(command, args, options = {}) {
     encoding: "utf8",
     env: { ...process.env, ...options.env },
     stdio: options.stdio ?? "pipe",
+    timeout: options.timeout,
   });
+}
+
+function assertSuccess(result, label) {
+  if (result.status === 0) {
+    return;
+  }
+  const cause = result.error ? ` (${result.error.message})` : "";
+  const signal = result.signal ? `, signal ${result.signal}` : "";
+  throw new Error(
+    `${label}: expected Rust smoke execution to succeed, got ${result.status}${signal}${cause}`,
+  );
 }
 
 const build = run("cargo", ["build", "-p", "agent-ci"], { stdio: "inherit" });
@@ -36,14 +48,55 @@ for (const workflow of smokeWorkflows) {
   const result = run(rustBin, ["run", "--workflow", workflow.path, "--quiet", "--jobs", "2"], {
     env: { AGENT_CI_WORKING_DIR: workflowWorkDir },
     stdio: "inherit",
+    timeout: smokeWorkflowTimeoutMs,
   });
-  if (result.status !== 0) {
-    throw new Error(
-      `${workflow.path}: expected Rust smoke execution to succeed, got ${result.status}`,
-    );
-  }
+  assertSuccess(result, workflow.path);
   console.log(`✓ ${workflow.path} executed successfully`);
 }
+
+const buildxRepo = path.join(smokeWorkDir, "docker-buildx-repo");
+fs.mkdirSync(path.join(buildxRepo, ".github/workflows"), { recursive: true });
+run("git", ["init"], { cwd: buildxRepo });
+run("git", ["remote", "add", "origin", "https://github.com/test-org/docker-buildx-repro.git"], {
+  cwd: buildxRepo,
+});
+fs.writeFileSync(path.join(buildxRepo, "README.md"), "docker buildx smoke\n");
+fs.writeFileSync(
+  path.join(buildxRepo, ".github/workflows/test.yml"),
+  `name: Test
+on: push
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
+      - name: Verify buildx
+        run: |
+          docker buildx version
+          docker buildx ls
+          echo "buildx is working"
+`,
+);
+run("git", ["add", "."], { cwd: buildxRepo });
+run("git", ["-c", "user.email=test@example.com", "-c", "user.name=Test", "commit", "-m", "init"], {
+  cwd: buildxRepo,
+});
+const buildxResult = spawnSync(
+  rustBin,
+  ["run", "--workflow", ".github/workflows/test.yml", "--quiet", "--jobs", "2"],
+  {
+    cwd: buildxRepo,
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      AGENT_CI_WORKING_DIR: path.join(smokeWorkDir, "docker-buildx-work"),
+    },
+    stdio: "inherit",
+    timeout: smokeWorkflowTimeoutMs,
+  },
+);
+assertSuccess(buildxResult, "docker buildx smoke");
+console.log("✓ docker buildx smoke executed successfully");
 
 const allRepo = path.join(smokeWorkDir, "all-mode-repo");
 fs.mkdirSync(path.join(allRepo, ".github/workflows"), { recursive: true });
@@ -69,8 +122,7 @@ const allResult = spawnSync(rustBin, ["run", "--all", "--quiet", "--jobs", "2"],
     AGENT_CI_WORKING_DIR: path.join(smokeWorkDir, "all-mode-work"),
   },
   stdio: "inherit",
+  timeout: smokeWorkflowTimeoutMs,
 });
-if (allResult.status !== 0) {
-  throw new Error(`--all smoke: expected Rust execution to succeed, got ${allResult.status}`);
-}
+assertSuccess(allResult, "--all smoke");
 console.log("✓ --all smoke executed successfully");

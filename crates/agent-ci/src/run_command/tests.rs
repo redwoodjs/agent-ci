@@ -249,6 +249,78 @@ fn detached_tail_exits_77_on_pause_without_waiting_for_worker_exit() {
 }
 
 #[test]
+fn plan_expands_reusable_workflow_jobs_with_inputs_outputs_and_rewired_needs() {
+    let repo = init_repo();
+    let workflow_dir = repo.join(".github/workflows");
+    fs::create_dir_all(&workflow_dir).unwrap();
+    let reusable = workflow_dir.join("reusable.yml");
+    fs::write(
+        &reusable,
+        r#"on:
+  workflow_call:
+    inputs:
+      target:
+        default: dev
+        type: string
+    outputs:
+      artifact:
+        value: ${{ jobs.build.outputs.artifact }}
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      artifact: ${{ steps.build.outputs.artifact }}
+    steps:
+      - id: build
+        run: echo "artifact=${{ inputs.target }}" >> "$GITHUB_OUTPUT"
+"#,
+    )
+    .unwrap();
+    let caller = workflow_dir.join("caller.yml");
+    fs::write(
+        &caller,
+        r#"on: push
+jobs:
+  call:
+    uses: ./.github/workflows/reusable.yml
+    with:
+      target: prod
+  verify:
+    needs: call
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "artifact=${{ needs.call.outputs.artifact }}"
+"#,
+    )
+    .unwrap();
+    let args = RunArgs {
+        workflow: Some(caller.to_string_lossy().into_owned()),
+        ..RunArgs::default()
+    };
+
+    let plan = plan_run(&args, &repo).unwrap();
+    let jobs = &plan.workflows[0].jobs;
+
+    assert_eq!(jobs.len(), 2);
+    assert_eq!(jobs[0].id, "call/build");
+    assert_eq!(jobs[0].source_job_id, "build");
+    assert_eq!(jobs[0].caller_job_id.as_deref(), Some("call"));
+    assert_eq!(
+        jobs[0].inputs.get("target").map(String::as_str),
+        Some("prod")
+    );
+    assert_eq!(
+        jobs[0]
+            .workflow_call_output_defs
+            .get("artifact")
+            .map(String::as_str),
+        Some("${{ jobs.build.outputs.artifact }}")
+    );
+    assert_eq!(jobs[1].id, "verify");
+    assert_eq!(jobs[1].needs, vec!["call/build".to_owned()]);
+}
+
+#[test]
 fn plan_routes_macos_runs_on_to_macos_target() {
     let repo = init_repo();
     let workflow = write_macos_workflow(&repo);
@@ -410,6 +482,7 @@ fn human_summary_suppresses_missing_tool_hint_for_custom_runner_images() {
 fn planned_job(id: &str, needs: &[&str], if_condition: Option<&str>) -> PlannedJob {
     PlannedJob {
         id: id.to_owned(),
+        source_job_id: id.to_owned(),
         display_name: id.to_owned(),
         runner_name: format!("agent-ci-1-{id}"),
         target: PlannedJobTarget::Linux {
@@ -418,7 +491,10 @@ fn planned_job(id: &str, needs: &[&str], if_condition: Option<&str>) -> PlannedJ
         needs: needs.iter().map(|need| (*need).to_owned()).collect(),
         if_condition: if_condition.map(str::to_owned),
         env: BTreeMap::new(),
+        inputs: BTreeMap::new(),
         outputs: BTreeMap::new(),
+        workflow_call_output_defs: BTreeMap::new(),
+        caller_job_id: None,
         services: Vec::new(),
         container: None,
         steps: vec![PlannedStep {

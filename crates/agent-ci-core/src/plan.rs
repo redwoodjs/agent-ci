@@ -45,13 +45,17 @@ pub struct WorkflowRunPlan {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PlannedJob {
     pub id: String,
+    pub source_job_id: String,
     pub display_name: String,
     pub runner_name: String,
     pub target: PlannedJobTarget,
     pub needs: Vec<String>,
     pub if_condition: Option<String>,
     pub env: BTreeMap<String, String>,
+    pub inputs: BTreeMap<String, String>,
     pub outputs: BTreeMap<String, String>,
+    pub workflow_call_output_defs: BTreeMap<String, String>,
+    pub caller_job_id: Option<String>,
     pub services: Vec<PlannedService>,
     pub container: Option<PlannedJobContainer>,
     pub steps: Vec<PlannedStep>,
@@ -181,17 +185,21 @@ pub fn try_plan_workflow_document(
             let env = merged_job_env(workflow, job);
             Some(PlannedJob {
                 id: job.id.clone(),
+                source_job_id: job.id.clone(),
                 display_name: job.name.clone().unwrap_or_else(|| job.id.clone()),
                 runner_name: expanded.runner_name,
                 target: planned_job_target(job),
                 needs: job.needs.clone(),
                 if_condition: job.if_condition.clone(),
                 outputs: job.outputs.clone(),
+                workflow_call_output_defs: BTreeMap::new(),
+                caller_job_id: None,
                 services: planned_services(job),
                 container: planned_container(job),
                 steps: planned_steps(workflow, job, &env),
                 step_count: job.steps.len(),
                 env,
+                inputs: BTreeMap::new(),
                 matrix_context: expanded.matrix_context,
             })
         })
@@ -367,6 +375,7 @@ pub fn expression_context_for_job(
         needs,
         runner,
         env: job.env.clone(),
+        inputs: job.inputs.clone(),
         ..ExpressionContext::default()
     }
 }

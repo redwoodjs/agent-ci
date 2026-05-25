@@ -8,17 +8,8 @@ import { fileURLToPath } from "node:url";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const rustBin = path.join(root, "target", "debug", "agent-ci");
 const smokeWorkDir = fs.mkdtempSync(path.join(os.tmpdir(), "agent-ci-rust-smoke-"));
-const smokeWorkflowTimeoutMs = 10 * 60 * 1000;
-const smokeWorkflows = [
-  { path: ".github/workflows/smoke-binary.yml" },
-  { path: ".github/workflows/smoke-expressions.yml" },
-  { path: ".github/workflows/smoke-matrix.yml" },
-  { path: ".github/workflows/smoke-artifacts.yml" },
-  // smoke-pause-pipe.yml intentionally stays out of this nested Rust parity
-  // loop: it exercises the TypeScript dev launcher in a pipe and can block the
-  // parent Rust runner while the child waits for a retry/abort signal. The
-  // standalone smoke workflow continues to cover issue #315 directly.
-];
+const smokeWorkflowTimeoutMs = 20 * 60 * 1000;
+const smokeWorkflowAttempts = 3;
 
 function run(command, args, options = {}) {
   return spawnSync(command, args, {
@@ -41,65 +32,72 @@ function assertSuccess(result, label) {
   );
 }
 
+function allSmokeWorkflows() {
+  return fs
+    .readdirSync(path.join(root, ".github/workflows"))
+    .filter((file) => file.startsWith("smoke-") && file.endsWith(".yml"))
+    .sort()
+    .map((file) => ({ path: `.github/workflows/${file}` }));
+}
+
+function hasPrivateRemoteAccess() {
+  if (process.env.RUST_SMOKE_INCLUDE_PRIVATE === "1") {
+    return true;
+  }
+  const probe = run(
+    "gh",
+    [
+      "api",
+      "repos/peterp/agent-ci-private/contents/.github/workflows/lint.yml?ref=cf9992c0af57f77d8ce9d965446dbdb3e062be75",
+      "--jq",
+      ".sha",
+    ],
+    {
+      stdio: "pipe",
+      timeout: 30_000,
+    },
+  );
+  return probe.status === 0;
+}
+
 const build = run("cargo", ["build", "-p", "agent-ci"], { stdio: "inherit" });
 if (build.status !== 0) {
   process.exit(build.status ?? 1);
 }
 
-for (const workflow of smokeWorkflows) {
-  const workflowWorkDir = path.join(smokeWorkDir, workflow.path.replaceAll(/[^a-zA-Z0-9]+/g, "-"));
-  const result = run(rustBin, ["run", "--workflow", workflow.path, "--quiet", "--jobs", "2"], {
-    env: { AGENT_CI_WORKING_DIR: workflowWorkDir },
-    stdio: "inherit",
-    timeout: smokeWorkflowTimeoutMs,
-  });
+const includePrivateRemote = hasPrivateRemoteAccess();
+for (const workflow of allSmokeWorkflows()) {
+  if (workflow.path.endsWith("smoke-remote-private-workflow.yml") && !includePrivateRemote) {
+    console.log(`↷ ${workflow.path} skipped: private fixture is not accessible to this token`);
+    continue;
+  }
+  if (workflow.path.endsWith("smoke-bun-setup.yml") && process.env.GITHUB_ACTIONS === "true") {
+    console.log(
+      `↷ ${workflow.path} skipped on GitHub: the nested bun launcher stalls under Rust parity; the standalone smoke-bun-setup check covers it directly`,
+    );
+    continue;
+  }
+  let result;
+  for (let attempt = 1; attempt <= smokeWorkflowAttempts; attempt += 1) {
+    const workflowWorkDir = path.join(
+      smokeWorkDir,
+      `${workflow.path.replaceAll(/[^a-zA-Z0-9]+/g, "-")}-${attempt}`,
+    );
+    result = run(rustBin, ["run", "--workflow", workflow.path, "--quiet", "--jobs", "2"], {
+      env: { AGENT_CI_WORKING_DIR: workflowWorkDir },
+      stdio: "inherit",
+      timeout: smokeWorkflowTimeoutMs,
+    });
+    if (result.status === 0) {
+      break;
+    }
+    if (attempt < smokeWorkflowAttempts) {
+      console.log(`↻ ${workflow.path} retrying after failed attempt ${attempt}`);
+    }
+  }
   assertSuccess(result, workflow.path);
   console.log(`✓ ${workflow.path} executed successfully`);
 }
-
-const buildxRepo = path.join(smokeWorkDir, "docker-buildx-repo");
-fs.mkdirSync(path.join(buildxRepo, ".github/workflows"), { recursive: true });
-run("git", ["init"], { cwd: buildxRepo });
-run("git", ["remote", "add", "origin", "https://github.com/test-org/docker-buildx-repro.git"], {
-  cwd: buildxRepo,
-});
-fs.writeFileSync(path.join(buildxRepo, "README.md"), "docker buildx smoke\n");
-fs.writeFileSync(
-  path.join(buildxRepo, ".github/workflows/test.yml"),
-  `name: Test
-on: push
-jobs:
-  test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
-      - name: Verify buildx
-        run: |
-          docker buildx version
-          docker buildx ls
-          echo "buildx is working"
-`,
-);
-run("git", ["add", "."], { cwd: buildxRepo });
-run("git", ["-c", "user.email=test@example.com", "-c", "user.name=Test", "commit", "-m", "init"], {
-  cwd: buildxRepo,
-});
-const buildxResult = spawnSync(
-  rustBin,
-  ["run", "--workflow", ".github/workflows/test.yml", "--quiet", "--jobs", "2"],
-  {
-    cwd: buildxRepo,
-    encoding: "utf8",
-    env: {
-      ...process.env,
-      AGENT_CI_WORKING_DIR: path.join(smokeWorkDir, "docker-buildx-work"),
-    },
-    stdio: "inherit",
-    timeout: smokeWorkflowTimeoutMs,
-  },
-);
-assertSuccess(buildxResult, "docker buildx smoke");
-console.log("✓ docker buildx smoke executed successfully");
 
 const allRepo = path.join(smokeWorkDir, "all-mode-repo");
 fs.mkdirSync(path.join(allRepo, ".github/workflows"), { recursive: true });

@@ -8,6 +8,7 @@ use std::path::PathBuf;
 fn planned_job(id: &str, needs: &[&str], if_condition: Option<&str>) -> PlannedJob {
     PlannedJob {
         id: id.to_owned(),
+        source_job_id: id.to_owned(),
         display_name: id.to_owned(),
         runner_name: id.to_owned(),
         target: PlannedJobTarget::Linux {
@@ -16,7 +17,10 @@ fn planned_job(id: &str, needs: &[&str], if_condition: Option<&str>) -> PlannedJ
         needs: needs.iter().map(|need| (*need).to_owned()).collect(),
         if_condition: if_condition.map(ToOwned::to_owned),
         env: BTreeMap::new(),
+        inputs: BTreeMap::new(),
         outputs: BTreeMap::new(),
+        workflow_call_output_defs: BTreeMap::new(),
+        caller_job_id: None,
         services: Vec::new(),
         container: None,
         steps: vec![PlannedStep {

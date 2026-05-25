@@ -231,7 +231,7 @@ fn execute_workflow_with_shared(
                 index,
                 job: job.clone(),
                 route,
-                needs_context: needs_context_for_job_with_jobs(
+                needs_context: needs_context_for_planned_job(
                     job,
                     &workflow.jobs,
                     &completed_results,
@@ -254,13 +254,182 @@ fn execute_workflow_with_shared(
         )?;
 
         for outcome in outcomes {
-            completed_outputs.insert(outcome.schedule_key.clone(), outcome.outputs);
-            completed_results.insert(outcome.schedule_key, outcome.status);
-            job_results.push(outcome.result);
+            record_completed_outcome(
+                &workflow,
+                outcome,
+                &mut completed_results,
+                &mut completed_outputs,
+                &mut job_results,
+            );
         }
+        resolve_workflow_call_outputs(&workflow, &mut completed_results, &mut completed_outputs);
     }
 
     Ok(job_results)
+}
+
+fn needs_context_for_planned_job(
+    job: &PlannedJob,
+    all_jobs: &[PlannedJob],
+    completed_results: &BTreeMap<String, JobResultStatus>,
+    completed_outputs: &BTreeMap<String, BTreeMap<String, String>>,
+) -> BTreeMap<String, NeedContext> {
+    let mut context =
+        needs_context_for_job_with_jobs(job, all_jobs, completed_results, completed_outputs);
+    for need in &job.needs {
+        let Some((caller_job_id, _)) = need.split_once('/') else {
+            continue;
+        };
+        if context.contains_key(caller_job_id) {
+            continue;
+        }
+        if let Some(outputs) = completed_outputs.get(caller_job_id) {
+            let result = completed_results
+                .get(caller_job_id)
+                .copied()
+                .unwrap_or(JobResultStatus::Success)
+                .as_github_result()
+                .to_owned();
+            context.insert(
+                caller_job_id.to_owned(),
+                NeedContext {
+                    result,
+                    outputs: outputs.clone(),
+                },
+            );
+        }
+    }
+    context
+}
+
+fn record_completed_outcome(
+    workflow: &WorkflowRunPlan,
+    outcome: JobExecutionOutcome,
+    completed_results: &mut BTreeMap<String, JobResultStatus>,
+    completed_outputs: &mut BTreeMap<String, BTreeMap<String, String>>,
+    job_results: &mut Vec<JobResult>,
+) {
+    let outcome_key = outcome.schedule_key.clone();
+    completed_outputs.insert(outcome_key.clone(), outcome.outputs);
+    completed_results.insert(outcome_key.clone(), outcome.status);
+    if let Some(job) = workflow
+        .jobs
+        .iter()
+        .find(|job| schedule_key(job) == outcome_key)
+    {
+        let outputs = completed_outputs
+            .get(&outcome_key)
+            .cloned()
+            .unwrap_or_default();
+        completed_outputs.entry(job.id.clone()).or_insert(outputs);
+    }
+    job_results.push(outcome.result);
+}
+
+fn resolve_workflow_call_outputs(
+    workflow: &WorkflowRunPlan,
+    completed_results: &mut BTreeMap<String, JobResultStatus>,
+    completed_outputs: &mut BTreeMap<String, BTreeMap<String, String>>,
+) {
+    let caller_ids = workflow
+        .jobs
+        .iter()
+        .filter_map(|job| job.caller_job_id.clone())
+        .collect::<std::collections::BTreeSet<_>>();
+
+    for caller_job_id in caller_ids {
+        if completed_outputs.contains_key(&caller_job_id) {
+            continue;
+        }
+        let sub_jobs = workflow
+            .jobs
+            .iter()
+            .filter(|job| job.caller_job_id.as_deref() == Some(caller_job_id.as_str()))
+            .collect::<Vec<_>>();
+        if sub_jobs.is_empty()
+            || !sub_jobs
+                .iter()
+                .all(|job| completed_results.contains_key(&schedule_key(job)))
+        {
+            continue;
+        }
+        let Some(output_defs) = sub_jobs
+            .iter()
+            .find(|job| !job.workflow_call_output_defs.is_empty())
+            .map(|job| &job.workflow_call_output_defs)
+        else {
+            continue;
+        };
+        let mut resolved = BTreeMap::new();
+        for (name, expression) in output_defs {
+            resolved.insert(
+                name.clone(),
+                resolve_workflow_call_output(expression, &caller_job_id, completed_outputs),
+            );
+        }
+        let status = if sub_jobs
+            .iter()
+            .all(|job| completed_results.get(&schedule_key(job)) == Some(&JobResultStatus::Success))
+        {
+            JobResultStatus::Success
+        } else {
+            JobResultStatus::Failure
+        };
+        completed_outputs.insert(caller_job_id.clone(), resolved);
+        completed_results.insert(caller_job_id, status);
+    }
+}
+
+fn resolve_workflow_call_output(
+    expression: &str,
+    caller_job_id: &str,
+    completed_outputs: &BTreeMap<String, BTreeMap<String, String>>,
+) -> String {
+    let mut output = String::new();
+    let mut rest = expression;
+    while let Some(start) = rest.find("${{") {
+        output.push_str(&rest[..start]);
+        let after_start = &rest[start + 3..];
+        let Some(end) = after_start.find("}}") else {
+            output.push_str(&rest[start..]);
+            return output;
+        };
+        let token = after_start[..end].trim();
+        output.push_str(&resolve_workflow_call_output_token(
+            token,
+            caller_job_id,
+            completed_outputs,
+        ));
+        rest = &after_start[end + 2..];
+    }
+    output.push_str(rest);
+    output
+}
+
+fn resolve_workflow_call_output_token(
+    token: &str,
+    caller_job_id: &str,
+    completed_outputs: &BTreeMap<String, BTreeMap<String, String>>,
+) -> String {
+    let Some(token) = token.strip_prefix("jobs.") else {
+        return String::new();
+    };
+    let mut parts = token.split('.');
+    let Some(job_id) = parts.next() else {
+        return String::new();
+    };
+    if parts.next() != Some("outputs") {
+        return String::new();
+    }
+    let Some(output_name) = parts.next() else {
+        return String::new();
+    };
+    let composite_id = format!("{caller_job_id}/{job_id}");
+    completed_outputs
+        .get(&composite_id)
+        .and_then(|outputs| outputs.get(output_name))
+        .cloned()
+        .unwrap_or_default()
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -530,7 +699,7 @@ pub(super) fn execute_run_plan_inner(
                     index,
                     job: job.clone(),
                     route,
-                    needs_context: needs_context_for_job_with_jobs(
+                    needs_context: needs_context_for_planned_job(
                         job,
                         &workflow.jobs,
                         &completed_results,
@@ -591,10 +760,15 @@ pub(super) fn execute_run_plan_inner(
 
             for outcome in outcomes {
                 any_failed |= !outcome.result.succeeded;
-                completed_outputs.insert(outcome.schedule_key.clone(), outcome.outputs);
-                completed_results.insert(outcome.schedule_key, outcome.status);
-                job_results.push(outcome.result);
+                record_completed_outcome(
+                    workflow,
+                    outcome,
+                    &mut completed_results,
+                    &mut completed_outputs,
+                    &mut job_results,
+                );
             }
+            resolve_workflow_call_outputs(workflow, &mut completed_results, &mut completed_outputs);
         }
     }
 

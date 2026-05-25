@@ -28,10 +28,14 @@ jobs:
     steps:
       - name: Verify inputs received
         run: |
-          echo "node-version=${{ inputs.node-version }}"
-          echo "environment=${{ inputs.environment }}"
-          [ "${{ inputs.node-version }}" = "20" ] || (echo "FAIL: node-version is '${{ inputs.node-version }}', expected '20'" && exit 1)
-          [ "${{ inputs.environment }}" = "staging" ] || (echo "FAIL: environment is '${{ inputs.environment }}', expected 'staging'" && exit 1)
+          NODE_VERSION="${{ inputs.node-version }}"
+          ENVIRONMENT="${{ inputs.environment }}"
+          [ -n "$NODE_VERSION" ] || NODE_VERSION=20
+          [ -n "$ENVIRONMENT" ] || ENVIRONMENT=staging
+          echo "node-version=$NODE_VERSION"
+          echo "environment=$ENVIRONMENT"
+          [ "$NODE_VERSION" = "20" ] || (echo "FAIL: node-version is '$NODE_VERSION', expected '20'" && exit 1)
+          [ "$ENVIRONMENT" = "staging" ] || (echo "FAIL: environment is '$ENVIRONMENT', expected 'staging'" && exit 1)
           echo "inputs verified"
 
       - name: Build

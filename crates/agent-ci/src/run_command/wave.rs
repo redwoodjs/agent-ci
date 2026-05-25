@@ -1,4 +1,5 @@
 use super::*;
+use agent_ci_core::expr::{ExpressionContext, expand_expressions};
 use agent_ci_runtime::wave::{ConcurrentWorkerEvent, run_concurrent_workers};
 use std::sync::{Arc, Condvar, Mutex};
 
@@ -376,7 +377,16 @@ fn outcome_for_job(
     };
     let output_dir = log_dir.or_else(|| result.debug_log_path.as_deref().and_then(Path::parent));
     let mut step_outputs = output_dir.map(read_step_outputs).unwrap_or_default();
-    step_outputs.extend(extract_static_step_outputs(job));
+    let static_context = ExpressionContext {
+        inputs: job.inputs.clone(),
+        matrix: job.matrix_context.clone().unwrap_or_default(),
+        ..ExpressionContext::default()
+    };
+    step_outputs.extend(
+        extract_static_step_outputs(job)
+            .into_iter()
+            .map(|(key, value)| (key, expand_expressions(&value, &static_context))),
+    );
     let outputs = resolve_job_outputs(&job.outputs, &step_outputs);
     JobExecutionOutcome {
         schedule_key: schedule_key(job),

@@ -1,4 +1,5 @@
 use super::*;
+use crate::docker::runtime::{active_endpoint_error, network_container_ids_args};
 use serde_json::{Value, json};
 
 fn probe() -> DockerSocketProbe {
@@ -203,6 +204,30 @@ fn missing_default_socket_reports_docker_desktop_hint() {
 
     assert!(err.contains("Docker Desktop is running but the default socket is disabled"));
     assert!(err.contains(DOCS_URL));
+}
+
+#[test]
+fn detects_active_endpoint_network_remove_errors() {
+    assert!(active_endpoint_error(
+        "docker network rm failed: network abc has active endpoints"
+    ));
+    assert!(!active_endpoint_error(
+        "docker network rm failed: no such network"
+    ));
+}
+
+#[test]
+fn builds_network_container_ids_inspect_args() {
+    assert_eq!(
+        network_container_ids_args("agent-ci-net"),
+        vec![
+            "network".to_owned(),
+            "inspect".to_owned(),
+            "-f".to_owned(),
+            "{{range $id, $_ := .Containers}}{{println $id}}{{end}}".to_owned(),
+            "agent-ci-net".to_owned(),
+        ]
+    );
 }
 
 #[test]

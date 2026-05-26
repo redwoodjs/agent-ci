@@ -104,6 +104,20 @@ impl ImageOps for DockerCliRuntime {
     }
 }
 
+pub(super) fn active_endpoint_error(err: &str) -> bool {
+    err.contains("active endpoints") || err.contains("has active endpoints")
+}
+
+pub(super) fn network_container_ids_args(network: &str) -> Vec<String> {
+    vec![
+        "network".to_owned(),
+        "inspect".to_owned(),
+        "-f".to_owned(),
+        "{{range $id, $_ := .Containers}}{{println $id}}{{end}}".to_owned(),
+        network.to_owned(),
+    ]
+}
+
 fn ignore_container_removal_in_progress(result: Result<String, String>) -> Result<(), String> {
     match result {
         Ok(_) => Ok(()),
@@ -152,8 +166,27 @@ impl ContainerRuntime for DockerCliRuntime {
     }
 
     fn remove_network(&mut self, network: &str) -> Result<(), String> {
-        self.docker_output(&docker_network_remove_args(network))
-            .map(|_| ())
+        match self.docker_output(&docker_network_remove_args(network)) {
+            Ok(_) => Ok(()),
+            Err(err) if active_endpoint_error(&err) => {
+                if let Ok(container_ids) = self.docker_output(&network_container_ids_args(network))
+                {
+                    for container_id in container_ids
+                        .lines()
+                        .map(str::trim)
+                        .filter(|line| !line.is_empty())
+                    {
+                        let _ = self.docker_output(&docker_rm_force_args(container_id));
+                    }
+                }
+                self.docker_output(&docker_network_remove_args(network))
+                    .map(|_| ())
+                    .map_err(|retry_err| {
+                        format!("{err}; retry after removing active endpoints failed: {retry_err}")
+                    })
+            }
+            Err(err) => Err(err),
+        }
     }
 
     fn start_service(

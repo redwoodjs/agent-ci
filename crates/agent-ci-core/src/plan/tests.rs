@@ -8,6 +8,7 @@ use std::path::PathBuf;
 fn planned_job(id: &str, needs: &[&str], if_condition: Option<&str>) -> PlannedJob {
     PlannedJob {
         id: id.to_owned(),
+        source_job_id: id.to_owned(),
         display_name: id.to_owned(),
         runner_name: id.to_owned(),
         target: PlannedJobTarget::Linux {
@@ -16,7 +17,10 @@ fn planned_job(id: &str, needs: &[&str], if_condition: Option<&str>) -> PlannedJ
         needs: needs.iter().map(|need| (*need).to_owned()).collect(),
         if_condition: if_condition.map(ToOwned::to_owned),
         env: BTreeMap::new(),
+        inputs: BTreeMap::new(),
         outputs: BTreeMap::new(),
+        workflow_call_output_defs: BTreeMap::new(),
+        caller_job_id: None,
         services: Vec::new(),
         container: None,
         steps: vec![PlannedStep {
@@ -34,6 +38,13 @@ fn planned_job(id: &str, needs: &[&str], if_condition: Option<&str>) -> PlannedJ
         step_count: 1,
         matrix_context: None,
     }
+}
+
+fn matrix_job(id: &str, runner_name: &str, axis: &str) -> PlannedJob {
+    let mut job = planned_job(id, &[], None);
+    job.runner_name = runner_name.to_owned();
+    job.matrix_context = Some(BTreeMap::from([("axis".to_owned(), axis.to_owned())]));
+    job
 }
 
 #[test]
@@ -75,6 +86,83 @@ fn schedule_expanded_matrix_jobs_before_dependents() {
         schedule_job_waves(&[matrix_job_1, matrix_job_2, deploy]),
         vec![vec!["agent-ci-1-j1-m1", "agent-ci-1-j1-m2"], vec!["deploy"]]
     );
+}
+
+#[test]
+fn cyclic_needs_return_planning_error() {
+    let a = planned_job("a", &["b"], None);
+    let b = planned_job("b", &["a"], None);
+
+    let err = try_schedule_job_waves(&[a, b]).unwrap_err();
+
+    assert!(err.contains("cyclic job dependencies"));
+    assert!(err.contains("a"));
+    assert!(err.contains("b"));
+}
+
+#[test]
+fn aggregates_matrix_status_for_logical_needs() {
+    assert_eq!(
+        aggregate_matrix_status(&[JobResultStatus::Success, JobResultStatus::Success]),
+        JobResultStatus::Success
+    );
+    assert_eq!(
+        aggregate_matrix_status(&[JobResultStatus::Success, JobResultStatus::Failure]),
+        JobResultStatus::Failure
+    );
+    assert_eq!(
+        aggregate_matrix_status(&[JobResultStatus::Success, JobResultStatus::Skipped]),
+        JobResultStatus::Skipped
+    );
+    assert_eq!(
+        aggregate_matrix_status(&[JobResultStatus::Skipped, JobResultStatus::Skipped]),
+        JobResultStatus::Skipped
+    );
+}
+
+#[test]
+fn dependent_job_skips_when_any_matrix_leg_fails() {
+    let leg_1 = matrix_job("test", "agent-ci-1-j1-m1", "a");
+    let leg_2 = matrix_job("test", "agent-ci-1-j1-m2", "b");
+    let deploy = planned_job("deploy", &["test"], None);
+    let jobs = vec![leg_1, leg_2, deploy.clone()];
+    let results = BTreeMap::from([
+        ("agent-ci-1-j1-m1".to_owned(), JobResultStatus::Failure),
+        ("agent-ci-1-j1-m2".to_owned(), JobResultStatus::Success),
+    ]);
+
+    assert!(matches!(
+        decide_job_run_with_jobs(&deploy, &jobs, &results),
+        JobRunDecision::Skip { .. }
+    ));
+}
+
+#[test]
+fn matrix_needs_context_uses_logical_aggregate_and_schedule_keyed_outputs() {
+    let leg_1 = matrix_job("test", "agent-ci-1-j1-m1", "a");
+    let leg_2 = matrix_job("test", "agent-ci-1-j1-m2", "b");
+    let deploy = planned_job("deploy", &["test"], Some("${{ always() }}"));
+    let jobs = vec![leg_1, leg_2, deploy.clone()];
+    let results = BTreeMap::from([
+        ("agent-ci-1-j1-m1".to_owned(), JobResultStatus::Success),
+        ("agent-ci-1-j1-m2".to_owned(), JobResultStatus::Skipped),
+    ]);
+    let outputs = BTreeMap::from([
+        (
+            "agent-ci-1-j1-m1".to_owned(),
+            BTreeMap::from([("leg".to_owned(), "one".to_owned())]),
+        ),
+        (
+            "agent-ci-1-j1-m2".to_owned(),
+            BTreeMap::from([("other".to_owned(), "two".to_owned())]),
+        ),
+    ]);
+
+    let context = needs_context_for_job_with_jobs(&deploy, &jobs, &results, &outputs);
+
+    assert_eq!(context["test"].result, "skipped");
+    assert_eq!(context["test"].outputs["leg"], "one");
+    assert_eq!(context["test"].outputs["other"], "two");
 }
 
 #[test]

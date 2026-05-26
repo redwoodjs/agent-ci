@@ -11,7 +11,10 @@ pub(super) fn route_request(request: &Request, state: &Arc<DtuState>) -> Respons
     }
 
     if request.path == "/_dtu/dump" && request.method == "GET" {
-        return dump_state(state);
+        if dtu_debug_enabled() {
+            return dump_state(state);
+        }
+        return Response::json(404, json!({ "message": "Not Found (DTU Rust Mock)" }));
     }
     if request.path == "/_dtu/seed" && request.method == "POST" {
         return seed_job(request, state);
@@ -52,6 +55,10 @@ pub(super) fn path_segments(path: &str) -> Vec<&str> {
 
 pub(super) fn request_json(request: &Request) -> Value {
     serde_json::from_slice(&request.body).unwrap_or(Value::Null)
+}
+
+pub(super) fn dtu_debug_enabled() -> bool {
+    std::env::var("AGENT_CI_DTU_DEBUG").is_ok_and(|value| value == "1")
 }
 
 pub(super) fn dump_state(state: &DtuState) -> Response {
@@ -152,13 +159,27 @@ pub(super) fn start_runner(request: &Request, state: &DtuState) -> Response {
         payload.get("runnerName").and_then(Value::as_str),
         payload.get("logDir").and_then(Value::as_str),
     ) {
-        let _ = fs::create_dir_all(log_dir);
+        let log_dir_path = PathBuf::from(log_dir);
+        if !path_is_under_root(&log_dir_path, &state.allowed_log_root) {
+            return Response::json(
+                400,
+                json!({ "error": "logDir must be under the run log directory" }),
+            );
+        }
+        let _ = fs::create_dir_all(&log_dir_path);
         state
             .runner_logs
             .lock()
             .expect("runner logs lock")
             .insert(runner_name.to_owned(), log_dir.to_owned());
         if let Some(timeline_dir) = payload.get("timelineDir").and_then(Value::as_str) {
+            let timeline_dir_path = PathBuf::from(timeline_dir);
+            if !path_is_under_root(&timeline_dir_path, &state.allowed_log_root) {
+                return Response::json(
+                    400,
+                    json!({ "error": "timelineDir must be under the run log directory" }),
+                );
+            }
             state
                 .runner_timeline_dirs
                 .lock()
@@ -179,4 +200,29 @@ pub(super) fn start_runner(request: &Request, state: &DtuState) -> Response {
         }
     }
     Response::json(200, json!({ "ok": true }))
+}
+
+pub(super) fn path_is_under_root(path: &Path, root: &Path) -> bool {
+    if !path.is_absolute() {
+        return false;
+    }
+    let normalized_path = normalize_path(path);
+    let normalized_root = normalize_path(root);
+    normalized_path == normalized_root || normalized_path.starts_with(&normalized_root)
+}
+
+fn normalize_path(path: &Path) -> PathBuf {
+    let mut normalized = PathBuf::new();
+    for component in path.components() {
+        match component {
+            std::path::Component::Prefix(prefix) => normalized.push(prefix.as_os_str()),
+            std::path::Component::RootDir => normalized.push(std::path::MAIN_SEPARATOR.to_string()),
+            std::path::Component::CurDir => {}
+            std::path::Component::ParentDir => {
+                normalized.pop();
+            }
+            std::path::Component::Normal(value) => normalized.push(value),
+        }
+    }
+    normalized
 }

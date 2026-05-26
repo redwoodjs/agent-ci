@@ -121,6 +121,37 @@ export function __test_createDockerClient(socket: DockerSocket): Docker {
   return getDocker();
 }
 
+export function nestedContainerNetworkName(inspectResult: any): string | undefined {
+  const networks = inspectResult?.NetworkSettings?.Networks;
+  if (!networks || typeof networks !== "object") {
+    return undefined;
+  }
+
+  const networkNames = Object.keys(networks).filter(
+    (name) => !["bridge", "host", "none"].includes(name),
+  );
+  return networkNames[0] ?? Object.keys(networks)[0];
+}
+
+async function resolveNestedContainerNetworkName(
+  containerId: string | undefined,
+): Promise<string | undefined> {
+  if (!containerId) {
+    return undefined;
+  }
+  try {
+    const inspectResult = await getDocker().getContainer(containerId).inspect();
+    const networkName = nestedContainerNetworkName(inspectResult);
+    if (networkName) {
+      debugRunner(`Nested container network detected: ${networkName}`);
+    }
+    return networkName;
+  } catch (error) {
+    debugRunner(`Failed to inspect nested container network for ${containerId}: ${String(error)}`);
+    return undefined;
+  }
+}
+
 // The upstream runner image is always needed as the seed source when a job
 // uses a custom `container:` directive — we extract the runner binary from it
 // regardless of what image the user's steps run in. In default mode (no
@@ -583,6 +614,7 @@ export async function executeLocalJob(
     process.env.AGENT_CI_LOCAL === "true" ||
     process.env.AGENT_CI_LOCAL_SYNC === "true";
   const nestedHost = isNestedContainer ? process.env.HOSTNAME?.slice(0, 12) : "";
+  const nestedNetworkName = await resolveNestedContainerNetworkName(nestedHost);
   const prefix = nestedHost ? `agent-ci-${nestedHost}` : "agent-ci";
   const preferredContainerName = nestedHost ? `${prefix}-${job.runnerName}` : job.runnerName;
   const {
@@ -903,7 +935,11 @@ export async function executeLocalJob(
         Binds: containerBinds,
         AutoRemove: false,
         Ulimits: [{ Name: "nofile", Soft: 65536, Hard: 65536 }],
-        ...(serviceCtx ? { NetworkMode: serviceCtx.networkName } : {}),
+        ...(serviceCtx
+          ? { NetworkMode: serviceCtx.networkName }
+          : nestedNetworkName
+            ? { NetworkMode: nestedNetworkName }
+            : {}),
         ...(extraHosts ? { ExtraHosts: extraHosts } : {}),
       },
       Tty: true,

@@ -58,11 +58,7 @@ pub(super) fn execute_macos_planned_job(
     let repo_name = github_repo.split('/').next_back().unwrap_or("repo");
     let remote_workspace = format!("{remote_work_dir}/{repo_name}/{repo_name}");
     let remote_log_dir = format!("/Users/admin/agent-ci-logs/{}", job.runner_name);
-    let vm_host_ip = process_env
-        .get("AGENT_CI_MACOS_VM_HOST_IP")
-        .map(String::as_str)
-        .unwrap_or("192.168.64.1");
-    let dtu_vm_url = format!("http://{vm_host_ip}:{dtu_port}/{github_repo}");
+    let dtu_vm_url = format!("http://127.0.0.1:{dtu_port}/{github_repo}");
     let creds = SshCreds {
         user: process_env
             .get("AGENT_CI_MACOS_VM_USER")
@@ -72,6 +68,7 @@ pub(super) fn execute_macos_planned_job(
             .get("AGENT_CI_MACOS_VM_PASSWORD")
             .cloned()
             .unwrap_or_else(|| "admin".to_owned()),
+        reverse_tunnel: Some(format!("{dtu_port}:127.0.0.1:{dtu_port}")),
     };
 
     let version = resolve_macos_runner_version(

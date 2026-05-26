@@ -18,14 +18,6 @@ pub(super) struct RustRunDirectories {
     pub(super) workspace_dir: PathBuf,
 }
 
-pub(super) fn planned_job_schedule_key(job: &PlannedJob) -> String {
-    if job.matrix_context.is_some() {
-        job.runner_name.clone()
-    } else {
-        job.id.clone()
-    }
-}
-
 pub(super) fn default_working_dir(repo_root: &Path) -> PathBuf {
     if let Some(configured) = std::env::var_os("AGENT_CI_WORKING_DIR") {
         return PathBuf::from(configured);
@@ -56,6 +48,9 @@ pub(super) fn resolve_dtu_host(env: &BTreeMap<String, String>) -> String {
             .filter(|value| !value.is_empty())
         {
             return configured.to_owned();
+        }
+        if std::env::consts::OS == "macos" {
+            return "host.docker.internal".to_owned();
         }
         if let Some(host_ip) = discover_host_reachable_ip() {
             return host_ip;

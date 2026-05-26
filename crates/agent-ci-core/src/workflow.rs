@@ -217,7 +217,7 @@ pub fn is_workflow_relevant(
 
     for event in ["pull_request", "pull_request_target"] {
         if let Some(filters) = events.get(event) {
-            let branch_matches = branch_filters_match(filters, "main");
+            let branch_matches = branch_filters_match(filters, branch);
             if branch_matches && paths_match(filters, changed_files) {
                 return true;
             }
@@ -623,6 +623,25 @@ jobs:
             "feature",
             &["src/lib.rs".to_owned()]
         ));
+    }
+
+    #[test]
+    fn pull_request_branch_filters_use_actual_branch() {
+        let workflow = parse_workflow_str(
+            Path::new("pr-branch.yml"),
+            r#"on:
+  pull_request:
+    branches: [develop]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+"#,
+        )
+        .unwrap();
+        let events = workflow_events(&workflow);
+
+        assert!(is_workflow_relevant(&events, "develop", &[]));
+        assert!(!is_workflow_relevant(&events, "main", &[]));
     }
 
     #[test]

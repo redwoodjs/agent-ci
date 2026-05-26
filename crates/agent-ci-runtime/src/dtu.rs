@@ -4,7 +4,7 @@ use sha1::{Digest, Sha1};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::io::{Read, Write};
-use std::net::{TcpListener, TcpStream};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -21,10 +21,16 @@ pub struct EphemeralDtu {
     pub port: u16,
     shutdown: Arc<AtomicBool>,
     thread: Option<JoinHandle<()>>,
+    #[cfg(test)]
+    state: Arc<DtuState>,
 }
 
 impl EphemeralDtu {
     pub fn close(mut self) {
+        self.shutdown();
+    }
+
+    fn shutdown(&mut self) {
         self.shutdown.store(true, Ordering::SeqCst);
         let _ = TcpStream::connect(("127.0.0.1", self.port));
         if let Some(thread) = self.thread.take() {
@@ -33,19 +39,36 @@ impl EphemeralDtu {
     }
 }
 
+impl Drop for EphemeralDtu {
+    fn drop(&mut self) {
+        self.shutdown();
+    }
+}
+
 pub fn start_ephemeral_dtu(
     cache_dir: impl AsRef<Path>,
     container_host: Option<&str>,
 ) -> std::io::Result<EphemeralDtu> {
     let cache_dir = cache_dir.as_ref().to_path_buf();
+    start_ephemeral_dtu_with_log_root(cache_dir.clone(), cache_dir, container_host)
+}
+
+pub fn start_ephemeral_dtu_with_log_root(
+    cache_dir: impl AsRef<Path>,
+    allowed_log_root: impl AsRef<Path>,
+    container_host: Option<&str>,
+) -> std::io::Result<EphemeralDtu> {
+    let cache_dir = cache_dir.as_ref().to_path_buf();
+    let allowed_log_root = allowed_log_root.as_ref().to_path_buf();
     fs::create_dir_all(&cache_dir)?;
     fs::create_dir_all(cache_dir.join("artifacts"))?;
+    fs::create_dir_all(&allowed_log_root)?;
 
-    let listener = TcpListener::bind(("0.0.0.0", 0))?;
+    let listener = TcpListener::bind(SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 0))?;
     listener.set_nonblocking(true)?;
     let port = listener.local_addr()?.port();
     let shutdown = Arc::new(AtomicBool::new(false));
-    let state = Arc::new(DtuState::new(cache_dir));
+    let state = Arc::new(DtuState::new(cache_dir, allowed_log_root));
     let thread_shutdown = Arc::clone(&shutdown);
     let thread_state = Arc::clone(&state);
 
@@ -58,6 +81,8 @@ pub fn start_ephemeral_dtu(
         port,
         shutdown,
         thread: Some(thread),
+        #[cfg(test)]
+        state,
     })
 }
 

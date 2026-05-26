@@ -1,4 +1,5 @@
 use super::*;
+use crate::docker::runtime::{active_endpoint_error, network_container_ids_args};
 use serde_json::{Value, json};
 
 fn probe() -> DockerSocketProbe {
@@ -206,6 +207,30 @@ fn missing_default_socket_reports_docker_desktop_hint() {
 }
 
 #[test]
+fn detects_active_endpoint_network_remove_errors() {
+    assert!(active_endpoint_error(
+        "docker network rm failed: network abc has active endpoints"
+    ));
+    assert!(!active_endpoint_error(
+        "docker network rm failed: no such network"
+    ));
+}
+
+#[test]
+fn builds_network_container_ids_inspect_args() {
+    assert_eq!(
+        network_container_ids_args("agent-ci-net"),
+        vec![
+            "network".to_owned(),
+            "inspect".to_owned(),
+            "-f".to_owned(),
+            "{{range $id, $_ := .Containers}}{{println $id}}{{end}}".to_owned(),
+            "agent-ci-net".to_owned(),
+        ]
+    );
+}
+
+#[test]
 fn parses_container_options_env_and_labels() {
     let parsed = parse_container_options(Some("--env FOO=bar -e BAZ=qux --label a=b -l empty"));
 
@@ -258,7 +283,7 @@ fn builds_container_binds_with_optional_caches() {
     assert!(binds.contains(&"/signals:/tmp/agent-ci-signals".to_owned()));
     assert!(binds.contains(&"/yarn:/home/runner/.cache/yarn".to_owned()));
     assert!(binds.contains(&"/cypress:/home/runner/.cache/Cypress".to_owned()));
-    assert!(binds.contains(&"/warm:/home/runner/_work/repo/repo/node_modules".to_owned()));
+    assert!(!binds.iter().any(|bind| bind.contains("/node_modules")));
 }
 
 #[test]

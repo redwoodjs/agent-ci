@@ -40,6 +40,7 @@ pub fn wrap_pause_on_failure_script(script: &str, step_name: &str, step_index: u
         r#"__SIGNALS="/tmp/agent-ci-signals"
 mkdir -p "$__SIGNALS"
 __STEP_INDEX={step_index}
+__WORKDIR="${{PWD:-}}"
 # ── from-step skip logic ──
 if [ -f "$__SIGNALS/from-step" ]; then
   __FROM_STEP=$(cat "$__SIGNALS/from-step")
@@ -53,6 +54,7 @@ fi
 __ATTEMPT=0
 while true; do
   __ATTEMPT=$((__ATTEMPT + 1))
+  if [ -n "$__WORKDIR" ]; then cd / && cd "$__WORKDIR"; fi
   set +e
   (
 {script}

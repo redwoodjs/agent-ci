@@ -1,0 +1,21 @@
+name: Wave Partial Failure
+on: push
+jobs:
+  first:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo first
+  middle:
+    runs-on: ubuntu-latest
+    steps:
+      - run: exit 1
+  last:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo last
+  dependent:
+    runs-on: ubuntu-latest
+    needs: [first, middle, last]
+    if: ${{ always() }}
+    steps:
+      - run: echo dependent

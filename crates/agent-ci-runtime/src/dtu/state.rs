@@ -3,6 +3,7 @@ use super::*;
 #[derive(Debug)]
 pub(super) struct DtuState {
     pub(super) cache_dir: PathBuf,
+    pub(super) allowed_log_root: PathBuf,
     pub(super) jobs: Mutex<BTreeMap<String, Value>>,
     pub(super) runner_jobs: Mutex<BTreeMap<String, Value>>,
     pub(super) sessions: Mutex<BTreeMap<String, Value>>,
@@ -24,10 +25,11 @@ pub(super) struct DtuState {
 }
 
 impl DtuState {
-    pub(super) fn new(cache_dir: PathBuf) -> Self {
+    pub(super) fn new(cache_dir: PathBuf, allowed_log_root: PathBuf) -> Self {
         let caches = load_caches_from_disk(&cache_dir);
         Self {
             cache_dir,
+            allowed_log_root,
             jobs: Mutex::new(BTreeMap::new()),
             runner_jobs: Mutex::new(BTreeMap::new()),
             sessions: Mutex::new(BTreeMap::new()),

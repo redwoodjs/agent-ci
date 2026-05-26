@@ -91,7 +91,6 @@ pub struct ContainerBindsOpts {
 }
 
 pub fn build_container_binds(opts: &ContainerBindsOpts) -> Vec<String> {
-    let repo_name = opts.github_repo.split('/').next_back().unwrap_or("repo");
     let docker_socket_path = opts.docker_socket_path.as_deref().unwrap_or(DEFAULT_SOCKET);
     let mut binds = Vec::new();
     if opts.use_direct_container {
@@ -128,10 +127,6 @@ pub fn build_container_binds(opts: &ContainerBindsOpts) -> Vec<String> {
     if let Some(dir) = &opts.cypress_cache_dir {
         binds.push(format!("{dir}:/home/runner/.cache/Cypress"));
     }
-    binds.push(format!(
-        "{}:/home/runner/_work/{repo_name}/{repo_name}/node_modules",
-        opts.warm_modules_dir
-    ));
     binds
 }
 

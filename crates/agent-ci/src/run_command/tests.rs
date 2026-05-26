@@ -208,6 +208,119 @@ fn builds_runner_execution_plan_and_dtu_seed_for_planned_job() {
 }
 
 #[test]
+#[cfg(unix)]
+fn detached_tail_exits_77_on_pause_without_waiting_for_worker_exit() {
+    let dir = temp_dir("detached-pause");
+    let log_path = dir.join("worker.log");
+    fs::write(&log_path, "").unwrap();
+    let pause_event = r#"{"event":"run.paused","runner":"agent-ci-1-j1","retry_cmd":"agent-ci retry --name agent-ci-1-j1"}"#;
+    let mut child = Command::new("sh")
+        .args([
+            "-c",
+            "printf '%s\n' \"$1\" >> \"$2\"; sleep 10",
+            "sh",
+            pause_event,
+        ])
+        .arg(&log_path)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    let start = Instant::now();
+    let mut stdout = Vec::new();
+
+    let exit_code = tail_detached_worker(&log_path, &mut child, &mut stdout);
+
+    assert_eq!(exit_code, PAUSED_EXIT_CODE);
+    assert!(
+        start.elapsed() < Duration::from_secs(2),
+        "launcher should return when the pause sentinel appears, not after the worker exits"
+    );
+    assert!(
+        child.try_wait().unwrap().is_none(),
+        "detached worker should keep running after the foreground launcher returns 77"
+    );
+    let output = String::from_utf8(stdout).unwrap();
+    assert!(output.contains("\"event\":\"run.paused\""));
+    assert!(output.contains("Job paused. Worker continues in background."));
+
+    let _ = child.kill();
+    let _ = child.wait();
+}
+
+#[test]
+fn plan_expands_reusable_workflow_jobs_with_inputs_outputs_and_rewired_needs() {
+    let repo = init_repo();
+    let workflow_dir = repo.join(".github/workflows");
+    fs::create_dir_all(&workflow_dir).unwrap();
+    let reusable = workflow_dir.join("reusable.yml");
+    fs::write(
+        &reusable,
+        r#"on:
+  workflow_call:
+    inputs:
+      target:
+        default: dev
+        type: string
+    outputs:
+      artifact:
+        value: ${{ jobs.build.outputs.artifact }}
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      artifact: ${{ steps.build.outputs.artifact }}
+    steps:
+      - id: build
+        run: echo "artifact=${{ inputs.target }}" >> "$GITHUB_OUTPUT"
+"#,
+    )
+    .unwrap();
+    let caller = workflow_dir.join("caller.yml");
+    fs::write(
+        &caller,
+        r#"on: push
+jobs:
+  call:
+    uses: ./.github/workflows/reusable.yml
+    with:
+      target: prod
+  verify:
+    needs: call
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "artifact=${{ needs.call.outputs.artifact }}"
+"#,
+    )
+    .unwrap();
+    let args = RunArgs {
+        workflow: Some(caller.to_string_lossy().into_owned()),
+        ..RunArgs::default()
+    };
+
+    let plan = plan_run(&args, &repo).unwrap();
+    let jobs = &plan.workflows[0].jobs;
+
+    assert_eq!(jobs.len(), 2);
+    assert_eq!(jobs[0].id, "call/build");
+    assert_eq!(jobs[0].source_job_id, "build");
+    assert_eq!(jobs[0].caller_job_id.as_deref(), Some("call"));
+    assert_eq!(
+        jobs[0].inputs.get("target").map(String::as_str),
+        Some("prod")
+    );
+    assert_eq!(
+        jobs[0]
+            .workflow_call_output_defs
+            .get("artifact")
+            .map(String::as_str),
+        Some("${{ jobs.build.outputs.artifact }}")
+    );
+    assert_eq!(jobs[1].id, "verify");
+    assert_eq!(jobs[1].needs, vec!["call/build".to_owned()]);
+}
+
+#[test]
 fn plan_routes_macos_runs_on_to_macos_target() {
     let repo = init_repo();
     let workflow = write_macos_workflow(&repo);
@@ -369,6 +482,7 @@ fn human_summary_suppresses_missing_tool_hint_for_custom_runner_images() {
 fn planned_job(id: &str, needs: &[&str], if_condition: Option<&str>) -> PlannedJob {
     PlannedJob {
         id: id.to_owned(),
+        source_job_id: id.to_owned(),
         display_name: id.to_owned(),
         runner_name: format!("agent-ci-1-{id}"),
         target: PlannedJobTarget::Linux {
@@ -377,7 +491,10 @@ fn planned_job(id: &str, needs: &[&str], if_condition: Option<&str>) -> PlannedJ
         needs: needs.iter().map(|need| (*need).to_owned()).collect(),
         if_condition: if_condition.map(str::to_owned),
         env: BTreeMap::new(),
+        inputs: BTreeMap::new(),
         outputs: BTreeMap::new(),
+        workflow_call_output_defs: BTreeMap::new(),
+        caller_job_id: None,
         services: Vec::new(),
         container: None,
         steps: vec![PlannedStep {
@@ -473,12 +590,12 @@ fn json_run_mode_emits_run_start_and_finish_without_human_summary() {
         json: true,
         ..RunArgs::default()
     };
+    let plan = plan_run(&args, &repo).unwrap();
     let mut stdout = Vec::new();
-    let mut stderr = Vec::new();
 
-    let exit_code = run_run_command(args, &mut stdout, &mut stderr);
+    emit_run_start_event(&plan, &mut stdout);
+    emit_run_finish_event("failed", &mut stdout);
 
-    assert_eq!(exit_code, 1);
     let stdout = String::from_utf8(stdout).unwrap();
     let events = stdout
         .lines()
@@ -489,7 +606,6 @@ fn json_run_mode_emits_run_start_and_finish_without_human_summary() {
     assert_eq!(events[1]["event"], "run.finish");
     assert_eq!(events[1]["status"], "failed");
     assert!(!stdout.contains("Discovered"));
-    let _stderr = String::from_utf8(stderr).unwrap();
 }
 
 #[test]

@@ -203,7 +203,7 @@ fn run_with_lock(
 ) -> Result<PruneResult, PruneError> {
     let protected_names = collect_protected_run_names(state_dir, logs_dir);
     let mut entries = list_run_dirs(logs_dir);
-    entries.sort_by(|a, b| b.mtime_ms.cmp(&a.mtime_ms));
+    entries.sort_by_key(|entry| std::cmp::Reverse(entry.mtime_ms));
 
     let cutoff = now.saturating_sub(u128::from(retain_days) * 24 * 60 * 60 * 1000);
     let mut removed = Vec::new();

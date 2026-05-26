@@ -1,3 +1,5 @@
+import fs from "node:fs";
+import { execSync } from "node:child_process";
 import http from "node:http";
 import { setCacheDir } from "./server/store.ts";
 import { bootstrapAndReturnApp } from "./server/index.ts";
@@ -12,9 +14,51 @@ export interface EphemeralDtu {
   close(): Promise<void>;
 }
 
+const DEFAULT_DTU_HOST_ALIAS = "host.docker.internal";
+const DEFAULT_DOCKER_BRIDGE_GATEWAY = "172.17.0.1";
+
+export function resolveContainerHostForEnv(opts: {
+  configuredHost?: string;
+  bridgeGateway?: string;
+  containerIp?: string;
+  isInsideDocker: boolean;
+}): string {
+  if (opts.configuredHost && !opts.isInsideDocker) {
+    return opts.configuredHost;
+  }
+
+  if (opts.isInsideDocker) {
+    return opts.containerIp || opts.bridgeGateway || DEFAULT_DOCKER_BRIDGE_GATEWAY;
+  }
+
+  return DEFAULT_DTU_HOST_ALIAS;
+}
+
+function resolveContainerIp(): string | undefined {
+  for (const command of ["hostname -I 2>/dev/null", "hostname -i 2>/dev/null"]) {
+    try {
+      const ip = execSync(command, { encoding: "utf8" }).trim().split(/\s+/)[0];
+      if (ip) {
+        return ip;
+      }
+    } catch {
+      // Try the next command/fallback.
+    }
+  }
+  return undefined;
+}
+
 function resolveContainerHost(): string {
-  const configuredHost = process.env.AGENT_CI_DTU_HOST?.trim();
-  return configuredHost || "host.docker.internal";
+  const isInsideDocker =
+    fs.existsSync("/.dockerenv") ||
+    process.env.AGENT_CI_LOCAL === "true" ||
+    process.env.AGENT_CI_LOCAL_SYNC === "true";
+  return resolveContainerHostForEnv({
+    configuredHost: process.env.AGENT_CI_DTU_HOST?.trim(),
+    bridgeGateway: process.env.AGENT_CI_DOCKER_BRIDGE_GATEWAY?.trim(),
+    containerIp: isInsideDocker ? resolveContainerIp() : undefined,
+    isInsideDocker,
+  });
 }
 
 /**
@@ -51,7 +95,9 @@ export async function startEphemeralDtu(cacheDir: string): Promise<EphemeralDtu>
     server.on("error", reject);
   });
 
-  // Use 127.0.0.1 for CLI access (same host) and host IP for container access
+  // Use 127.0.0.1 for CLI access and a host reachable from sibling Docker
+  // containers for runner access. When agent-ci itself is running in Docker,
+  // that host must be this container's own IP, not the inherited outer DTU host.
   const containerHost = resolveContainerHost();
   const cliUrl = `http://127.0.0.1:${port}`;
   const containerUrl = `http://${containerHost}:${port}`;

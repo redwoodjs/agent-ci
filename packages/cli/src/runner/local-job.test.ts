@@ -15,6 +15,37 @@ afterEach(() => {
   dockerCtor.mockReset();
 });
 
+describe("nestedContainerNetworkName", () => {
+  it("prefers the current container's non-default Docker network", async () => {
+    const mod = await import("./local-job.ts");
+
+    expect(
+      mod.nestedContainerNetworkName({
+        NetworkSettings: {
+          Networks: {
+            bridge: {},
+            "agent-ci-agent-ci-1-j1": {},
+          },
+        },
+      }),
+    ).toBe("agent-ci-agent-ci-1-j1");
+  });
+
+  it("falls back to bridge when it is the only network", async () => {
+    const mod = await import("./local-job.ts");
+
+    expect(
+      mod.nestedContainerNetworkName({
+        NetworkSettings: {
+          Networks: {
+            bridge: {},
+          },
+        },
+      }),
+    ).toBe("bridge");
+  });
+});
+
 describe("getDocker client construction", () => {
   it("uses socketPath for unix sockets", async () => {
     const mod = await import("./local-job.ts");

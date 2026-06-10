@@ -104,6 +104,8 @@ export interface DiagnosticEvent {
   ts: string;
   level: "info" | "warning" | "error";
   message: string;
+  code?: string;
+  details?: Record<string, unknown>;
 }
 
 export type LogEvent =

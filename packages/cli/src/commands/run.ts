@@ -6,6 +6,7 @@ import path from "node:path";
 import fs from "node:fs";
 import os from "node:os";
 import type Docker from "dockerode";
+import { parse as parseYaml } from "yaml";
 
 import { config, loadMachineSecrets, resolveRepoSlug } from "../config.ts";
 import { loadVarFiles } from "../workflow-vars.ts";
@@ -87,6 +88,7 @@ import {
   isForceDetachedRequested,
   runDetachedLauncher,
   shouldLaunchDetached,
+  type DiagnosticEvent,
   type LogEvent,
 } from "../launcher.ts";
 
@@ -99,9 +101,164 @@ type ParsedRunArgs = {
   githubToken?: string;
   commitStatus: boolean;
   maxJobs?: number;
+  prewarmThrough?: string;
   cliVars: Record<string, string>;
   varFiles: string[];
 };
+
+export type PrewarmThroughSpec = {
+  workflowPath: string;
+  jobId: string;
+  stepId: string;
+};
+
+export function parsePrewarmThroughSpec(raw: string): PrewarmThroughSpec {
+  const parts = raw.split(":");
+  if (parts.length < 3) {
+    exitWithError("[Agent CI] Error: --prewarm-through expects <workflow-path>:<job-id>:<step-id>");
+  }
+  const stepId = parts.pop()!.trim();
+  const jobId = parts.pop()!.trim();
+  const workflowPath = parts.join(":").trim();
+  if (!workflowPath || !jobId || !stepId) {
+    exitWithError("[Agent CI] Error: --prewarm-through expects <workflow-path>:<job-id>:<step-id>");
+  }
+  return { workflowPath, jobId, stepId };
+}
+
+export type PrewarmInstallCandidate = {
+  workflowPath: string;
+  jobId: string;
+  stepId?: string;
+  command: string;
+};
+
+function isLikelyInstallCommand(script: string): boolean {
+  return /(^|[\s;&|()])(?:npm\s+(?:ci|install|i)|pnpm\s+(?:install|i)|yarn\s+install|bun\s+install)(?:\s|$)/m.test(
+    script,
+  );
+}
+
+function jobNeedsAreEmpty(needs: unknown): boolean {
+  return needs === undefined || (Array.isArray(needs) && needs.length === 0);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object";
+}
+
+type InstallRunStep = {
+  id?: unknown;
+  run: string;
+};
+
+function isInstallRunStep(step: unknown): step is InstallRunStep {
+  return isRecord(step) && typeof step.run === "string" && isLikelyInstallCommand(step.run);
+}
+
+export function findPrewarmInstallCandidates(workflowPath: string): PrewarmInstallCandidate[] {
+  let rawYaml: unknown;
+  try {
+    rawYaml = parseYaml(fs.readFileSync(workflowPath, "utf8"));
+  } catch {
+    return [];
+  }
+  if (!isRecord(rawYaml) || !isRecord(rawYaml.jobs)) {
+    return [];
+  }
+
+  const candidates: PrewarmInstallCandidate[] = [];
+  for (const [jobId, job] of Object.entries(rawYaml.jobs)) {
+    if (!isRecord(job) || !jobNeedsAreEmpty(job.needs)) {
+      continue;
+    }
+    const steps = Array.isArray(job.steps) ? job.steps : [];
+    const installStep = steps.find(isInstallRunStep);
+    if (!installStep) {
+      continue;
+    }
+    candidates.push({
+      workflowPath,
+      jobId,
+      stepId: typeof installStep.id === "string" ? installStep.id : undefined,
+      command:
+        installStep.run
+          .split("\n")
+          .find((line) => line.trim())
+          ?.trim() ?? "install",
+    });
+  }
+  return candidates;
+}
+
+export function prewarmSelectorForCandidates(candidates: PrewarmInstallCandidate[]): string {
+  const example = candidates.find((candidate) => candidate.stepId) ?? candidates[0];
+  return example.stepId
+    ? `${example.workflowPath}:${example.jobId}:${example.stepId}`
+    : `${example.workflowPath}:${example.jobId}:install`;
+}
+
+export function formatPrewarmWarning(candidates: PrewarmInstallCandidate[]): string {
+  const example = candidates.find((candidate) => candidate.stepId) ?? candidates[0];
+  const selector = prewarmSelectorForCandidates(candidates);
+  const stepIdHint = example.stepId
+    ? ""
+    : "\nAdd a stable `id: install` to the install step you want Agent CI to prewarm through.\n";
+  return [
+    `[Agent CI] Warning: cold node_modules may be shared by ${candidates.length} parallel install jobs.`,
+    "If more than one job writes node_modules at the same time, package managers can race and fail.",
+    stepIdHint.trim(),
+    "To prewarm the shared dependency tree explicitly, run:",
+    "",
+    `  agent-ci run --all --prewarm-through ${selector}`,
+    "",
+    "Or persist this in .env.agent-ci:",
+    "",
+    `  AGENT_CI_PREWARM_THROUGH=${selector}`,
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+export function prewarmDiagnosticEvent(candidates: PrewarmInstallCandidate[]): DiagnosticEvent {
+  return {
+    event: "diagnostic",
+    ts: new Date().toISOString(),
+    level: "warning",
+    message: formatPrewarmWarning(candidates),
+    code: "prewarm_recommended",
+    details: {
+      selector: prewarmSelectorForCandidates(candidates),
+      candidateCount: candidates.length,
+      candidates: candidates.map((candidate) => ({
+        workflowPath: candidate.workflowPath,
+        jobId: candidate.jobId,
+        stepId: candidate.stepId,
+        command: candidate.command,
+      })),
+    },
+  };
+}
+
+function emitJsonDiagnostic(event: DiagnosticEvent): void {
+  if (!isJsonMode()) {
+    return;
+  }
+  process.stdout.write(formatEvent(event) + "\n");
+}
+
+export function truncateStepsThroughId<T extends { ContextName?: string } | null | undefined>(
+  steps: T[],
+  stepId: string,
+): NonNullable<T>[] {
+  const idx = steps.findIndex((step) => step?.ContextName === stepId);
+  if (idx === -1) {
+    throw new Error(
+      `[Agent CI] Prewarm step '${stepId}' not found. Add a stable 'id: ${stepId}' to the target step.`,
+    );
+  }
+  return steps.slice(0, idx + 1).filter((step): step is NonNullable<T> => step != null);
+}
 
 function exitWithError(msg: string): never {
   console.error(msg);
@@ -178,6 +335,10 @@ function parseRunArgs(args: string[]): ParsedRunArgs {
       parsed.maxJobs = parseJobsFlag(args[++i]);
     } else if (arg.startsWith("--jobs=")) {
       parsed.maxJobs = parseJobsFlag(arg.slice("--jobs=".length));
+    } else if (arg === "--prewarm-through" && args[i + 1]) {
+      parsed.prewarmThrough = args[++i];
+    } else if (arg.startsWith("--prewarm-through=")) {
+      parsed.prewarmThrough = arg.slice("--prewarm-through=".length);
     } else if (arg === "--commit-status") {
       parsed.commitStatus = true;
     } else if (arg === "--var" && args[i + 1]) {
@@ -210,6 +371,11 @@ function parseRunArgs(args: string[]): ParsedRunArgs {
   if (!parsed.githubToken && process.env.AGENT_CI_GITHUB_TOKEN) {
     parsed.githubToken = process.env.AGENT_CI_GITHUB_TOKEN;
   }
+
+  if (!parsed.prewarmThrough && process.env.AGENT_CI_PREWARM_THROUGH) {
+    parsed.prewarmThrough = process.env.AGENT_CI_PREWARM_THROUGH;
+  }
+
   return parsed;
 }
 
@@ -389,6 +555,7 @@ export default async function runCmd(args: string[]): Promise<void> {
     noMatrix: parsed.noMatrix,
     githubToken: parsed.githubToken,
     maxJobs: parsed.maxJobs,
+    prewarmThrough: parsed.prewarmThrough,
     vars: workflowVars,
   };
 
@@ -420,6 +587,143 @@ export default async function runCmd(args: string[]): Promise<void> {
   const workflowPath = resolveWorkflowArgPath(parsed.workflow, repoRoot);
   const results = await runWorkflows({ workflowPaths: [workflowPath], ...runWorkflowsOpts });
   await finalizeRun({ results, parsed, repoRoot, startedAt });
+}
+
+// ─── runPrewarmThrough ──────────────────────────────────────────────────────
+// Optional warm-cache primer. Runs one disposable copy of a real workflow job
+// from the beginning through a user-selected step id, so setup actions and the
+// install command are exactly the repo's own workflow steps.
+async function isWarmNodeModulesForWorkflow(workflowPath: string): Promise<boolean> {
+  const repoRoot = resolveRepoRootFromWorkflow(workflowPath);
+  config.GITHUB_REPO ??= await resolveRepoSlug(repoRoot);
+  const repoSlug = config.GITHUB_REPO.replace("/", "-");
+  let lockfileHash = "no-lockfile";
+  try {
+    lockfileHash = computeLockfileHash(repoRoot);
+  } catch {}
+  const warmModulesDir = path.resolve(
+    getWorkingDirectory(),
+    "cache",
+    "warm-modules",
+    repoSlug,
+    lockfileHash,
+  );
+  return isWarmNodeModules(warmModulesDir);
+}
+
+async function warnIfPrewarmLikelyNeeded(workflowPaths: string[]): Promise<void> {
+  if (workflowPaths.length === 0 || (await isWarmNodeModulesForWorkflow(workflowPaths[0]))) {
+    return;
+  }
+  const candidates = workflowPaths.flatMap(findPrewarmInstallCandidates);
+  if (candidates.length < 2) {
+    return;
+  }
+  const diagnostic = prewarmDiagnosticEvent(candidates);
+  process.stderr.write(`${diagnostic.message}\n`);
+  emitJsonDiagnostic(diagnostic);
+}
+
+async function runPrewarmThrough(options: {
+  spec: PrewarmThroughSpec;
+  sha?: string;
+  pauseOnFailure: boolean;
+  store: RunStateStore;
+  githubToken?: string;
+  vars?: Record<string, string>;
+  workflowPaths: string[];
+}): Promise<void> {
+  const repoRootForArg = resolveRepoRoot();
+  const workflowPath = resolveWorkflowArgPath(options.spec.workflowPath, repoRootForArg);
+  if (!options.workflowPaths.includes(workflowPath)) {
+    options.store.addWorkflow(workflowPath);
+  }
+  if (!fs.existsSync(workflowPath)) {
+    throw new Error(`[Agent CI] Prewarm workflow not found: ${workflowPath}`);
+  }
+
+  const repoRoot = resolveRepoRootFromWorkflow(workflowPath);
+  config.GITHUB_REPO ??= await resolveRepoSlug(repoRoot);
+  if (await isWarmNodeModulesForWorkflow(workflowPath)) {
+    debugCli("[Agent CI] Prewarm skipped — warm node_modules already exists.");
+    return;
+  }
+
+  const kind = classifyRunsOn(parseJobRunsOn(workflowPath, options.spec.jobId));
+  if (isUnsupportedOS(kind)) {
+    throw new Error(
+      `[Agent CI] Prewarm job '${options.spec.jobId}' targets unsupported runs-on kind '${kind}'.`,
+    );
+  }
+
+  const [explicitHead, dirtySha, headSlug] = await Promise.all([
+    options.sha ? resolveHeadSha(repoRoot, options.sha) : Promise.resolve(undefined),
+    options.sha ? Promise.resolve(undefined) : computeDirtySha(repoRoot),
+    resolveHeadSha(repoRoot, "HEAD"),
+  ]);
+  const { headSha, shaRef } = explicitHead ?? { headSha: undefined, shaRef: undefined };
+  const realHeadSha = headSha ?? dirtySha ?? headSlug.headSha;
+  const baseSha = await resolveBaseSha(repoRoot, realHeadSha);
+  const [owner, name] = config.GITHUB_REPO.split("/");
+
+  const requiredRefs = extractSecretRefs(workflowPath, options.spec.jobId);
+  const secrets = loadMachineSecrets(repoRoot, requiredRefs);
+  if (options.githubToken && !secrets["GITHUB_TOKEN"]) {
+    secrets["GITHUB_TOKEN"] = options.githubToken;
+  }
+  validateSecrets(workflowPath, options.spec.jobId, secrets, path.join(repoRoot, ".env.agent-ci"));
+  validateVars(workflowPath, options.spec.jobId, options.vars ?? {});
+
+  const steps = truncateStepsThroughId(
+    await parseWorkflowSteps(
+      workflowPath,
+      options.spec.jobId,
+      secrets,
+      undefined,
+      undefined,
+      undefined,
+      options.vars,
+    ),
+    options.spec.stepId,
+  );
+
+  debugCli(
+    `[Agent CI] Prewarming node_modules through ${path.basename(workflowPath)}:${options.spec.jobId}:${options.spec.stepId}...`,
+  );
+  const result = await executeLocalJob(
+    {
+      deliveryId: `prewarm-${Date.now()}`,
+      eventType: "workflow_job",
+      githubJobId: Math.floor(Math.random() * 1000000).toString(),
+      githubRepo: config.GITHUB_REPO,
+      githubToken: "mock_token",
+      headSha,
+      baseSha,
+      realHeadSha,
+      repoRoot,
+      shaRef,
+      env: { AGENT_CI_LOCAL: "true" },
+      repository: {
+        name,
+        full_name: config.GITHUB_REPO,
+        owner: { login: owner },
+        default_branch: "main",
+      },
+      runnerName: `agent-ci-prewarm-${getNextLogNum("agent-ci")}-j1`,
+      steps,
+      services: await parseWorkflowServices(workflowPath, options.spec.jobId),
+      container: (await parseWorkflowContainer(workflowPath, options.spec.jobId)) ?? undefined,
+      workflowPath,
+      taskId: `prewarm:${options.spec.jobId}:${options.spec.stepId}`,
+    },
+    { pauseOnFailure: options.pauseOnFailure, store: options.store },
+  );
+
+  if (!result.succeeded) {
+    throw new Error(
+      `[Agent CI] Prewarm failed for ${path.basename(workflowPath)}:${options.spec.jobId}:${options.spec.stepId}`,
+    );
+  }
 }
 
 // ─── prefetchRunnerImages ──────────────────────────────────────────────────
@@ -633,9 +937,18 @@ async function runWorkflows(options: {
   noMatrix?: boolean;
   githubToken?: string;
   maxJobs?: number;
+  prewarmThrough?: string;
   vars?: Record<string, string>;
 }): Promise<JobResult[]> {
-  const { workflowPaths, sha, pauseOnFailure, noMatrix = false, githubToken, vars } = options;
+  const {
+    workflowPaths,
+    sha,
+    pauseOnFailure,
+    noMatrix = false,
+    githubToken,
+    vars,
+    prewarmThrough,
+  } = options;
 
   // Pre-flight: scan all workflows for required vars before doing any setup
   // work. Catches missing vars up front instead of mid-run.
@@ -882,6 +1195,20 @@ async function runWorkflows(options: {
   }
   pruneStaleWorkspaces(getWorkingDirectory(), 24 * 60 * 60 * 1000);
   await prefetchRunnerImages(workflowPaths);
+
+  if (prewarmThrough) {
+    await runPrewarmThrough({
+      spec: parsePrewarmThroughSpec(prewarmThrough),
+      sha,
+      pauseOnFailure,
+      store,
+      githubToken,
+      vars,
+      workflowPaths,
+    });
+  } else {
+    await warnIfPrewarmLikelyNeeded(workflowPaths);
+  }
 
   // Global concurrency limiter shared across all workflows. Without this,
   // --all mode launches every workflow in parallel — leading to 20+

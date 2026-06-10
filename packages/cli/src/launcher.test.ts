@@ -136,6 +136,8 @@ describe("formatEvent / parseLogEvent — #289 lifecycle events", () => {
       ts: "2026-04-28T00:00:02.000Z",
       level: "warning" as const,
       message: "could not resolve workflow path; falling back to default",
+      code: "prewarm_recommended",
+      details: { selector: ".github/workflows/ci.yml:test:install" },
     };
     expect(parseLogEvent(formatEvent(e))).toEqual(e);
   });

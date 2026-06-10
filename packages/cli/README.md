@@ -33,6 +33,8 @@ Existing "run actions locally" tools either re-implement steps in a compatibilit
 
 Agent CI replaces GitHub's cloud cache with **local bind-mounts**. `node_modules`, the pnpm store, Playwright browsers, and the runner tool cache all live on your host filesystem and are mounted directly into the container — no upload, no download, no tar/untar. The first run warms the cache; every subsequent run starts with hot dependencies instantly.
 
+When local jobs run in parallel, Agent CI also shims common package-manager installs (`npm ci`, `npm install`, `pnpm install`, `yarn install`, and `bun install`) inside runner containers. The shim serializes writes to the shared warm `node_modules` mount and, for non-workspace projects, skips duplicate project installs once the lockfile-keyed cache is ready, so you can keep job parallelism without adding a repo-specific install lock script.
+
 ### Pause on failure
 
 Step 6 failed. Fix the file. Retry just that step. Green. No checkout, no reinstall, no waiting.

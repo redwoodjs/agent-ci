@@ -44,6 +44,8 @@ export interface ContainerEnvOpts {
   headSha?: string;
   dtuHost: string;
   useDirectContainer: boolean;
+  lockfileHash?: string;
+  packageManager?: string | null;
 }
 
 export interface ContainerBindsOpts {
@@ -88,6 +90,8 @@ export function buildContainerEnv(opts: ContainerEnvOpts): string[] {
     headSha,
     dtuHost,
     useDirectContainer,
+    lockfileHash,
+    packageManager,
   } = opts;
 
   return [
@@ -101,11 +105,15 @@ export function buildContainerEnv(opts: ContainerEnvOpts): string[] {
     `AGENT_CI_LOCAL_SYNC=true`,
     `AGENT_CI_HEAD_SHA=${headSha || "HEAD"}`,
     `AGENT_CI_DTU_HOST=${dtuHost}`,
+    `AGENT_CI_LOCKFILE_HASH=${lockfileHash ?? "no-lockfile"}`,
+    `AGENT_CI_PACKAGE_MANAGER=${packageManager ?? "unknown"}`,
     `ACTIONS_CACHE_URL=${dockerApiUrl}/`,
     `ACTIONS_RESULTS_URL=${dockerApiUrl}/`,
     `ACTIONS_RUNTIME_TOKEN=mock_cache_token_123`,
     `RUNNER_TOOL_CACHE=/opt/hostedtoolcache`,
-    `PATH=/home/runner/externals/node24/bin:/home/runner/externals/node20/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin`,
+    `AGENT_CI_ORIGINAL_PATH=/home/runner/externals/node24/bin:/home/runner/externals/node20/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin`,
+    `BASH_ENV=/tmp/agent-ci-shims/bash-env`,
+    `PATH=/tmp/agent-ci-shims:/home/runner/externals/node24/bin:/home/runner/externals/node20/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin`,
     // Force colour output in all child processes (pnpm, Node, etc.)
     `FORCE_COLOR=1`,
     // Custom containers may run as root and lack libicu — configure accordingly

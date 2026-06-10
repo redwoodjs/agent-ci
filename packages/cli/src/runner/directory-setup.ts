@@ -21,6 +21,7 @@ export interface RunDirectories {
   warmModulesDir: string;
   workspaceDir: string;
   repoSlug: string;
+  lockfileHash: string;
   detectedPM: PackageManager | null;
 }
 
@@ -129,6 +130,7 @@ export function createRunDirectories(opts: CreateRunDirectoriesOpts): RunDirecto
     warmModulesDir,
     workspaceDir,
     repoSlug,
+    lockfileHash,
     detectedPM,
   };
 }

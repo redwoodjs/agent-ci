@@ -25,9 +25,36 @@ describe("buildContainerEnv", () => {
     expect(env).toContain("GITHUB_REPOSITORY=org/repo");
     expect(env).toContain("AGENT_CI_LOCAL=true");
     expect(env).toContain("AGENT_CI_HEAD_SHA=abc123");
+    expect(env).toContain("AGENT_CI_LOCKFILE_HASH=no-lockfile");
+    expect(env).toContain("AGENT_CI_PACKAGE_MANAGER=unknown");
+    expect(env).toContain(
+      "AGENT_CI_ORIGINAL_PATH=/home/runner/externals/node24/bin:/home/runner/externals/node20/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+    );
+    expect(env).toContain("BASH_ENV=/tmp/agent-ci-shims/bash-env");
+    expect(env).toContain(
+      "PATH=/tmp/agent-ci-shims:/home/runner/externals/node24/bin:/home/runner/externals/node20/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+    );
     expect(env).toContain("FORCE_COLOR=1");
     // Should NOT include root-mode vars for standard container
     expect(env).not.toContain("RUNNER_ALLOW_RUNASROOT=1");
+  });
+
+  it("accepts warm install metadata for package-manager shims", async () => {
+    const { buildContainerEnv } = await import("./container-config.ts");
+    const env = buildContainerEnv({
+      containerName: "runner-1",
+      registrationToken: "tok",
+      repoUrl: "http://dtu:3000/org/repo",
+      dockerApiUrl: "http://dtu:3000",
+      githubRepo: "org/repo",
+      dtuHost: "host.docker.internal",
+      useDirectContainer: false,
+      lockfileHash: "abc123def456",
+      packageManager: "npm",
+    });
+
+    expect(env).toContain("AGENT_CI_LOCKFILE_HASH=abc123def456");
+    expect(env).toContain("AGENT_CI_PACKAGE_MANAGER=npm");
   });
 
   it("adds root-mode env vars for direct container injection", async () => {

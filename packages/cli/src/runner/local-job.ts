@@ -23,6 +23,7 @@ import { RunStateStore, type StepState } from "../output/run-state.ts";
 
 import { writeJobMetadata } from "./metadata.ts";
 import { writeGitShim } from "./git-shim.ts";
+import { writePackageManagerShims } from "./package-manager-shim.ts";
 import { prepareWorkspace } from "./workspace.ts";
 import { createRunDirectories } from "./directory-setup.ts";
 import { writeDetachedMarker } from "../launcher.ts";
@@ -783,6 +784,7 @@ export async function executeLocalJob(
     // immediately. On Linux, prepareWorkspace (rsync) is slow enough that the
     // container entrypoint would race ahead and find an empty shims dir.
     writeGitShim(dirs.shimsDir, job.realHeadSha);
+    writePackageManagerShims(dirs.shimsDir);
 
     // Prepare workspace files in parallel with container setup
     const workspacePrepStart = Date.now();
@@ -889,6 +891,8 @@ export async function executeLocalJob(
       headSha: job.headSha,
       dtuHost,
       useDirectContainer,
+      lockfileHash: dirs.lockfileHash,
+      packageManager: dirs.detectedPM,
     });
 
     const containerBinds = buildContainerBinds({

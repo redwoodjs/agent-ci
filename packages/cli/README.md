@@ -33,6 +33,8 @@ Existing "run actions locally" tools either re-implement steps in a compatibilit
 
 Agent CI replaces GitHub's cloud cache with **local bind-mounts**. `node_modules`, the pnpm store, Playwright browsers, and the runner tool cache all live on your host filesystem and are mounted directly into the container — no upload, no download, no tar/untar. The first run warms the cache; every subsequent run starts with hot dependencies instantly.
 
+For workflows with several independent jobs, use `--prewarm-through <workflow:job:step-id>` to warm `node_modules` once before the real jobs start in parallel. The selected step must have a stable `id`. Agent CI runs a disposable copy of that job from the beginning through the selected step, then runs the real workflows normally. This avoids parallel cold installs writing to the same shared `node_modules` mount without patching package-manager tools. You can also set `AGENT_CI_PREWARM_THROUGH` in `.env.agent-ci` to make this automatic for a repo; Agent CI warns when cold parallel install jobs look likely and no prewarm setting is present.
+
 ### Pause on failure
 
 Step 6 failed. Fix the file. Retry just that step. Green. No checkout, no reinstall, no waiting.
@@ -107,19 +109,49 @@ npx @redwoodjs/agent-ci retry --name <runner-name>
 
 Run GitHub Actions workflow jobs locally.
 
-| Flag                       | Short | Description                                                                                                                                                  |
-| -------------------------- | ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `--workflow <path>`        | `-w`  | Path to the workflow file                                                                                                                                    |
-| `--all`                    | `-a`  | Discover and run all relevant workflows for the current branch                                                                                               |
-| `--pause-on-failure`       | `-p`  | Pause on step failure for interactive debugging                                                                                                              |
-| `--quiet`                  | `-q`  | Suppress animated rendering (also enabled by `AI_AGENT=1`)                                                                                                   |
-| `--json`                   |       | Emit NDJSON event stream on stdout (also enabled by `AGENT_CI_JSON=1`); see [Agent output mode](#agent-output-mode-ndjson-event-stream)                      |
-| `--no-matrix`              |       | Collapse all matrix combinations into a single job (uses first value of each key)                                                                            |
-| `--jobs <N>`               | `-j`  | Maximum jobs to run at once                                                                                                                                  |
-| `--github-token [<token>]` |       | GitHub token for fetching remote reusable workflows (auto-resolves via `gh auth token` if no value given). Also available as `AGENT_CI_GITHUB_TOKEN` env var |
-| `--commit-status`          |       | Post a GitHub commit status after the run (requires `--github-token`)                                                                                        |
-| `--var KEY=VALUE`          |       | Provide a workflow variable (`${{ vars.KEY }}`); repeat for multiple                                                                                         |
-| `--var-file <path\|->`     |       | Load workflow variables from a JSON file, or use `-` to read JSON from stdin                                                                                 |
+| Flag                                       | Short | Description                                                                                                                                                                         |
+| ------------------------------------------ | ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--workflow <path>`                        | `-w`  | Path to the workflow file                                                                                                                                                           |
+| `--all`                                    | `-a`  | Discover and run all relevant workflows for the current branch                                                                                                                      |
+| `--pause-on-failure`                       | `-p`  | Pause on step failure for interactive debugging                                                                                                                                     |
+| `--quiet`                                  | `-q`  | Suppress animated rendering (also enabled by `AI_AGENT=1`)                                                                                                                          |
+| `--json`                                   |       | Emit NDJSON event stream on stdout (also enabled by `AGENT_CI_JSON=1`); see [Agent output mode](#agent-output-mode-ndjson-event-stream)                                             |
+| `--no-matrix`                              |       | Collapse all matrix combinations into a single job (uses first value of each key)                                                                                                   |
+| `--jobs <N>`                               | `-j`  | Maximum jobs to run at once                                                                                                                                                         |
+| `--prewarm-through <workflow:job:step-id>` |       | If warm `node_modules` is cold, run one disposable job through the selected step `id` before starting the real jobs in parallel. Also configurable with `AGENT_CI_PREWARM_THROUGH`. |
+| `--github-token [<token>]`                 |       | GitHub token for fetching remote reusable workflows (auto-resolves via `gh auth token` if no value given). Also available as `AGENT_CI_GITHUB_TOKEN` env var                        |
+| `--commit-status`                          |       | Post a GitHub commit status after the run (requires `--github-token`)                                                                                                               |
+| `--var KEY=VALUE`                          |       | Provide a workflow variable (`${{ vars.KEY }}`); repeat for multiple                                                                                                                |
+| `--var-file <path\|->`                     |       | Load workflow variables from a JSON file, or use `-` to read JSON from stdin                                                                                                        |
+
+#### Prewarm `node_modules` before parallel jobs
+
+If several first-wave jobs run dependency installs, a cold local run can make those jobs write to the same warm `node_modules` mount at the same time. Agent CI warns when this looks likely and no prewarm setting is present.
+
+Add a stable `id` to the install step you want to use as the prewarm boundary:
+
+```yaml
+jobs:
+  test:
+    steps:
+      - uses: actions/checkout@v4
+      - id: install
+        run: pnpm install --frozen-lockfile
+```
+
+Then run:
+
+```bash
+agent-ci run --all --prewarm-through .github/workflows/ci.yml:test:install
+```
+
+To make this automatic for the repo, put the same selector in `.env.agent-ci`:
+
+```env
+AGENT_CI_PREWARM_THROUGH=.github/workflows/ci.yml:test:install
+```
+
+The CLI flag wins over the env setting. If the lockfile-keyed warm `node_modules` cache is already ready, Agent CI skips the disposable prewarm job.
 
 ### `agent-ci retry`
 
@@ -205,14 +237,15 @@ Only `AGENT_CI_*`-prefixed keys from `.env.agent-ci` are applied to the CLI proc
 
 ### General
 
-| Variable                | Default                         | Description                                                                                                                                                                                                                                                                                  |
-| ----------------------- | ------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `GITHUB_REPO`           | auto-detected from `git remote` | Override the `owner/repo` used when emulating the GitHub API. Useful when the remote URL can't be detected automatically.                                                                                                                                                                    |
-| `AI_AGENT`              | unset                           | Set to `1` to enable quiet mode (suppress animated rendering). Same effect as `--quiet`.                                                                                                                                                                                                     |
-| `AGENT_CI_JSON`         | unset                           | Set to `1` to emit the NDJSON event stream on stdout. Same effect as `--json`.                                                                                                                                                                                                               |
-| `AGENT_CI_DETACHED`     | unset                           | Set to `1` to force `--pause-on-failure` to use the detached launcher even on a TTY (for manual verification of the pause-then-exit-77 flow). The launcher uses this same env var internally to mark its worker child (with the worker's log path as the value), so do not set it to a path. |
-| `DEBUG`                 | unset                           | Enable verbose debug logging. See [Debugging](#debugging) for supported namespaces.                                                                                                                                                                                                          |
-| `AGENT_CI_GITHUB_TOKEN` | unset                           | GitHub token for fetching remote reusable workflows. Alternative to the `--github-token` CLI flag.                                                                                                                                                                                           |
+| Variable                   | Default                         | Description                                                                                                                                                                                                                                                                                  |
+| -------------------------- | ------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GITHUB_REPO`              | auto-detected from `git remote` | Override the `owner/repo` used when emulating the GitHub API. Useful when the remote URL can't be detected automatically.                                                                                                                                                                    |
+| `AI_AGENT`                 | unset                           | Set to `1` to enable quiet mode (suppress animated rendering). Same effect as `--quiet`.                                                                                                                                                                                                     |
+| `AGENT_CI_JSON`            | unset                           | Set to `1` to emit the NDJSON event stream on stdout. Same effect as `--json`.                                                                                                                                                                                                               |
+| `AGENT_CI_DETACHED`        | unset                           | Set to `1` to force `--pause-on-failure` to use the detached launcher even on a TTY (for manual verification of the pause-then-exit-77 flow). The launcher uses this same env var internally to mark its worker child (with the worker's log path as the value), so do not set it to a path. |
+| `DEBUG`                    | unset                           | Enable verbose debug logging. See [Debugging](#debugging) for supported namespaces.                                                                                                                                                                                                          |
+| `AGENT_CI_GITHUB_TOKEN`    | unset                           | GitHub token for fetching remote reusable workflows. Alternative to the `--github-token` CLI flag.                                                                                                                                                                                           |
+| `AGENT_CI_PREWARM_THROUGH` | unset                           | Persistent default for `--prewarm-through <workflow:job:step-id>`. The CLI flag wins when both are set.                                                                                                                                                                                      |
 
 ### Docker
 
@@ -366,7 +399,7 @@ these events:
 | `job.finish`  | `ts`, `job`, `runner`, `status`                                                | `workflow`, `durationMs`            |
 | `step.start`  | `ts`, `job`, `runner`, `step`, `index`                                         |                                     |
 | `step.finish` | `ts`, `job`, `runner`, `step`, `index`, `status` (`passed`/`failed`/`skipped`) | `durationMs`                        |
-| `diagnostic`  | `ts`, `level` (`info`/`warning`/`error`), `message`                            |                                     |
+| `diagnostic`  | `ts`, `level` (`info`/`warning`/`error`), `message`                            | `code`, `details`                   |
 
 Example:
 
@@ -376,6 +409,7 @@ Example:
 {"event":"step.start","ts":"…","job":"lint","runner":"agent-ci-1-job","step":"eslint","index":1}
 {"event":"step.finish","ts":"…","job":"lint","runner":"agent-ci-1-job","step":"eslint","index":1,"status":"passed","durationMs":4123}
 {"event":"job.finish","ts":"…","job":"lint","runner":"agent-ci-1-job","workflow":"ci.yml","status":"passed","durationMs":8000}
+{"event":"diagnostic","ts":"…","level":"warning","code":"prewarm_recommended","message":"cold node_modules may be shared by 2 parallel install jobs","details":{"selector":".github/workflows/ci.yml:test:install","candidateCount":2}}
 {"event":"run.finish","ts":"…","status":"passed","durationMs":18210}
 ```
 

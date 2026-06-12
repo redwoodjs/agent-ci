@@ -22,6 +22,9 @@ Options:
       --json                    Emit NDJSON event stream on stdout (also enabled by AGENT_CI_JSON=1)
       --no-matrix               Collapse all matrix combinations into a single job (uses first value of each key)
   -j, --jobs <N>                Maximum jobs to run at once
+      --prewarm-through <workflow:job:step-id>
+                                Run one disposable job through a step id before parallel jobs
+                                Or set: AGENT_CI_PREWARM_THROUGH env var
       --github-token [<token>]  GitHub token for fetching remote reusable workflows
                                 (auto-resolves via `gh auth token` if no value given)
                                 Or set: AGENT_CI_GITHUB_TOKEN env var
@@ -79,6 +82,7 @@ pub struct RunArgs {
     pub json: bool,
     pub no_matrix: bool,
     pub max_jobs: Option<u32>,
+    pub prewarm_through: Option<String>,
     pub github_token: GithubTokenFlag,
     pub commit_status: bool,
     pub cli_vars: Vec<(String, String)>,
@@ -209,6 +213,9 @@ fn parse_run_args(args: &[String]) -> Result<RunArgs, String> {
                 let raw = take_next(args, &mut index, arg)?;
                 parsed.max_jobs = Some(parse_positive_u32(&raw, "--jobs")?);
             }
+            "--prewarm-through" => {
+                parsed.prewarm_through = Some(take_next(args, &mut index, arg)?);
+            }
             "--commit-status" => parsed.commit_status = true,
             "--var" => {
                 let raw = take_next(args, &mut index, arg)?;
@@ -233,6 +240,8 @@ fn parse_run_args(args: &[String]) -> Result<RunArgs, String> {
                     parsed.workflow = Some(value.to_owned());
                 } else if let Some(value) = arg.strip_prefix("--jobs=") {
                     parsed.max_jobs = Some(parse_positive_u32(value, "--jobs")?);
+                } else if let Some(value) = arg.strip_prefix("--prewarm-through=") {
+                    parsed.prewarm_through = Some(value.to_owned());
                 } else if let Some(value) = arg.strip_prefix("--var=") {
                     parsed.cli_vars.push(parse_var_flag(value)?);
                 } else if let Some(value) = arg.strip_prefix("--var-file=") {
@@ -362,6 +371,8 @@ mod tests {
             "--github-token",
             "ghp_token",
             "--commit-status",
+            "--prewarm-through",
+            ".github/workflows/ci.yml:test:install",
             "--var",
             "FOO=bar",
             "--var-file=vars.json",
@@ -378,6 +389,7 @@ mod tests {
                 json: true,
                 no_matrix: true,
                 max_jobs: None,
+                prewarm_through: Some(".github/workflows/ci.yml:test:install".to_owned()),
                 github_token: GithubTokenFlag::Value("ghp_token".to_owned()),
                 commit_status: true,
                 cli_vars: vec![("FOO".to_owned(), "bar".to_owned())],

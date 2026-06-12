@@ -79,6 +79,11 @@ function printUsage() {
     "      --no-matrix               Collapse all matrix combinations into a single job (uses first value of each key)",
   );
   console.log("  -j, --jobs <N>                Maximum jobs to run at once");
+  console.log("      --prewarm-through <workflow:job:step-id>");
+  console.log(
+    "                                Run one disposable job through a step id before parallel jobs",
+  );
+  console.log("                                Or set: AGENT_CI_PREWARM_THROUGH env var");
   console.log(
     "      --github-token [<token>]  GitHub token for fetching remote reusable workflows",
   );

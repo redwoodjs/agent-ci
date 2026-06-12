@@ -1,5 +1,23 @@
 # @redwoodjs/agent-ci
 
+## 0.17.0
+
+### Minor Changes
+
+- 7a349fd: Add the native Rust Agent CI binary, platform-specific npm packages, and an opt-in launcher path while keeping the TypeScript fallback available. The native runner now honors `--jobs` for concurrent dependency-wave execution, macOS VM execution honors `AGENT_CI_MACOS_VM_CONCURRENCY`, nested local runs avoid container-name collisions, a smoke benchmark suite compares TypeScript and Rust orchestration overhead, shared TypeScript/Rust fixture contracts cover scheduler, event, run-result, Docker socket, and default job-limit parity, pure workflow planning plus reusable workflow expansion and event/result contracts now live in `agent-ci-core`, the generic job-wave pool and execution-plan adapters live in `agent-ci-runtime`, platform packages stage `bin/agent-ci`, `--all` now has Rust smoke coverage and workflow fan-out, and the Rust implementation is split into core and runtime crates with focused run, DTU, expression, Docker, runner, and macOS VM modules.
+
+### Patch Changes
+
+- 928fb44: Refs #370. Add `agent-ci run --prewarm-through <workflow:job:step-id>` and `AGENT_CI_PREWARM_THROUGH` so a disposable job can warm shared `node_modules` through an explicit workflow step before parallel jobs begin. Agent CI now warns with an actionable prewarm command when cold parallel install jobs look likely, including a structured `diagnostic` event in `--json` mode.
+- c331673: Harden the opt-in Rust runner orchestration for matrix needs, reusable workflow expansion and outputs, partial wave failures, DTU cleanup/security, cyclic dependency planning errors, pull request branch filters, detached pause handling, nested ephemeral DTU host/network resolution, cleanup of nested containers attached to Rust job networks, and the expanded Rust smoke parity gate with per-workflow diagnostics, heartbeats, status ledgers, and timeout cleanup.
+
+  Refs #367.
+
+- Updated dependencies [7a349fd]
+- Updated dependencies [928fb44]
+- Updated dependencies [c331673]
+  - dtu-github-actions@0.17.0
+
 ## 0.16.2
 
 ### Patch Changes

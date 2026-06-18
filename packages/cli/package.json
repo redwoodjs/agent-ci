@@ -50,7 +50,7 @@
   "devDependencies": {
     "@types/dockerode": "^3.3.34",
     "@types/node": "^22.10.2",
-    "vitest": "^4.0.18"
+    "vitest": "^4.1.0"
   },
   "engines": {
     "node": ">=22"

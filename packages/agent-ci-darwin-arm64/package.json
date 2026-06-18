@@ -1,5 +1,6 @@
 {
   "name": "@redwoodjs/agent-ci-darwin-arm64",
+  "private": true,
   "version": "0.16.1",
   "description": "macOS arm64 native binary for @redwoodjs/agent-ci.",
   "license": "FSL-1.1-MIT",
@@ -20,8 +21,5 @@
   ],
   "cpu": [
     "arm64"
-  ],
-  "publishConfig": {
-    "access": "public"
-  }
+  ]
 }

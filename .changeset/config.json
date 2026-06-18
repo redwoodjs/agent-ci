@@ -7,5 +7,11 @@
   "access": "public",
   "baseBranch": "main",
   "updateInternalDependencies": "patch",
-  "ignore": ["@redwoodjs/ts-runner"]
+  "ignore": [
+    "@redwoodjs/ts-runner",
+    "@redwoodjs/agent-ci-darwin-arm64",
+    "@redwoodjs/agent-ci-darwin-x64",
+    "@redwoodjs/agent-ci-linux-arm64",
+    "@redwoodjs/agent-ci-linux-x64"
+  ]
 }

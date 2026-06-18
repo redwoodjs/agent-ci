@@ -147,19 +147,6 @@ importers:
       vitest:
         specifier: ^4.0.18
         version: 4.0.18(@opentelemetry/api@1.9.0)(@types/node@22.19.11)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.47.1)(tsx@4.21.0)(yaml@2.8.2)
-    optionalDependencies:
-      '@redwoodjs/agent-ci-darwin-arm64':
-        specifier: workspace:*
-        version: link:../agent-ci-darwin-arm64
-      '@redwoodjs/agent-ci-darwin-x64':
-        specifier: workspace:*
-        version: link:../agent-ci-darwin-x64
-      '@redwoodjs/agent-ci-linux-arm64':
-        specifier: workspace:*
-        version: link:../agent-ci-linux-arm64
-      '@redwoodjs/agent-ci-linux-x64':
-        specifier: workspace:*
-        version: link:../agent-ci-linux-x64
 
   packages/dtu-github-actions:
     dependencies:

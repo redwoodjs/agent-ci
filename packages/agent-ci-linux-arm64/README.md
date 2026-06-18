@@ -1,6 +1,5 @@
 # @redwoodjs/agent-ci-linux-arm64
 
-Platform package for the Linux arm64 native `agent-ci` binary.
+Reserved workspace package for the future Linux arm64 native `agent-ci` binary.
 
-This package is installed as an optional dependency of `@redwoodjs/agent-ci`.
-Release packaging places the compiled binary at `bin/agent-ci`.
+Native npm platform-package publishing is deferred. This package stays private until the release workflow builds, stages, and verifies a real `bin/agent-ci` binary for this target.

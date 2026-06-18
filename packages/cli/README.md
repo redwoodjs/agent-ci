@@ -72,28 +72,26 @@ Agent CI runs against your **current working tree** — uncommitted changes are 
 
 Committing is optional, but it's a useful pattern: commit → run → fail → fix with `--pause-on-failure` → retry → commit the fix. When you do commit, the commit becomes a save point you can return to if the fix makes things worse. Your AI agent benefits from the same pattern — it can roll back to a known-good state before trying a different fix.
 
-### Native binary downloads
+### Rust runner from source
 
-The npm package keeps `npx @redwoodjs/agent-ci` working. Tagged releases also publish direct native binary archives and matching `.sha256` checksum files on GitHub Releases:
+The npm package keeps `npx @redwoodjs/agent-ci` on the TypeScript execution path. The Rust runner is available in this repository for parity testing, but published npm installs do not include a native runner yet. Native npm platform packages and release archives are deferred until the release workflow builds, stages, and verifies real target binaries.
 
-```bash
-version=v0.16.1
-platform=macos-arm64 # linux-x64, linux-arm64, macos-x64, macos-arm64
-curl -LO "https://github.com/redwoodjs/agent-ci/releases/download/${version}/agent-ci-${version}-${platform}.tar.gz"
-curl -LO "https://github.com/redwoodjs/agent-ci/releases/download/${version}/agent-ci-${version}-${platform}.tar.gz.sha256"
-shasum -a 256 -c "agent-ci-${version}-${platform}.tar.gz.sha256"
-tar -xzf "agent-ci-${version}-${platform}.tar.gz"
-./agent-ci --help
-```
-
-Or use the shell installer with a selected prefix:
+To try the Rust runner from a checkout, build or run it directly with Cargo:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/redwoodjs/agent-ci/main/install.sh \
-  | sh -s -- --version v0.16.1 --prefix "$HOME/.local"
+cargo run -p agent-ci -- run --workflow .github/workflows/ci.yml
+# or
+cargo build --release -p agent-ci
+./target/release/agent-ci run --workflow .github/workflows/ci.yml
 ```
 
-Until Rust workflow execution reaches full parity, the npm launcher keeps using the TypeScript execution path by default. To opt into the native Rust binary for parity testing, run with `AGENT_CI_FORCE_RUST=1`. To force the TypeScript path explicitly, run with `AGENT_CI_FORCE_TYPESCRIPT=1` or `AGENT_CI_FORCE_TS=1`.
+The development wrapper can also build and run the Rust binary from a checkout:
+
+```bash
+AGENT_CI_FORCE_RUST=1 pnpm agent-ci-dev run --workflow .github/workflows/ci.yml
+```
+
+For published npm installs, `AGENT_CI_FORCE_RUST=1 npx @redwoodjs/agent-ci ...` is expected to fail until native binary packaging lands. To force the TypeScript path explicitly, run with `AGENT_CI_FORCE_TYPESCRIPT=1` or `AGENT_CI_FORCE_TS=1`.
 
 ### Retry a failed step
 

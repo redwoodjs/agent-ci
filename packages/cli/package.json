@@ -52,12 +52,6 @@
     "@types/node": "^22.10.2",
     "vitest": "^4.0.18"
   },
-  "optionalDependencies": {
-    "@redwoodjs/agent-ci-darwin-arm64": "workspace:*",
-    "@redwoodjs/agent-ci-darwin-x64": "workspace:*",
-    "@redwoodjs/agent-ci-linux-arm64": "workspace:*",
-    "@redwoodjs/agent-ci-linux-x64": "workspace:*"
-  },
   "engines": {
     "node": ">=22"
   }

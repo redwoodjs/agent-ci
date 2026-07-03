@@ -92,4 +92,3 @@ jobs:
             dist/${{ env.archive }}
             dist/${{ env.archive }}.sha256
           if-no-files-found: error
-

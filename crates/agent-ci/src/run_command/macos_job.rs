@@ -9,6 +9,7 @@ pub(super) struct MacosExecutionContext<'a, W: Write> {
     pub(super) process_env: &'a BTreeMap<String, String>,
     pub(super) github_repo: &'a str,
     pub(super) dtu_url: &'a str,
+    pub(super) dtu_control_token: &'a str,
     pub(super) dtu_port: &'a str,
     pub(super) needs_context: BTreeMap<String, NeedContext>,
     pub(super) stderr: &'a mut W,
@@ -25,6 +26,7 @@ pub(super) fn execute_macos_planned_job(
     let process_env = ctx.process_env;
     let github_repo = ctx.github_repo;
     let dtu_url = ctx.dtu_url;
+    let dtu_control_token = ctx.dtu_control_token;
     let dtu_port = ctx.dtu_port;
     let needs_context = ctx.needs_context;
     let stderr = ctx.stderr;
@@ -95,7 +97,7 @@ pub(super) fn execute_macos_planned_job(
     seed.runner_work_dir = Some(PathBuf::from(&remote_work_dir));
     seed.runner_os = Some("macOS".to_owned());
     seed.runner_arch = Some("ARM64".to_owned());
-    let mut dtu_client = DtuHttpClient::new(dtu_url);
+    let mut dtu_client = DtuHttpClient::with_control_token(dtu_url, dtu_control_token);
     dtu_client.register_runner(&DtuRunnerRegistration {
         runner_name: job.runner_name.clone(),
         log_dir: log_context.log_dir.clone(),

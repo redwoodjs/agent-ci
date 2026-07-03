@@ -1,6 +1,7 @@
 import type { Polka } from "polka";
 import crypto from "node:crypto";
 import fs from "node:fs";
+import path from "node:path";
 
 import { state } from "../store.ts";
 import { createJobResponse } from "./actions/generators.ts";
@@ -15,7 +16,30 @@ export function getBaseUrl(req: any) {
   return `${protocol}://${host}`;
 }
 
-export function registerDtuRoutes(app: Polka) {
+function pathIsUnderRoot(candidate: string, root: string): boolean {
+  if (!path.isAbsolute(candidate) || !path.isAbsolute(root)) {
+    return false;
+  }
+
+  const normalizedCandidate = path.resolve(candidate);
+  const normalizedRoot = path.resolve(root);
+  const relative = path.relative(normalizedRoot, normalizedCandidate);
+  return (
+    relative === "" || (!!relative && !relative.startsWith("..") && !path.isAbsolute(relative))
+  );
+}
+
+function validateLogPath(candidate: unknown, allowedLogRoot: string | undefined): string | null {
+  if (typeof candidate !== "string" || candidate.length === 0) {
+    return null;
+  }
+  if (!allowedLogRoot) {
+    return candidate;
+  }
+  return pathIsUnderRoot(candidate, allowedLogRoot) ? candidate : null;
+}
+
+export function registerDtuRoutes(app: Polka, options?: { allowedLogRoot?: string }) {
   // 1. Internal Seeding Endpoint
   app.post("/_dtu/seed", (req: any, res) => {
     try {
@@ -124,13 +148,26 @@ export function registerDtuRoutes(app: Polka) {
     try {
       const { runnerName, logDir, timelineDir, virtualCachePatterns } = req.body;
       if (runnerName && logDir) {
-        fs.mkdirSync(logDir, { recursive: true });
+        const validatedLogDir = validateLogPath(logDir, options?.allowedLogRoot);
+        const validatedTimelineDir = timelineDir
+          ? validateLogPath(timelineDir, options?.allowedLogRoot)
+          : undefined;
+
+        if (!validatedLogDir || (timelineDir && !validatedTimelineDir)) {
+          res.writeHead(400, { "Content-Type": "application/json" });
+          res.end(
+            JSON.stringify({ error: "logDir and timelineDir must be under the run log directory" }),
+          );
+          return;
+        }
+
+        fs.mkdirSync(validatedLogDir, { recursive: true });
 
         // Register this runner mapping so we can route logs later
-        state.runnerLogs.set(runnerName, logDir);
+        state.runnerLogs.set(runnerName, validatedLogDir);
         // Also store the timeline dir (CLI's logs dir) for this runner
-        if (timelineDir) {
-          state.runnerTimelineDirs.set(runnerName, timelineDir);
+        if (validatedTimelineDir) {
+          state.runnerTimelineDirs.set(runnerName, validatedTimelineDir);
         }
         // Register virtual cache key patterns (e.g. "pnpm") so bind-mounted paths
         // skip the tar archive entirely.
@@ -142,8 +179,8 @@ export function registerDtuRoutes(app: Polka) {
           }
         }
         console.log(
-          `[DTU] Registered runner ${runnerName} with logs at ${logDir}${
-            timelineDir ? `, timeline at ${timelineDir}` : ""
+          `[DTU] Registered runner ${runnerName} with logs at ${validatedLogDir}${
+            validatedTimelineDir ? `, timeline at ${validatedTimelineDir}` : ""
           }${
             virtualCachePatterns?.length
               ? `, virtual cache patterns: ${virtualCachePatterns.join(", ")}`

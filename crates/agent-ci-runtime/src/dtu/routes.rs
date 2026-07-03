@@ -10,6 +10,10 @@ pub(super) fn route_request(request: &Request, state: &Arc<DtuState>) -> Respons
         return Response::json(200, json!({ "value": [] }));
     }
 
+    if is_control_request(request) && !control_token_authorized(request, state) {
+        return Response::json(401, json!({ "message": "Unauthorized" }));
+    }
+
     if request.path == "/_dtu/dump" && request.method == "GET" {
         if dtu_debug_enabled() {
             return dump_state(state);
@@ -55,6 +59,27 @@ pub(super) fn path_segments(path: &str) -> Vec<&str> {
 
 pub(super) fn request_json(request: &Request) -> Value {
     serde_json::from_slice(&request.body).unwrap_or(Value::Null)
+}
+
+pub(super) fn is_control_request(request: &Request) -> bool {
+    matches!(
+        (request.method.as_str(), request.path.as_str()),
+        ("POST", "/_dtu/seed") | ("POST", "/_dtu/start-runner") | ("GET", "/_dtu/dump")
+    )
+}
+
+pub(super) fn control_token_authorized(request: &Request, state: &DtuState) -> bool {
+    let header_token = request
+        .headers
+        .get("x-agent-ci-dtu-token")
+        .map(String::as_str);
+    let bearer_token = request
+        .headers
+        .get("authorization")
+        .and_then(|value| value.strip_prefix("Bearer "));
+    header_token
+        .or(bearer_token)
+        .is_some_and(|token| token == state.control_token)
 }
 
 pub(super) fn dtu_debug_enabled() -> bool {

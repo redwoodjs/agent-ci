@@ -110,9 +110,13 @@ export async function executeMacosVmJob(job: Job): Promise<JobResult> {
   // ── Start the ephemeral DTU (binds 0.0.0.0 so the VM can reach it) ────────
   let t0 = Date.now();
   const dtuCacheDir = path.resolve(getWorkingDirectory(), "cache", "dtu");
-  const dtu = await startEphemeralDtu(dtuCacheDir);
+  const dtu = await startEphemeralDtu(dtuCacheDir, { allowedLogRoot: path.dirname(logDir) });
   const dtuHostUrl = dtu.url; // for our own fetch() calls on the host
   const dtuVmUrl = `http://${VM_HOST_IP}:${dtu.port}`; // what the VM runner connects to
+  const dtuControlHeaders = {
+    "Content-Type": "application/json",
+    ...dtu.controlHeaders,
+  };
   t0 = bt("dtu-start", t0);
 
   let vmName: string | null = null;
@@ -135,7 +139,7 @@ export async function executeMacosVmJob(job: Job): Promise<JobResult> {
     // ── Seed the job to the DTU ─────────────────────────────────────────────
     await fetch(`${dtuHostUrl}/_dtu/start-runner`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: dtuControlHeaders,
       body: JSON.stringify({
         runnerName: name,
         logDir,
@@ -161,7 +165,7 @@ export async function executeMacosVmJob(job: Job): Promise<JobResult> {
 
     const seedResponse = await fetch(`${dtuHostUrl}/_dtu/seed`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: dtuControlHeaders,
       body: JSON.stringify({
         id: job.githubJobId || "1",
         name: "job",

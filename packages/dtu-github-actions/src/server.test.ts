@@ -5,21 +5,37 @@ import { getBaseUrl } from "./server/routes/dtu.ts";
 import http from "node:http";
 import type { AddressInfo } from "node:net";
 import type { Polka } from "polka";
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { getDtuLogPath } from "./server/logger.ts";
 
 let PORT: number;
+const TEST_CONTROL_TOKEN = "agent-ci-test-control-token";
 
-async function request(method: string, path: string, body?: any) {
+function isControlRequestPath(path: string): boolean {
+  const cleanPath = path.split("?", 1)[0];
+  return (
+    cleanPath === "/_dtu/seed" || cleanPath === "/_dtu/start-runner" || cleanPath === "/_dtu/dump"
+  );
+}
+
+async function requestToPort(
+  port: number,
+  method: string,
+  path: string,
+  body?: any,
+  headers: Record<string, string> = {},
+) {
   return new Promise<{ status: number; body: any }>((resolve, reject) => {
     const req = http.request(
       {
         hostname: "localhost",
-        port: PORT,
+        port,
         path: path,
         method: method,
-        headers: body ? { "Content-Type": "application/json" } : {},
+        headers: { ...(body ? { "Content-Type": "application/json" } : {}), ...headers },
       },
       (res) => {
         let data = "";
@@ -47,12 +63,40 @@ async function request(method: string, path: string, body?: any) {
   });
 }
 
+async function request(
+  method: string,
+  path: string,
+  body?: any,
+  headers: Record<string, string> = {},
+) {
+  const controlHeaders =
+    isControlRequestPath(path) && !headers["X-Agent-CI-DTU-Token"] && !headers.Authorization
+      ? { "X-Agent-CI-DTU-Token": TEST_CONTROL_TOKEN }
+      : {};
+  return requestToPort(PORT, method, path, body, { ...controlHeaders, ...headers });
+}
+
+function createCompareFixtureRepo(): { tmpDir: string; repoDir: string } {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "agent-ci-compare-"));
+  const repoDir = path.join(tmpDir, "repo");
+  fs.mkdirSync(repoDir);
+  execFileSync("git", ["init"], { cwd: repoDir, stdio: "pipe" });
+  execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: repoDir });
+  execFileSync("git", ["config", "user.name", "Test"], { cwd: repoDir });
+  fs.writeFileSync(path.join(repoDir, "a.txt"), "one\n");
+  execFileSync("git", ["add", "a.txt"], { cwd: repoDir });
+  execFileSync("git", ["commit", "-m", "one"], { cwd: repoDir, stdio: "pipe" });
+  fs.writeFileSync(path.join(repoDir, "a.txt"), "two\n");
+  execFileSync("git", ["commit", "-am", "two"], { cwd: repoDir, stdio: "pipe" });
+  return { tmpDir, repoDir };
+}
+
 describe("DTU Server", () => {
   let server: Polka;
 
   beforeAll(async () => {
     state.reset();
-    const app = await bootstrapAndReturnApp();
+    const app = await bootstrapAndReturnApp({ controlToken: TEST_CONTROL_TOKEN });
     return new Promise<void>((resolve) => {
       server = app.listen(0, () => {
         const address = server.server?.address() as AddressInfo;
@@ -121,6 +165,38 @@ describe("DTU Server", () => {
     const res = await request("POST", "/repos/owner/repo/actions/runners/registration-token");
     expect(res.status).toBe(201);
     expect(res.body.token).toContain("ghr_mock_registration_token");
+  });
+
+  it("should compare commits without invoking a shell", async () => {
+    const { tmpDir, repoDir } = createCompareFixtureRepo();
+    try {
+      await request("POST", "/_dtu/seed", { id: "compare", repoRoot: repoDir });
+
+      const compareRes = await request("GET", "/repos/owner/repo/compare/HEAD~1...HEAD");
+      expect(compareRes.status).toBe(200);
+      expect(compareRes.body.files).toEqual([
+        expect.objectContaining({ filename: "a.txt", status: "modified" }),
+      ]);
+
+      const markerPath = path.join(repoDir, "marker");
+      const injectedRes = await request(
+        "GET",
+        "/repos/owner/repo/compare/HEAD~1...HEAD;touch${IFS}marker;",
+      );
+      expect(injectedRes.status).toBe(422);
+      expect(fs.existsSync(markerPath)).toBe(false);
+
+      const leadingDashRes = await request("GET", "/repos/owner/repo/compare/-bad...HEAD");
+      expect(leadingDashRes.status).toBe(422);
+
+      const malformedRes = await request(
+        "GET",
+        "/repos/owner/repo/compare/HEAD~1...HEAD...ignored",
+      );
+      expect(malformedRes.status).toBe(422);
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
   });
 
   it("should handle pipeline service discovery", async () => {
@@ -352,13 +428,132 @@ describe("DTU Server", () => {
   });
 });
 
+describe("DTU control endpoints hardening", () => {
+  let server: Polka;
+  let port: number;
+  let allowedLogRoot: string;
+  const controlToken = "test-control-token";
+
+  beforeAll(async () => {
+    state.reset();
+    allowedLogRoot = fs.mkdtempSync(path.join(os.tmpdir(), "agent-ci-control-logs-"));
+    const app = await bootstrapAndReturnApp({
+      reset: false,
+      controlToken,
+      allowedLogRoot,
+    });
+    return new Promise<void>((resolve) => {
+      server = app.listen(0, () => {
+        const address = server.server?.address() as AddressInfo;
+        port = address.port;
+        resolve();
+      });
+    });
+  });
+
+  afterAll(async () => {
+    await new Promise<void>((resolve) => {
+      if (server && server.server) {
+        server.server.close(() => resolve());
+      } else {
+        resolve();
+      }
+    });
+    fs.rmSync(allowedLogRoot, { recursive: true, force: true });
+  });
+
+  it("should protect control endpoints even when no token is configured", async () => {
+    const app = await bootstrapAndReturnApp({ reset: false });
+    let randomTokenServer: Polka | undefined;
+    const randomTokenPort = await new Promise<number>((resolve) => {
+      randomTokenServer = app.listen(0, () => {
+        const address = randomTokenServer!.server?.address() as AddressInfo;
+        resolve(address.port);
+      });
+    });
+
+    try {
+      const unauthorized = await requestToPort(randomTokenPort, "POST", "/_dtu/seed", {
+        id: "default-token-blocked",
+      });
+      expect(unauthorized.status).toBe(401);
+      expect(state.jobs.has("default-token-blocked")).toBe(false);
+    } finally {
+      await new Promise<void>((resolve) => randomTokenServer!.server?.close(() => resolve()));
+    }
+  });
+
+  it("should require a control token for internal DTU endpoints", async () => {
+    const unauthorizedSeed = await requestToPort(port, "POST", "/_dtu/seed", { id: "blocked" });
+    expect(unauthorizedSeed.status).toBe(401);
+
+    const unauthorizedStart = await requestToPort(port, "POST", "/_dtu/start-runner", {
+      runnerName: "blocked-runner",
+      logDir: path.join(allowedLogRoot, "blocked-runner"),
+    });
+    expect(unauthorizedStart.status).toBe(401);
+    expect(state.runnerLogs.has("blocked-runner")).toBe(false);
+
+    const unauthorizedDump = await requestToPort(port, "GET", "/_dtu/dump");
+    expect(unauthorizedDump.status).toBe(401);
+
+    const wrongToken = await requestToPort(
+      port,
+      "POST",
+      "/_dtu/seed",
+      { id: "wrong-token" },
+      { "X-Agent-CI-DTU-Token": "wrong-token" },
+    );
+    expect(wrongToken.status).toBe(401);
+    expect(state.jobs.has("wrong-token")).toBe(false);
+
+    const authorized = await requestToPort(
+      port,
+      "POST",
+      "/_dtu/seed",
+      { id: "allowed" },
+      { "X-Agent-CI-DTU-Token": controlToken },
+    );
+    expect(authorized.status).toBe(201);
+    expect(state.jobs.has("allowed")).toBe(true);
+
+    const bearerAuthorized = await requestToPort(port, "GET", "/_dtu/dump", undefined, {
+      Authorization: `Bearer ${controlToken}`,
+    });
+    expect(bearerAuthorized.status).toBe(200);
+  });
+
+  it("should reject runner log paths outside the allowed log root", async () => {
+    const outside = path.join(os.tmpdir(), "agent-ci-outside-logs");
+    const rejected = await requestToPort(
+      port,
+      "POST",
+      "/_dtu/start-runner",
+      { runnerName: "runner-a", logDir: outside, timelineDir: outside },
+      { "X-Agent-CI-DTU-Token": controlToken },
+    );
+    expect(rejected.status).toBe(400);
+
+    const inside = path.join(allowedLogRoot, "runner-a");
+    const accepted = await requestToPort(
+      port,
+      "POST",
+      "/_dtu/start-runner",
+      { runnerName: "runner-a", logDir: inside, timelineDir: inside },
+      { "X-Agent-CI-DTU-Token": controlToken },
+    );
+    expect(accepted.status).toBe(200);
+    expect(state.runnerLogs.get("runner-a")).toBe(inside);
+  });
+});
+
 // ── Artifact v4 upload / download (Twirp + Azure Block Blob protocol) ──────────
 describe("Artifact v4 upload/download", () => {
   let server: any;
 
   beforeAll(async () => {
     state.reset();
-    const app = await bootstrapAndReturnApp();
+    const app = await bootstrapAndReturnApp({ controlToken: TEST_CONTROL_TOKEN });
     return new Promise<void>((resolve) => {
       server = app.listen(0, () => {
         const address = server.server?.address() as import("node:net").AddressInfo;

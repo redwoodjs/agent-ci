@@ -12,16 +12,52 @@ fn temp_dir(name: &str) -> PathBuf {
     dir
 }
 
+fn git(repo: &Path, args: &[&str]) {
+    let status = std::process::Command::new("git")
+        .args(args)
+        .current_dir(repo)
+        .status()
+        .unwrap();
+    assert!(status.success(), "git {args:?} failed");
+}
+
+fn compare_fixture_repo() -> PathBuf {
+    let repo = temp_dir("compare-repo");
+    git(&repo, &["init"]);
+    git(&repo, &["config", "user.email", "test@example.com"]);
+    git(&repo, &["config", "user.name", "Test"]);
+    fs::write(repo.join("a.txt"), "one\n").unwrap();
+    git(&repo, &["add", "a.txt"]);
+    git(&repo, &["commit", "-m", "one"]);
+    fs::write(repo.join("a.txt"), "two\n").unwrap();
+    git(&repo, &["commit", "-am", "two"]);
+    repo
+}
+
 fn request(server: &EphemeralDtu, method: &str, path: &str, body: Option<&[u8]>) -> (u16, Vec<u8>) {
+    request_with_auth(server, method, path, body, true)
+}
+
+fn request_with_auth(
+    server: &EphemeralDtu,
+    method: &str,
+    path: &str,
+    body: Option<&[u8]>,
+    include_auth: bool,
+) -> (u16, Vec<u8>) {
     let mut stream = TcpStream::connect(("127.0.0.1", server.port)).unwrap();
     let body = body.unwrap_or_default();
     write!(
-            stream,
-            "{method} {path} HTTP/1.1\r\nHost: 127.0.0.1:{}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
-            server.port,
-            body.len()
-        )
-        .unwrap();
+        stream,
+        "{method} {path} HTTP/1.1\r\nHost: 127.0.0.1:{}\r\nContent-Length: {}\r\n",
+        server.port,
+        body.len()
+    )
+    .unwrap();
+    if include_auth {
+        write!(stream, "X-Agent-CI-DTU-Token: {}\r\n", server.control_token).unwrap();
+    }
+    write!(stream, "Connection: close\r\n\r\n").unwrap();
     stream.write_all(body).unwrap();
     let mut response = Vec::new();
     stream.read_to_end(&mut response).unwrap();
@@ -55,6 +91,24 @@ fn starts_ephemeral_server_and_closes_cleanly() {
 
     assert!(server.url.starts_with("http://127.0.0.1:"));
     assert!(server.container_url.starts_with("http://container.local:"));
+    let (status, _) = request_with_auth(&server, "GET", "/_dtu/dump", None, false);
+    assert_eq!(status, 401);
+    let (status, _) = request_with_auth(
+        &server,
+        "POST",
+        "/_dtu/seed",
+        Some(br#"{"id":"blocked"}"#),
+        false,
+    );
+    assert_eq!(status, 401);
+    let (status, _) = request_with_auth(
+        &server,
+        "POST",
+        "/_dtu/start-runner",
+        Some(br#"{"runnerName":"blocked","logDir":"/tmp/blocked"}"#),
+        false,
+    );
+    assert_eq!(status, 401);
     let (status, _) = request(&server, "GET", "/_dtu/dump", None);
     assert_eq!(status, 404);
 
@@ -65,7 +119,7 @@ fn starts_ephemeral_server_and_closes_cleanly() {
 fn http_client_registers_runner_and_seeds_targeted_job() {
     let log_root = temp_dir("client-logs-root");
     let server = start_ephemeral_dtu_with_log_root(temp_dir("client"), &log_root, None).unwrap();
-    let mut client = DtuHttpClient::new(&server.url);
+    let mut client = DtuHttpClient::with_control_token(&server.url, &server.control_token);
     let log_dir = log_root.join("client-logs");
 
     client
@@ -198,7 +252,7 @@ fn timeline_feed_writes_sanitized_step_logs() {
     let log_root = temp_dir("feed-logs-root");
     let server = start_ephemeral_dtu_with_log_root(temp_dir("feed"), &log_root, None).unwrap();
     let log_dir = log_root.join("feed-logs");
-    let mut client = DtuHttpClient::new(&server.url);
+    let mut client = DtuHttpClient::with_control_token(&server.url, &server.control_token);
     client
         .register_runner(&DtuRunnerRegistration {
             runner_name: "runner-a".to_owned(),
@@ -269,6 +323,47 @@ fn timeline_feed_writes_sanitized_step_logs() {
             .unwrap()["answer"],
         json!("42")
     );
+    server.close();
+}
+
+#[test]
+fn compare_rejects_metacharacters_and_leading_dash_refs() {
+    let server = start_ephemeral_dtu(temp_dir("compare-cache"), None).unwrap();
+    let repo = compare_fixture_repo();
+    let (status, _) = json_request(
+        &server,
+        "POST",
+        "/_dtu/seed",
+        json!({ "id": "compare", "repoRoot": repo }),
+    );
+    assert_eq!(status, 201);
+
+    let (status, comparison) = json_request(
+        &server,
+        "GET",
+        "/repos/owner/repo/compare/HEAD~1...HEAD",
+        Value::Null,
+    );
+    assert_eq!(status, 200);
+    assert_eq!(comparison["files"][0]["filename"], "a.txt");
+
+    let marker = repo.join("marker");
+    let (status, _) = request(
+        &server,
+        "GET",
+        "/repos/owner/repo/compare/HEAD~1...HEAD;touch${IFS}marker;",
+        None,
+    );
+    assert_eq!(status, 422);
+    assert!(!marker.exists());
+
+    let (status, _) = request(
+        &server,
+        "GET",
+        "/repos/owner/repo/compare/-bad...HEAD",
+        None,
+    );
+    assert_eq!(status, 422);
     server.close();
 }
 

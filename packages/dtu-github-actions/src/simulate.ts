@@ -30,9 +30,13 @@ async function main() {
   if (event === "workflow_job" && payload.workflow_job) {
     console.log(`[DTU] Seeding mock server at ${config.DTU_URL}...`);
     try {
+      const seedHeaders: Record<string, string> = { "Content-Type": "application/json" };
+      if (process.env.AGENT_CI_DTU_CONTROL_TOKEN) {
+        seedHeaders["X-Agent-CI-DTU-Token"] = process.env.AGENT_CI_DTU_CONTROL_TOKEN;
+      }
       const seedResponse = await fetch(`${config.DTU_URL}/_dtu/seed`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: seedHeaders,
         body: JSON.stringify(payload.workflow_job),
       });
       if (!seedResponse.ok) {

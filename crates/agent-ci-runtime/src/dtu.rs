@@ -19,6 +19,7 @@ pub struct EphemeralDtu {
     pub url: String,
     pub container_url: String,
     pub port: u16,
+    pub control_token: String,
     shutdown: Arc<AtomicBool>,
     thread: Option<JoinHandle<()>>,
     #[cfg(test)]
@@ -68,7 +69,12 @@ pub fn start_ephemeral_dtu_with_log_root(
     listener.set_nonblocking(true)?;
     let port = listener.local_addr()?.port();
     let shutdown = Arc::new(AtomicBool::new(false));
-    let state = Arc::new(DtuState::new(cache_dir, allowed_log_root));
+    let control_token = generate_control_token();
+    let state = Arc::new(DtuState::new(
+        cache_dir,
+        allowed_log_root,
+        control_token.clone(),
+    ));
     let thread_shutdown = Arc::clone(&shutdown);
     let thread_state = Arc::clone(&state);
 
@@ -79,6 +85,7 @@ pub fn start_ephemeral_dtu_with_log_root(
         url: format!("http://127.0.0.1:{port}"),
         container_url: format!("http://{host}:{port}"),
         port,
+        control_token,
         shutdown,
         thread: Some(thread),
         #[cfg(test)]
@@ -86,15 +93,44 @@ pub fn start_ephemeral_dtu_with_log_root(
     })
 }
 
+fn generate_control_token() -> String {
+    let mut bytes = [0_u8; 32];
+    let read_random =
+        fs::File::open("/dev/urandom").and_then(|mut file| file.read_exact(&mut bytes));
+    if read_random.is_err() {
+        let fallback = format!(
+            "{}:{}:{}",
+            std::process::id(),
+            now_ms(),
+            thread::current().name().unwrap_or("dtu")
+        );
+        let digest = Sha1::digest(fallback.as_bytes());
+        return digest.iter().map(|byte| format!("{byte:02x}")).collect();
+    }
+    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DtuHttpClient {
     base_url: String,
+    control_token: Option<String>,
 }
 
 impl DtuHttpClient {
     pub fn new(base_url: impl Into<String>) -> Self {
         Self {
             base_url: base_url.into().trim_end_matches('/').to_owned(),
+            control_token: None,
+        }
+    }
+
+    pub fn with_control_token(
+        base_url: impl Into<String>,
+        control_token: impl Into<String>,
+    ) -> Self {
+        Self {
+            base_url: base_url.into().trim_end_matches('/').to_owned(),
+            control_token: Some(control_token.into()),
         }
     }
 
@@ -112,7 +148,15 @@ impl DtuHttpClient {
             .map_err(|err| format!("failed to connect to DTU at {}: {err}", self.base_url))?;
         write!(
             stream,
-            "{method} {path} HTTP/1.1\r\nHost: {host}:{port}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+            "{method} {path} HTTP/1.1\r\nHost: {host}:{port}\r\nContent-Type: application/json\r\n"
+        )
+        .map_err(|err| err.to_string())?;
+        if let Some(token) = &self.control_token {
+            write!(stream, "X-Agent-CI-DTU-Token: {token}\r\n").map_err(|err| err.to_string())?;
+        }
+        write!(
+            stream,
+            "Content-Length: {}\r\nConnection: close\r\n\r\n",
             body_bytes.len()
         )
         .map_err(|err| err.to_string())?;

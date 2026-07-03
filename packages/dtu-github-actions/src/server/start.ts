@@ -1,6 +1,7 @@
 import { config } from "../config.ts";
 import { bootstrapAndReturnApp } from "./index.ts";
 import { getDtuLogPath, setWorkingDirectory, DTU_ROOT } from "./logger.ts";
+import crypto from "node:crypto";
 import path from "node:path";
 
 let workingDir = process.env.AGENT_CI_WORKING_DIR;
@@ -11,13 +12,21 @@ if (workingDir) {
   setWorkingDirectory(workingDir);
 }
 
-bootstrapAndReturnApp()
+const configuredControlToken = process.env.AGENT_CI_DTU_CONTROL_TOKEN;
+const controlToken = configuredControlToken || crypto.randomBytes(32).toString("base64url");
+
+bootstrapAndReturnApp({ controlToken })
   .then((app) => {
     app.listen(config.DTU_PORT, "0.0.0.0", () => {
       console.log(
         `[DTU] OA-RUN-1 Mock GitHub API server running at http://0.0.0.0:${config.DTU_PORT}`,
       );
       console.log(`[DTU] Logging to ${getDtuLogPath()}`);
+      if (!configuredControlToken) {
+        console.log(
+          `[DTU] Generated control token for /_dtu/* endpoints. Set AGENT_CI_DTU_CONTROL_TOKEN=${controlToken} in clients that call them.`,
+        );
+      }
     });
   })
   .catch((err: any) => {

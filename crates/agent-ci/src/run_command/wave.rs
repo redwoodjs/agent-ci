@@ -21,6 +21,7 @@ pub(super) struct SharedExecutionContext {
     pub(super) github_repo: String,
     pub(super) dtu_url: String,
     pub(super) dtu_container_url: String,
+    pub(super) dtu_control_token: String,
     pub(super) dtu_port: String,
     pub(super) docker_api_url: String,
     pub(super) repo_url: String,
@@ -183,6 +184,7 @@ fn execute_macos_wave_job(
         process_env: &shared.process_env,
         github_repo: &shared.github_repo,
         dtu_url: &shared.dtu_url,
+        dtu_control_token: &shared.dtu_control_token,
         dtu_port: &shared.dtu_port,
         needs_context: wave_job.needs_context,
         stderr: &mut stderr,
@@ -315,7 +317,8 @@ fn execute_linux_wave_job(
         shared.dtu_container_url,
     ))));
 
-    let mut dtu_client = DtuHttpClient::new(&shared.dtu_url);
+    let mut dtu_client =
+        DtuHttpClient::with_control_token(&shared.dtu_url, &shared.dtu_control_token);
     let mut docker_runtime = DockerCliRuntime::default();
     let runner_name = job.runner_name.clone();
     let job_display_name = job.display_name.clone();

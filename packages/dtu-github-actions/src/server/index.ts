@@ -1,6 +1,7 @@
 import polka from "polka";
 import bodyParser from "body-parser";
 import { exec } from "node:child_process";
+import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { config } from "../config.ts";
@@ -25,7 +26,45 @@ async function terminateOldProcess() {
   }
 }
 
-export async function bootstrapAndReturnApp(options?: { reset?: boolean }) {
+function getControlToken(req: any): string | undefined {
+  const headerToken = req.headers?.["x-agent-ci-dtu-token"];
+  if (typeof headerToken === "string" && headerToken) {
+    return headerToken;
+  }
+
+  const authorization = req.headers?.authorization;
+  if (typeof authorization === "string") {
+    const match = authorization.match(/^Bearer\s+(.+)$/i);
+    if (match) {
+      return match[1];
+    }
+  }
+
+  return undefined;
+}
+
+function controlTokenMatches(actual: string | undefined, expected: string): boolean {
+  if (!actual) {
+    return false;
+  }
+  const actualBytes = Buffer.from(actual);
+  const expectedBytes = Buffer.from(expected);
+  return (
+    actualBytes.length === expectedBytes.length &&
+    crypto.timingSafeEqual(actualBytes, expectedBytes)
+  );
+}
+
+function isControlPath(url: string | undefined): boolean {
+  const path = (url || "").split("?", 1)[0];
+  return path === "/_dtu/seed" || path === "/_dtu/start-runner" || path === "/_dtu/dump";
+}
+
+export async function bootstrapAndReturnApp(options?: {
+  reset?: boolean;
+  controlToken?: string;
+  allowedLogRoot?: string;
+}) {
   const shouldReset = options?.reset ?? true;
   setupDtuLogging();
   if (shouldReset) {
@@ -45,6 +84,23 @@ export async function bootstrapAndReturnApp(options?: { reset?: boolean }) {
     }
     originalHandler(req, res, info);
   };
+
+  const controlToken =
+    options?.controlToken ||
+    process.env.AGENT_CI_DTU_CONTROL_TOKEN ||
+    crypto.randomBytes(32).toString("base64url");
+  app.use((req: any, res: any, next: any) => {
+    if (!isControlPath(req.url)) {
+      next();
+      return;
+    }
+    if (controlTokenMatches(getControlToken(req), controlToken)) {
+      next();
+      return;
+    }
+    res.writeHead(401, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ message: "Unauthorized" }));
+  });
 
   // Request timing middleware
   app.use((req: any, res: any, next: any) => {
@@ -72,7 +128,7 @@ export async function bootstrapAndReturnApp(options?: { reset?: boolean }) {
   );
 
   // Routes
-  registerDtuRoutes(app);
+  registerDtuRoutes(app, { allowedLogRoot: options?.allowedLogRoot });
   registerGithubRoutes(app);
   registerCacheRoutes(app);
   registerArtifactRoutes(app);

@@ -653,7 +653,7 @@ export async function executeLocalJob(
   const dtuCacheDir = path.resolve(getWorkingDirectory(), "cache", "dtu");
   let ephemeralDtu: Awaited<ReturnType<typeof startEphemeralDtu>> | null = null;
   try {
-    ephemeralDtu = await startEphemeralDtu(dtuCacheDir);
+    ephemeralDtu = await startEphemeralDtu(dtuCacheDir, { allowedLogRoot: path.dirname(logDir) });
     debugRunner(
       `DTU server started - CLI URL: ${ephemeralDtu.url}, Container URL: ${ephemeralDtu.containerUrl}`,
     );
@@ -663,6 +663,10 @@ export async function executeLocalJob(
   // CLI uses url (127.0.0.1), containers use containerUrl (host IP)
   const dtuUrl = ephemeralDtu?.url ?? config.GITHUB_API_URL;
   const dtuContainerUrl = ephemeralDtu?.containerUrl ?? dtuUrl;
+  const dtuControlHeaders = {
+    "Content-Type": "application/json",
+    ...ephemeralDtu?.controlHeaders,
+  };
   t0 = bt("dtu-start", t0);
 
   // ── Create run directories ────────────────────────────────────────────────
@@ -682,7 +686,7 @@ export async function executeLocalJob(
 
   await fetch(`${dtuUrl}/_dtu/start-runner`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: dtuControlHeaders,
     body: JSON.stringify({
       runnerName: containerName,
       logDir,
@@ -760,7 +764,7 @@ export async function executeLocalJob(
     t0 = Date.now();
     const seedResponse = await fetch(`${dtuUrl}/_dtu/seed`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: dtuControlHeaders,
       body: JSON.stringify({
         id: job.githubJobId || "1",
         name: "job",

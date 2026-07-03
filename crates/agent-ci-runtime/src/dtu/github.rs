@@ -128,22 +128,67 @@ pub(super) fn global_runner_registration(request: &Request, state: &DtuState) ->
     )
 }
 
+fn is_safe_git_revision(revision: &str) -> bool {
+    !revision.is_empty()
+        && revision.len() <= 200
+        && !revision.starts_with('-')
+        && revision.chars().all(|ch| {
+            ch.is_ascii_alphanumeric()
+                || matches!(ch, '.' | '_' | '/' | '@' | '+' | '~' | '^' | '-')
+        })
+}
+
+fn resolve_commit(repo_root: &str, revision: &str) -> Option<String> {
+    let output = std::process::Command::new("git")
+        .args(["rev-parse", "--verify", "--quiet", "--end-of-options"])
+        .arg(format!("{revision}^{{commit}}"))
+        .current_dir(repo_root)
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let commit = String::from_utf8(output.stdout).ok()?.trim().to_owned();
+    (!commit.is_empty()).then_some(commit)
+}
+
 pub(super) fn compare_commits(basehead: &str, state: &DtuState) -> Response {
     let parts = basehead
         .split("...")
         .flat_map(|part| part.split(".."))
         .collect::<Vec<_>>();
-    if parts.len() < 2 || parts[0].is_empty() || parts[1].is_empty() {
+    if parts.len() != 2 || parts[0].is_empty() || parts[1].is_empty() {
         return Response::json(422, json!({ "message": "Invalid basehead format" }));
     }
+    let base = parts[0];
+    let head = parts[1];
     let Some(repo_root) = state.repo_root.lock().expect("repo root lock").clone() else {
         return Response::json(
             200,
             json!({ "status": "identical", "files": [], "total_commits": 0, "commits": [] }),
         );
     };
+    if !is_safe_git_revision(base) || !is_safe_git_revision(head) {
+        return Response::json(422, json!({ "message": "Invalid basehead ref" }));
+    }
+    let Some(base_commit) = resolve_commit(&repo_root, base) else {
+        return Response::json(422, json!({ "message": "Invalid basehead ref" }));
+    };
+    let Some(head_commit) = resolve_commit(&repo_root, head) else {
+        return Response::json(422, json!({ "message": "Invalid basehead ref" }));
+    };
+
     let output = std::process::Command::new("git")
-        .args(["diff", "--name-status", parts[0], parts[1]])
+        .args([
+            "diff",
+            "--name-status",
+            "--no-ext-diff",
+            "--no-textconv",
+            "--end-of-options",
+        ])
+        .arg(&base_commit)
+        .arg(&head_commit)
+        .arg("--")
         .current_dir(repo_root)
         .output();
     let files = output

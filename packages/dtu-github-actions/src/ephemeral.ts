@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import { execSync } from "node:child_process";
+import crypto from "node:crypto";
 import http from "node:http";
 import { setCacheDir } from "./server/store.ts";
 import { bootstrapAndReturnApp } from "./server/index.ts";
@@ -10,6 +11,10 @@ export interface EphemeralDtu {
   /** Full URL including port for container access (host IP), e.g. "http://172.17.0.1:49823" */
   containerUrl: string;
   port: number;
+  /** Secret required for internal DTU control endpoints (`/_dtu/seed`, `/_dtu/start-runner`, `/_dtu/dump`). */
+  controlToken: string;
+  /** Headers to include when calling internal DTU control endpoints. */
+  controlHeaders: Record<string, string>;
   /** Shut down the ephemeral DTU server. */
   close(): Promise<void>;
 }
@@ -69,13 +74,22 @@ function resolveContainerHost(): string {
  *
  * @param cacheDir  Where cache archives should be stored (e.g. `os.tmpdir()/agent-ci/<repo>/cache/dtu`).
  */
-export async function startEphemeralDtu(cacheDir: string): Promise<EphemeralDtu> {
+export async function startEphemeralDtu(
+  cacheDir: string,
+  options?: { allowedLogRoot?: string },
+): Promise<EphemeralDtu> {
   // Override the cache directory before bootstrapping so the store writes
   // archives to the repo-scoped path rather than the global tmp dir.
   setCacheDir(cacheDir);
 
+  const controlToken = crypto.randomBytes(32).toString("base64url");
+
   // Build the Polka app with all routes registered.
-  const app = await bootstrapAndReturnApp({ reset: false });
+  const app = await bootstrapAndReturnApp({
+    reset: false,
+    controlToken,
+    allowedLogRoot: options?.allowedLogRoot,
+  });
 
   // Wrap the Polka request handler in a plain Node.js HTTP server so we can
   // bind to port 0 (OS-assigned) and get back the actual port.
@@ -106,6 +120,8 @@ export async function startEphemeralDtu(cacheDir: string): Promise<EphemeralDtu>
     url: cliUrl,
     containerUrl,
     port,
+    controlToken,
+    controlHeaders: { "X-Agent-CI-DTU-Token": controlToken },
     close(): Promise<void> {
       return new Promise((resolve) => {
         // Force-close all existing connections (HTTP keep-alive etc.)

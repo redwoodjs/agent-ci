@@ -120,6 +120,25 @@ function cleanupAgentCiContainers(reason) {
   run("docker", ["rm", "-f", ...containerIds], { stdio: "inherit", timeout: 60_000 });
 }
 
+function smokeEnvironment(workDir) {
+  // Successful workflows do not need retained state, logs, or worktrees. Keep
+  // all three under their own work directory so the parity suite can delete
+  // them before moving to the next workflow instead of filling a CI runner.
+  return {
+    AGENT_CI_WORKING_DIR: workDir,
+    AGENT_CI_LOG_DIR: path.join(workDir, "logs"),
+    AGENT_CI_STATE_DIR: path.join(workDir, "state"),
+  };
+}
+
+function removeSuccessfulWorkDir(workDir) {
+  try {
+    fs.rmSync(workDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
+  } catch (error) {
+    console.warn(`failed to clean successful smoke work directory ${workDir}: ${error.message}`);
+  }
+}
+
 function runStreaming(command, args, options = {}) {
   return new Promise((resolve) => {
     const startedAt = Date.now();
@@ -431,7 +450,7 @@ for (const workflow of workflows) {
       rustBin,
       ["run", "--workflow", workflow.path, "--quiet", "--jobs", "2"],
       {
-        env: { AGENT_CI_WORKING_DIR: workflowWorkDir },
+        env: smokeEnvironment(workflowWorkDir),
         timeout: smokeWorkflowTimeoutMs,
         label: workflow.path,
         workflow: workflow.path,
@@ -452,6 +471,7 @@ for (const workflow of workflows) {
         attempts: attempt,
         durationMs: result.durationMs,
       });
+      removeSuccessfulWorkDir(workflowWorkDir);
       console.log(`✓ ${workflow.path} executed successfully`);
       break;
     }
@@ -506,9 +526,7 @@ if (skipAllSmoke) {
   setWorkflowState("--all smoke", "running", { attempt: 1 });
   const allResult = await runStreaming(rustBin, ["run", "--all", "--quiet", "--jobs", "2"], {
     cwd: allRepo,
-    env: {
-      AGENT_CI_WORKING_DIR: path.join(smokeWorkDir, "all-mode-work"),
-    },
+    env: smokeEnvironment(path.join(smokeWorkDir, "all-mode-work")),
     timeout: smokeWorkflowTimeoutMs,
     label: "--all smoke",
     workflow: "--all smoke",
@@ -522,6 +540,7 @@ if (skipAllSmoke) {
       attempts: 1,
       durationMs: Date.now() - allStart,
     });
+    removeSuccessfulWorkDir(path.join(smokeWorkDir, "all-mode-work"));
     console.log("✓ --all smoke executed successfully");
   } else {
     setWorkflowState("--all smoke", allResult.timedOut ? "timed_out" : "failed", {

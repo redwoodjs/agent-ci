@@ -1,5 +1,12 @@
 # dtu-github-actions
 
+## 0.17.0
+
+### Patch Changes
+
+- 37a094e: Harden ephemeral DTU startup and cleanup for nested local runs, including safer host/network resolution and test coverage for loopback routing through the local runner.
+- 06fa6e6: Harden the ephemeral DTU control plane: require a cryptographically secure, in-process control token for seed/start-runner/dump endpoints (including trailing-slash routes), fail closed when secure randomness is unavailable, and reject runner log paths that escape the run log root through symlinks. Also remove shell execution from compare handling and update vulnerable dependencies, including the unpatched `decompress` transitive dependency.
+
 ## 0.16.2
 
 ### Patch Changes

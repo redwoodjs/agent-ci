@@ -91,6 +91,13 @@ fn starts_ephemeral_server_and_closes_cleanly() {
 
     assert!(server.url.starts_with("http://127.0.0.1:"));
     assert!(server.container_url.starts_with("http://container.local:"));
+    assert_eq!(server.control_token.len(), 64);
+    assert!(
+        server
+            .control_token
+            .bytes()
+            .all(|byte| byte.is_ascii_hexdigit())
+    );
     let (status, _) = request_with_auth(&server, "GET", "/_dtu/dump", None, false);
     assert_eq!(status, 401);
     let (status, _) = request_with_auth(
@@ -106,6 +113,14 @@ fn starts_ephemeral_server_and_closes_cleanly() {
         "POST",
         "/_dtu/start-runner",
         Some(br#"{"runnerName":"blocked","logDir":"/tmp/blocked"}"#),
+        false,
+    );
+    assert_eq!(status, 401);
+    let (status, _) = request_with_auth(
+        &server,
+        "POST",
+        "/_dtu/seed/",
+        Some(br#"{"id":"trailing-blocked"}"#),
         false,
     );
     assert_eq!(status, 401);
@@ -193,6 +208,81 @@ fn rejects_runner_log_dirs_outside_allowed_root() {
 
     assert_eq!(status, 400);
     assert!(body["error"].as_str().unwrap().contains("logDir"));
+    assert!(
+        !server
+            .state
+            .runner_logs
+            .lock()
+            .unwrap()
+            .contains_key("runner-a")
+    );
+    server.close();
+}
+
+#[test]
+fn runner_registration_rejects_invalid_timeline_without_partial_state() {
+    let log_root = temp_dir("atomic-logs");
+    let server =
+        start_ephemeral_dtu_with_log_root(temp_dir("atomic-cache"), &log_root, None).unwrap();
+    let log_dir = log_root.join("runner-a");
+    let outside = temp_dir("atomic-outside");
+
+    let (status, _) = json_request(
+        &server,
+        "POST",
+        "/_dtu/start-runner",
+        json!({ "runnerName": "runner-a", "logDir": log_dir, "timelineDir": outside }),
+    );
+
+    assert_eq!(status, 400);
+    assert!(
+        !server
+            .state
+            .runner_logs
+            .lock()
+            .unwrap()
+            .contains_key("runner-a")
+    );
+    assert!(
+        !server
+            .state
+            .runner_timeline_dirs
+            .lock()
+            .unwrap()
+            .contains_key("runner-a")
+    );
+    assert!(!log_root.join("runner-a").exists());
+    server.close();
+}
+
+#[cfg(unix)]
+#[test]
+fn runner_registration_rejects_symlinked_log_paths() {
+    use std::os::unix::fs::symlink;
+
+    let log_root = temp_dir("symlink-logs");
+    let server =
+        start_ephemeral_dtu_with_log_root(temp_dir("symlink-cache"), &log_root, None).unwrap();
+    let outside = temp_dir("symlink-outside");
+    let link = log_root.join("outside-link");
+    symlink(&outside, &link).unwrap();
+
+    let (status, _) = json_request(
+        &server,
+        "POST",
+        "/_dtu/start-runner",
+        json!({ "runnerName": "runner-a", "logDir": link.join("logs") }),
+    );
+
+    assert_eq!(status, 400);
+    assert!(
+        !server
+            .state
+            .runner_logs
+            .lock()
+            .unwrap()
+            .contains_key("runner-a")
+    );
     server.close();
 }
 

@@ -11,8 +11,6 @@ export interface EphemeralDtu {
   /** Full URL including port for container access (host IP), e.g. "http://172.17.0.1:49823" */
   containerUrl: string;
   port: number;
-  /** Secret required for internal DTU control endpoints (`/_dtu/seed`, `/_dtu/start-runner`, `/_dtu/dump`). */
-  controlToken: string;
   /** Headers to include when calling internal DTU control endpoints. */
   controlHeaders: Record<string, string>;
   /** Shut down the ephemeral DTU server. */
@@ -120,7 +118,6 @@ export async function startEphemeralDtu(
     url: cliUrl,
     containerUrl,
     port,
-    controlToken,
     controlHeaders: { "X-Agent-CI-DTU-Token": controlToken },
     close(): Promise<void> {
       return new Promise((resolve) => {

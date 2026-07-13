@@ -23,10 +23,35 @@ function pathIsUnderRoot(candidate: string, root: string): boolean {
 
   const normalizedCandidate = path.resolve(candidate);
   const normalizedRoot = path.resolve(root);
-  const relative = path.relative(normalizedRoot, normalizedCandidate);
-  return (
-    relative === "" || (!!relative && !relative.startsWith("..") && !path.isAbsolute(relative))
-  );
+  const isWithinRoot = (child: string, parent: string) => {
+    const relative = path.relative(parent, child);
+    return (
+      relative === "" || (!!relative && !relative.startsWith("..") && !path.isAbsolute(relative))
+    );
+  };
+
+  if (!isWithinRoot(normalizedCandidate, normalizedRoot)) {
+    return false;
+  }
+
+  // Resolve the nearest existing ancestor as well as the configured root. A
+  // lexical check alone accepts `log-root/link/out`, even when `link` points
+  // outside the root. The leaf may not exist yet because start-runner creates
+  // it after validation.
+  try {
+    const realRoot = fs.realpathSync.native(normalizedRoot);
+    let existingAncestor = normalizedCandidate;
+    while (!fs.existsSync(existingAncestor)) {
+      const parent = path.dirname(existingAncestor);
+      if (parent === existingAncestor) {
+        return false;
+      }
+      existingAncestor = parent;
+    }
+    return isWithinRoot(fs.realpathSync.native(existingAncestor), realRoot);
+  } catch {
+    return false;
+  }
 }
 
 function validateLogPath(candidate: unknown, allowedLogRoot: string | undefined): string | null {

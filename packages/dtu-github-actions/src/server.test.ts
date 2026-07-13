@@ -497,6 +497,22 @@ describe("DTU control endpoints hardening", () => {
     const unauthorizedDump = await requestToPort(port, "GET", "/_dtu/dump");
     expect(unauthorizedDump.status).toBe(401);
 
+    const trailingSeed = await requestToPort(port, "POST", "/_dtu/seed/", {
+      id: "trailing-blocked",
+    });
+    expect(trailingSeed.status).toBe(401);
+    expect(state.jobs.has("trailing-blocked")).toBe(false);
+
+    const trailingStart = await requestToPort(port, "POST", "/_dtu/start-runner/", {
+      runnerName: "trailing-blocked-runner",
+      logDir: path.join(allowedLogRoot, "trailing-blocked-runner"),
+    });
+    expect(trailingStart.status).toBe(401);
+    expect(state.runnerLogs.has("trailing-blocked-runner")).toBe(false);
+
+    const trailingDump = await requestToPort(port, "GET", "/_dtu/dump/");
+    expect(trailingDump.status).toBe(401);
+
     const wrongToken = await requestToPort(
       port,
       "POST",
@@ -545,6 +561,47 @@ describe("DTU control endpoints hardening", () => {
     expect(accepted.status).toBe(200);
     expect(state.runnerLogs.get("runner-a")).toBe(inside);
   });
+
+  it("should validate all runner paths before changing state", async () => {
+    const logDir = path.join(allowedLogRoot, "atomic-runner");
+    const outside = path.join(os.tmpdir(), "agent-ci-atomic-outside");
+    const rejected = await requestToPort(
+      port,
+      "POST",
+      "/_dtu/start-runner",
+      { runnerName: "atomic-runner", logDir, timelineDir: outside },
+      { "X-Agent-CI-DTU-Token": controlToken },
+    );
+
+    expect(rejected.status).toBe(400);
+    expect(state.runnerLogs.has("atomic-runner")).toBe(false);
+    expect(state.runnerTimelineDirs.has("atomic-runner")).toBe(false);
+    expect(fs.existsSync(logDir)).toBe(false);
+  });
+
+  it.skipIf(process.platform === "win32")(
+    "should reject log paths through symlinks outside the root",
+    async () => {
+      const outside = fs.mkdtempSync(path.join(os.tmpdir(), "agent-ci-symlink-outside-"));
+      const link = path.join(allowedLogRoot, "outside-link");
+      fs.symlinkSync(outside, link);
+
+      try {
+        const rejected = await requestToPort(
+          port,
+          "POST",
+          "/_dtu/start-runner",
+          { runnerName: "symlink-runner", logDir: path.join(link, "logs") },
+          { "X-Agent-CI-DTU-Token": controlToken },
+        );
+        expect(rejected.status).toBe(400);
+        expect(state.runnerLogs.has("symlink-runner")).toBe(false);
+      } finally {
+        fs.rmSync(link, { force: true });
+        fs.rmSync(outside, { recursive: true, force: true });
+      }
+    },
+  );
 });
 
 // ── Artifact v4 upload / download (Twirp + Azure Block Blob protocol) ──────────

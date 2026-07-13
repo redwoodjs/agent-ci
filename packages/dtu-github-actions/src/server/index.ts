@@ -56,7 +56,9 @@ function controlTokenMatches(actual: string | undefined, expected: string): bool
 }
 
 function isControlPath(url: string | undefined): boolean {
-  const path = (url || "").split("?", 1)[0];
+  // Polka treats a trailing slash as equivalent for these routes, so apply the
+  // same canonicalization before deciding whether the request needs a token.
+  const path = (url || "").split("?", 1)[0].replace(/\/+$/, "") || "/";
   return path === "/_dtu/seed" || path === "/_dtu/start-runner" || path === "/_dtu/dump";
 }
 

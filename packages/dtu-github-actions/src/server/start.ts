@@ -24,7 +24,7 @@ bootstrapAndReturnApp({ controlToken })
       console.log(`[DTU] Logging to ${getDtuLogPath()}`);
       if (!configuredControlToken) {
         console.log(
-          `[DTU] Generated control token for /_dtu/* endpoints. Set AGENT_CI_DTU_CONTROL_TOKEN=${controlToken} in clients that call them.`,
+          "[DTU] Generated an in-process control token for /_dtu/* endpoints. Set AGENT_CI_DTU_CONTROL_TOKEN before starting the server to let external clients call them.",
         );
       }
     });

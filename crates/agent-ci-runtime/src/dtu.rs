@@ -69,7 +69,7 @@ pub fn start_ephemeral_dtu_with_log_root(
     listener.set_nonblocking(true)?;
     let port = listener.local_addr()?.port();
     let shutdown = Arc::new(AtomicBool::new(false));
-    let control_token = generate_control_token();
+    let control_token = generate_control_token()?;
     let state = Arc::new(DtuState::new(
         cache_dir,
         allowed_log_root,
@@ -93,21 +93,12 @@ pub fn start_ephemeral_dtu_with_log_root(
     })
 }
 
-fn generate_control_token() -> String {
+fn generate_control_token() -> std::io::Result<String> {
     let mut bytes = [0_u8; 32];
-    let read_random =
-        fs::File::open("/dev/urandom").and_then(|mut file| file.read_exact(&mut bytes));
-    if read_random.is_err() {
-        let fallback = format!(
-            "{}:{}:{}",
-            std::process::id(),
-            now_ms(),
-            thread::current().name().unwrap_or("dtu")
-        );
-        let digest = Sha1::digest(fallback.as_bytes());
-        return digest.iter().map(|byte| format!("{byte:02x}")).collect();
-    }
-    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+    getrandom::fill(&mut bytes).map_err(|error| {
+        std::io::Error::other(format!("failed to generate DTU control token: {error}"))
+    })?;
+    Ok(bytes.iter().map(|byte| format!("{byte:02x}")).collect())
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

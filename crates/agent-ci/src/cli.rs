@@ -23,7 +23,7 @@ Options:
       --no-matrix               Collapse all matrix combinations into a single job (uses first value of each key)
   -j, --jobs <N>                Maximum jobs to run at once
       --prewarm-through <workflow:job:step-id>
-                                Run one disposable job through a step id before parallel jobs
+                                Populate the private dependency cache before parallel jobs
                                 Or set: AGENT_CI_PREWARM_THROUGH env var
       --github-token [<token>]  GitHub token for fetching remote reusable workflows
                                 (auto-resolves via `gh auth token` if no value given)

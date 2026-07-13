@@ -59,21 +59,21 @@ describe("buildContainerBinds", () => {
       toolCacheDir: "/tmp/toolcache",
       pnpmStoreDir: "/tmp/pnpm",
       npmCacheDir: "/tmp/npm",
+      yarnCacheDir: "/tmp/yarn",
       bunCacheDir: "/tmp/bun",
       playwrightCacheDir: "/tmp/playwright",
-      warmModulesDir: "/tmp/warm",
       hostRunnerDir: "/tmp/runner",
       useDirectContainer: false,
-      githubRepo: "org/repo",
     });
 
     expect(binds).toContain("/tmp/work:/home/runner/_work");
     expect(binds).toContain("/var/run/docker.sock:/var/run/docker.sock"); // default when dockerSocketPath is not set
     expect(binds).toContain("/tmp/shims:/tmp/agent-ci-shims");
-    expect(binds).toContain("/tmp/warm:/home/runner/_work/repo/repo/node_modules");
     expect(binds).toContain("/tmp/pnpm:/home/runner/_work/.pnpm-store");
     expect(binds).toContain("/tmp/npm:/home/runner/.npm");
+    expect(binds).toContain("/tmp/yarn:/home/runner/.cache/yarn");
     expect(binds).toContain("/tmp/bun:/home/runner/.bun");
+    expect(binds.some((bind) => bind.includes("/node_modules"))).toBe(false);
     // Standard mode should NOT include runner home bind (but _work bind is expected)
     expect(binds.some((b) => b.endsWith(":/home/runner"))).toBe(false);
   });

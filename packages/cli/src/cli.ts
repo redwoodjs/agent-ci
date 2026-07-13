@@ -81,7 +81,7 @@ function printUsage() {
   console.log("  -j, --jobs <N>                Maximum jobs to run at once");
   console.log("      --prewarm-through <workflow:job:step-id>");
   console.log(
-    "                                Run one disposable job through a step id before parallel jobs",
+    "                                Populate the private dependency cache before parallel jobs",
   );
   console.log("                                Or set: AGENT_CI_PREWARM_THROUGH env var");
   console.log(

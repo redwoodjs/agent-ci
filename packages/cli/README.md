@@ -8,7 +8,7 @@
 
 Agent CI is a ground-up rewrite of the GitHub Actions orchestration layer that runs entirely on your own machine. It doesn't wrap or shim the runner: it **replaces the cloud API** that the official [GitHub Actions Runner](https://github.com/actions/runner) talks to, so the same runner binary that executes your jobs on GitHub.com executes them locally, bit-for-bit.
 
-Actions like `actions/checkout`, `actions/setup-node`, and `actions/cache` work out of the box — no patches, no forks, no network calls to GitHub. Dependencies that took a couple of minutes to install on GitHub's runners install in a few seconds on the second run, because the cache is bind-mounted — not uploaded, downloaded, or unpacked.
+Actions like `actions/checkout`, `actions/setup-node`, and `actions/cache` work out of the box — no patches, no forks, no network calls to GitHub. Dependencies that took a couple of minutes to install on GitHub's runners install in a few seconds on the second run because package-manager caches stay local and completed dependency trees can be cloned from immutable snapshots.
 
 ---
 
@@ -24,16 +24,16 @@ Existing "run actions locally" tools either re-implement steps in a compatibilit
 | -------------------------- | ------------------ | ------------------------ | --------------------------------------- |
 | Runner binary              | Official           | Custom re-implementation | **Official**                            |
 | API layer                  | GitHub.com         | Compatibility shim       | **Full local emulation**                |
-| Cache round-trip           | Network (~seconds) | Varies                   | **~0 ms (bind-mount)**                  |
+| Cache round-trip           | Network (~seconds) | Varies                   | **~0 ms (local filesystem)**            |
 | On failure                 | Start over         | Start over               | **Pause → fix → retry the failed step** |
 | Container state on failure | Destroyed          | Destroyed                | **Kept alive**                          |
 | Requires a clean commit    | Yes                | Yes                      | **No — runs against working tree**      |
 
 ### ~0 ms caching
 
-Agent CI replaces GitHub's cloud cache with **local bind-mounts**. `node_modules`, the pnpm store, Playwright browsers, and the runner tool cache all live on your host filesystem and are mounted directly into the container — no upload, no download, no tar/untar. The first run warms the cache; every subsequent run starts with hot dependencies instantly.
+Agent CI replaces GitHub's cloud cache with **local filesystem caches**. Package-manager stores, Playwright browsers, and the runner tool cache live on the host with no upload or download round-trip. Every job gets private writable `node_modules`; pnpm, Yarn, and Bun jobs can start from an immutable lockfile-keyed snapshot cloned with copy-on-write when the host supports it. npm jobs share npm's download cache because `npm ci` removes `node_modules` by design.
 
-For workflows with several independent jobs, use `--prewarm-through <workflow:job:step-id>` to warm `node_modules` once before the real jobs start in parallel. The selected step must have a stable `id`. Agent CI runs a disposable copy of that job from the beginning through the selected step, then runs the real workflows normally. This avoids parallel cold installs writing to the same shared `node_modules` mount without patching package-manager tools. You can also set `AGENT_CI_PREWARM_THROUGH` in `.env.agent-ci` to make this automatic for a repo; Agent CI warns when cold parallel install jobs look likely and no prewarm setting is present.
+For workflows with several independent jobs, use `--prewarm-through <workflow:job:step-id>` to populate the dependency cache once before the real jobs start in parallel. The selected step must have a stable `id`. Agent CI runs a disposable copy of that job from the beginning through the selected step, atomically publishes a completed snapshot, and clones it into each real job's private workspace. You can also set `AGENT_CI_PREWARM_THROUGH` in `.env.agent-ci` to make this automatic for a repo. Without explicit prewarming, jobs remain isolated and safe; the first successful job can populate the cache for later runs.
 
 ### Pause on failure
 
@@ -107,24 +107,24 @@ npx @redwoodjs/agent-ci retry --name <runner-name>
 
 Run GitHub Actions workflow jobs locally.
 
-| Flag                                       | Short | Description                                                                                                                                                                         |
-| ------------------------------------------ | ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `--workflow <path>`                        | `-w`  | Path to the workflow file                                                                                                                                                           |
-| `--all`                                    | `-a`  | Discover and run all relevant workflows for the current branch                                                                                                                      |
-| `--pause-on-failure`                       | `-p`  | Pause on step failure for interactive debugging                                                                                                                                     |
-| `--quiet`                                  | `-q`  | Suppress animated rendering (also enabled by `AI_AGENT=1`)                                                                                                                          |
-| `--json`                                   |       | Emit NDJSON event stream on stdout (also enabled by `AGENT_CI_JSON=1`); see [Agent output mode](#agent-output-mode-ndjson-event-stream)                                             |
-| `--no-matrix`                              |       | Collapse all matrix combinations into a single job (uses first value of each key)                                                                                                   |
-| `--jobs <N>`                               | `-j`  | Maximum jobs to run at once                                                                                                                                                         |
-| `--prewarm-through <workflow:job:step-id>` |       | If warm `node_modules` is cold, run one disposable job through the selected step `id` before starting the real jobs in parallel. Also configurable with `AGENT_CI_PREWARM_THROUGH`. |
-| `--github-token [<token>]`                 |       | GitHub token for fetching remote reusable workflows (auto-resolves via `gh auth token` if no value given). Also available as `AGENT_CI_GITHUB_TOKEN` env var                        |
-| `--commit-status`                          |       | Post a GitHub commit status after the run (requires `--github-token`)                                                                                                               |
-| `--var KEY=VALUE`                          |       | Provide a workflow variable (`${{ vars.KEY }}`); repeat for multiple                                                                                                                |
-| `--var-file <path\|->`                     |       | Load workflow variables from a JSON file, or use `-` to read JSON from stdin                                                                                                        |
+| Flag                                       | Short | Description                                                                                                                                                                                                         |
+| ------------------------------------------ | ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--workflow <path>`                        | `-w`  | Path to the workflow file                                                                                                                                                                                           |
+| `--all`                                    | `-a`  | Discover and run all relevant workflows for the current branch                                                                                                                                                      |
+| `--pause-on-failure`                       | `-p`  | Pause on step failure for interactive debugging                                                                                                                                                                     |
+| `--quiet`                                  | `-q`  | Suppress animated rendering (also enabled by `AI_AGENT=1`)                                                                                                                                                          |
+| `--json`                                   |       | Emit NDJSON event stream on stdout (also enabled by `AGENT_CI_JSON=1`); see [Agent output mode](#agent-output-mode-ndjson-event-stream)                                                                             |
+| `--no-matrix`                              |       | Collapse all matrix combinations into a single job (uses first value of each key)                                                                                                                                   |
+| `--jobs <N>`                               | `-j`  | Maximum jobs to run at once                                                                                                                                                                                         |
+| `--prewarm-through <workflow:job:step-id>` |       | If the dependency cache is cold, run one disposable job through the selected step `id` and atomically publish its completed cache before starting the real jobs. Also configurable with `AGENT_CI_PREWARM_THROUGH`. |
+| `--github-token [<token>]`                 |       | GitHub token for fetching remote reusable workflows (auto-resolves via `gh auth token` if no value given). Also available as `AGENT_CI_GITHUB_TOKEN` env var                                                        |
+| `--commit-status`                          |       | Post a GitHub commit status after the run (requires `--github-token`)                                                                                                                                               |
+| `--var KEY=VALUE`                          |       | Provide a workflow variable (`${{ vars.KEY }}`); repeat for multiple                                                                                                                                                |
+| `--var-file <path\|->`                     |       | Load workflow variables from a JSON file, or use `-` to read JSON from stdin                                                                                                                                        |
 
 #### Prewarm `node_modules` before parallel jobs
 
-If several first-wave jobs run dependency installs, a cold local run can make those jobs write to the same warm `node_modules` mount at the same time. Agent CI warns when this looks likely and no prewarm setting is present.
+Every job has private writable `node_modules`, so parallel installs cannot corrupt another job. When several first-wave jobs install the same lockfile, Agent CI recommends explicit prewarming to avoid repeating cold installation work.
 
 Add a stable `id` to the install step you want to use as the prewarm boundary:
 
@@ -149,7 +149,7 @@ To make this automatic for the repo, put the same selector in `.env.agent-ci`:
 AGENT_CI_PREWARM_THROUGH=.github/workflows/ci.yml:test:install
 ```
 
-The CLI flag wins over the env setting. If the lockfile-keyed warm `node_modules` cache is already ready, Agent CI skips the disposable prewarm job.
+The CLI flag wins over the env setting. If the lockfile-keyed Agent CI dependency cache has a valid completion manifest, Agent CI skips the disposable prewarm job. Interrupted staging directories and package-manager-owned sentinel files are never treated as completed caches.
 
 ### `agent-ci retry`
 
@@ -407,7 +407,7 @@ Example:
 {"event":"step.start","ts":"…","job":"lint","runner":"agent-ci-1-job","step":"eslint","index":1}
 {"event":"step.finish","ts":"…","job":"lint","runner":"agent-ci-1-job","step":"eslint","index":1,"status":"passed","durationMs":4123}
 {"event":"job.finish","ts":"…","job":"lint","runner":"agent-ci-1-job","workflow":"ci.yml","status":"passed","durationMs":8000}
-{"event":"diagnostic","ts":"…","level":"warning","code":"prewarm_recommended","message":"cold node_modules may be shared by 2 parallel install jobs","details":{"selector":".github/workflows/ci.yml:test:install","candidateCount":2}}
+{"event":"diagnostic","ts":"…","level":"warning","code":"prewarm_recommended","message":"2 parallel jobs will start with a cold dependency cache","details":{"selector":".github/workflows/ci.yml:test:install","candidateCount":2}}
 {"event":"run.finish","ts":"…","status":"passed","durationMs":18210}
 ```
 
@@ -416,7 +416,7 @@ of NDJSON noise. Non-JSON output passes through unchanged on stdout.
 
 ## The agentic dev loop
 
-The loop: commit → Agent CI runs → failure → your agent fixes the file in place with `--pause-on-failure` → retry the failed step → commit the fix → push. The bind-mounted cache and paused container are what make this loop tight enough to actually work — your agent isn't waiting minutes for a fresh install between attempts.
+The loop: commit → Agent CI runs → failure → your agent fixes the file in place with `--pause-on-failure` → retry the failed step → commit the fix → push. Local dependency caches and the paused container make this loop tight enough to work without waiting minutes for a fresh install between attempts.
 
 Install the agent skill:
 

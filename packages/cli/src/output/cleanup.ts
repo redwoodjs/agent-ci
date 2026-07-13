@@ -150,8 +150,8 @@ export function detectPackageManager(repoRoot: string): PackageManager | null {
 /**
  * Compute a short SHA-256 hash of lockfiles tracked in the repo.
  * Searches for all known lockfile types (pnpm, npm, yarn, bun) and hashes
- * whichever are found. Used as a cache key for the warm node_modules directory
- * so the snapshot is automatically invalidated when dependencies change.
+ * whichever are found. Used as a cache key for immutable dependency snapshots
+ * so completed snapshots are automatically invalidated when dependencies change.
  *
  * Returns "no-lockfile" if no lockfile is found.
  */
@@ -195,91 +195,4 @@ export function computeLockfileHash(repoRoot: string): string {
     }
   }
   return hash.digest("hex").slice(0, 16);
-}
-
-/**
- * Sentinel files written by each package manager after a successful install.
- * If at least one exists, the cache is considered intact.
- */
-const INSTALL_SENTINELS = [
-  ".modules.yaml", // pnpm
-  ".package-lock.json", // npm
-  ".yarn-integrity", // yarn
-];
-
-/**
- * Check whether any known install sentinel exists in the directory.
- * Each PM writes a specific marker file after a successful install.
- * For Bun, having any `node_modules/.cache` is sufficient since Bun
- * does not write a top-level sentinel but always creates a cache dir.
- */
-export function hasInstallSentinel(warmDir: string): boolean {
-  for (const sentinel of INSTALL_SENTINELS) {
-    if (fs.existsSync(path.join(warmDir, sentinel))) {
-      return true;
-    }
-  }
-  // Bun: no top-level sentinel, but .cache is reliably created
-  if (fs.existsSync(path.join(warmDir, ".cache"))) {
-    return true;
-  }
-  return false;
-}
-
-/**
- * Check whether a warm node_modules directory is populated AND intact.
- * Used by the wave scheduler to decide whether to serialize the first job.
- *
- * A cache is considered warm only if:
- *   1. The directory exists and is non-empty
- *   2. At least one install sentinel exists (PM-specific marker file)
- *
- * A non-empty directory WITHOUT any sentinel indicates an interrupted install
- * and is treated as cold/broken.
- */
-export function isWarmNodeModules(warmDir: string): boolean {
-  try {
-    if (!fs.existsSync(warmDir)) {
-      return false;
-    }
-    const entries = fs.readdirSync(warmDir);
-    if (entries.length === 0) {
-      return false;
-    }
-    return hasInstallSentinel(warmDir);
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Detect and repair a corrupted warm cache directory.
- * A cache is corrupt if it has files but no install sentinel from any PM.
- *
- * When corruption is detected, the directory is deleted and recreated empty
- * so the next install starts from scratch.
- *
- * @returns `"repaired"` if a broken cache was nuked, `"warm"` if the cache
- *          is healthy, or `"cold"` if it was already empty/missing.
- */
-export function repairWarmCache(warmDir: string): "repaired" | "warm" | "cold" {
-  try {
-    if (!fs.existsSync(warmDir)) {
-      return "cold";
-    }
-    const entries = fs.readdirSync(warmDir);
-    if (entries.length === 0) {
-      return "cold";
-    }
-    // If any install sentinel exists, the cache is healthy.
-    if (hasInstallSentinel(warmDir)) {
-      return "warm";
-    }
-    // Non-empty but no sentinel → interrupted install. Nuke and recreate.
-    fs.rmSync(warmDir, { recursive: true, force: true });
-    fs.mkdirSync(warmDir, { recursive: true, mode: 0o777 });
-    return "repaired";
-  } catch {
-    return "cold";
-  }
 }

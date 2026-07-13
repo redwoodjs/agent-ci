@@ -277,7 +277,6 @@ fn execute_linux_wave_job(
         bun_cache_dir: Some(dirs.bun_cache_dir.to_string_lossy().into_owned()),
         playwright_cache_dir: dirs.playwright_cache_dir.to_string_lossy().into_owned(),
         cypress_cache_dir: Some(dirs.cypress_cache_dir.to_string_lossy().into_owned()),
-        warm_modules_dir: dirs.warm_modules_dir.to_string_lossy().into_owned(),
         host_runner_dir: dirs.host_runner_dir.to_string_lossy().into_owned(),
         use_direct_container: false,
         github_repo: shared.github_repo.clone(),

@@ -111,7 +111,7 @@ describe("createRunDirectories — PM-scoped caching", () => {
     expect(dirs.bunCacheDir).toBeUndefined();
   });
 
-  it("yarn: creates no PM-specific cache dirs (no dedicated mount)", async () => {
+  it("yarn: only creates the Yarn cache dir", async () => {
     makeFixture("yarn.lock", "# yarn lockfile v1\n");
     const { createRunDirectories } = await import("./directory-setup.ts");
 
@@ -122,6 +122,7 @@ describe("createRunDirectories — PM-scoped caching", () => {
     });
 
     expect(dirs.detectedPM).toBe("yarn");
+    expect(dirs.yarnCacheDir).toBeDefined();
     expect(dirs.pnpmStoreDir).toBeUndefined();
     expect(dirs.npmCacheDir).toBeUndefined();
     expect(dirs.bunCacheDir).toBeUndefined();
@@ -170,6 +171,7 @@ describe("createRunDirectories — PM-scoped caching", () => {
     expect(dirs.detectedPM).toBeNull();
     expect(dirs.pnpmStoreDir).toBeDefined();
     expect(dirs.npmCacheDir).toBeDefined();
+    expect(dirs.yarnCacheDir).toBeDefined();
     expect(dirs.bunCacheDir).toBeDefined();
   });
 });
@@ -243,7 +245,7 @@ describe("buildContainerBinds — PM-scoped mounts", () => {
     expect(binds.some((b) => b.includes("/.npm"))).toBe(false);
   });
 
-  it("yarn project: no PM-specific mounts at all", async () => {
+  it("yarn project: only mounts the Yarn cache", async () => {
     const { buildContainerBinds } = await import("../docker/container-config.ts");
 
     const binds = buildContainerBinds({
@@ -251,16 +253,16 @@ describe("buildContainerBinds — PM-scoped mounts", () => {
       shimsDir: "/tmp/shims",
       diagDir: "/tmp/diag",
       toolCacheDir: "/tmp/toolcache",
-      // all PM dirs omitted (yarn has no dedicated mount)
+      yarnCacheDir: "/tmp/yarn-cache",
       playwrightCacheDir: "/tmp/playwright",
-      warmModulesDir: "/tmp/warm",
       hostRunnerDir: "/tmp/runner",
       useDirectContainer: false,
-      githubRepo: "org/repo",
     });
 
+    expect(binds).toContain("/tmp/yarn-cache:/home/runner/.cache/yarn");
     expect(binds.some((b) => b.includes(".pnpm-store"))).toBe(false);
     expect(binds.some((b) => b.includes("/.npm"))).toBe(false);
     expect(binds.some((b) => b.includes("/.bun"))).toBe(false);
+    expect(binds.some((b) => b.includes("/node_modules"))).toBe(false);
   });
 });

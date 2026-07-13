@@ -1,9 +1,33 @@
-import { execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import type { Polka } from "polka";
 import { state } from "../store.ts";
 import { getBaseUrl } from "./dtu.ts";
 
-const EMPTY_TARBALL = execSync("tar czf - -T /dev/null");
+const EMPTY_TARBALL = execFileSync("tar", ["czf", "-", "-T", "/dev/null"]);
+
+const SAFE_GIT_REV_RE = /^[A-Za-z0-9._/@+~^-]+$/;
+
+function isSafeGitRevision(revision: string): boolean {
+  return (
+    revision.length > 0 &&
+    revision.length <= 200 &&
+    !revision.startsWith("-") &&
+    SAFE_GIT_REV_RE.test(revision)
+  );
+}
+
+function resolveCommit(repoRoot: string, revision: string): string {
+  return execFileSync(
+    "git",
+    ["rev-parse", "--verify", "--quiet", "--end-of-options", `${revision}^{commit}`],
+    {
+      cwd: repoRoot,
+      stdio: "pipe",
+      timeout: 10000,
+      encoding: "utf8",
+    },
+  ).trim();
+}
 
 export function registerGithubRoutes(app: Polka) {
   // 2. GitHub REST API Mirror - Job Detail
@@ -126,7 +150,7 @@ export function registerGithubRoutes(app: Polka) {
     const parts = basehead.split(/\.{2,3}/);
     const [base, head] = parts;
 
-    if (!base || !head) {
+    if (parts.length !== 2 || !base || !head) {
       res.writeHead(422, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ message: "Invalid basehead format" }));
       return;
@@ -141,12 +165,25 @@ export function registerGithubRoutes(app: Polka) {
       return;
     }
 
+    if (!isSafeGitRevision(base) || !isSafeGitRevision(head)) {
+      res.writeHead(422, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ message: "Invalid basehead ref" }));
+      return;
+    }
+
     try {
-      const output = execSync(`git diff --name-status ${base} ${head}`, {
-        cwd: repoRoot,
-        stdio: "pipe",
-        timeout: 10000,
-      }).toString();
+      const baseCommit = resolveCommit(repoRoot, base);
+      const headCommit = resolveCommit(repoRoot, head);
+      const output = execFileSync(
+        "git",
+        ["diff", "--name-status", "--no-ext-diff", "--no-textconv", baseCommit, headCommit, "--"],
+        {
+          cwd: repoRoot,
+          stdio: "pipe",
+          timeout: 10000,
+          encoding: "utf8",
+        },
+      );
 
       const statusMap: Record<string, string> = {
         A: "added",
@@ -192,11 +229,12 @@ export function registerGithubRoutes(app: Polka) {
       console.warn(`[DTU] Compare failed (${base}...${head}):`, err.message);
       // Fall back to listing all tracked files as "added"
       try {
-        const allFiles = execSync("git ls-files", {
+        const allFiles = execFileSync("git", ["ls-files"], {
           cwd: repoRoot,
           stdio: "pipe",
           timeout: 10000,
-        }).toString();
+          encoding: "utf8",
+        });
 
         const files = allFiles
           .trim()

@@ -10,6 +10,10 @@ pub(super) fn route_request(request: &Request, state: &Arc<DtuState>) -> Respons
         return Response::json(200, json!({ "value": [] }));
     }
 
+    if is_control_request(request) && !control_token_authorized(request, state) {
+        return Response::json(401, json!({ "message": "Unauthorized" }));
+    }
+
     if request.path == "/_dtu/dump" && request.method == "GET" {
         if dtu_debug_enabled() {
             return dump_state(state);
@@ -55,6 +59,41 @@ pub(super) fn path_segments(path: &str) -> Vec<&str> {
 
 pub(super) fn request_json(request: &Request) -> Value {
     serde_json::from_slice(&request.body).unwrap_or(Value::Null)
+}
+
+pub(super) fn is_control_request(request: &Request) -> bool {
+    let path = request.path.trim_end_matches('/');
+    matches!(
+        (request.method.as_str(), path),
+        ("POST", "/_dtu/seed") | ("POST", "/_dtu/start-runner") | ("GET", "/_dtu/dump")
+    )
+}
+
+fn control_tokens_match(actual: &str, expected: &str) -> bool {
+    if actual.len() != expected.len() {
+        return false;
+    }
+    actual
+        .bytes()
+        .zip(expected.bytes())
+        .fold(0_u8, |difference, (actual, expected)| {
+            difference | (actual ^ expected)
+        })
+        == 0
+}
+
+pub(super) fn control_token_authorized(request: &Request, state: &DtuState) -> bool {
+    let header_token = request
+        .headers
+        .get("x-agent-ci-dtu-token")
+        .map(String::as_str);
+    let bearer_token = request
+        .headers
+        .get("authorization")
+        .and_then(|value| value.strip_prefix("Bearer "));
+    header_token
+        .or(bearer_token)
+        .is_some_and(|token| control_tokens_match(token, &state.control_token))
 }
 
 pub(super) fn dtu_debug_enabled() -> bool {
@@ -160,26 +199,26 @@ pub(super) fn start_runner(request: &Request, state: &DtuState) -> Response {
         payload.get("logDir").and_then(Value::as_str),
     ) {
         let log_dir_path = PathBuf::from(log_dir);
-        if !path_is_under_root(&log_dir_path, &state.allowed_log_root) {
+        let timeline_dir = payload.get("timelineDir").and_then(Value::as_str);
+        let timeline_dir_path = timeline_dir.map(PathBuf::from);
+        if !path_is_under_root(&log_dir_path, &state.allowed_log_root)
+            || timeline_dir_path
+                .as_deref()
+                .is_some_and(|path| !path_is_under_root(path, &state.allowed_log_root))
+        {
             return Response::json(
                 400,
-                json!({ "error": "logDir must be under the run log directory" }),
+                json!({ "error": "logDir and timelineDir must be under the run log directory" }),
             );
         }
+
         let _ = fs::create_dir_all(&log_dir_path);
         state
             .runner_logs
             .lock()
             .expect("runner logs lock")
             .insert(runner_name.to_owned(), log_dir.to_owned());
-        if let Some(timeline_dir) = payload.get("timelineDir").and_then(Value::as_str) {
-            let timeline_dir_path = PathBuf::from(timeline_dir);
-            if !path_is_under_root(&timeline_dir_path, &state.allowed_log_root) {
-                return Response::json(
-                    400,
-                    json!({ "error": "timelineDir must be under the run log directory" }),
-                );
-            }
+        if let Some(timeline_dir) = timeline_dir {
             state
                 .runner_timeline_dirs
                 .lock()
@@ -203,12 +242,36 @@ pub(super) fn start_runner(request: &Request, state: &DtuState) -> Response {
 }
 
 pub(super) fn path_is_under_root(path: &Path, root: &Path) -> bool {
-    if !path.is_absolute() {
+    if !path.is_absolute() || !root.is_absolute() {
         return false;
     }
     let normalized_path = normalize_path(path);
     let normalized_root = normalize_path(root);
-    normalized_path == normalized_root || normalized_path.starts_with(&normalized_root)
+    if normalized_path != normalized_root && !normalized_path.starts_with(&normalized_root) {
+        return false;
+    }
+
+    // A lexical check alone accepts `log-root/link/out`, even when `link`
+    // points outside the root. The leaf may not exist yet because
+    // start_runner creates it after validation, so resolve its nearest
+    // existing ancestor instead.
+    let Ok(real_root) = fs::canonicalize(normalized_root) else {
+        return false;
+    };
+    let mut existing_ancestor = normalized_path;
+    while !existing_ancestor.exists() {
+        let Some(parent) = existing_ancestor.parent() else {
+            return false;
+        };
+        if parent == existing_ancestor {
+            return false;
+        }
+        existing_ancestor = parent.to_path_buf();
+    }
+    let Ok(real_ancestor) = fs::canonicalize(existing_ancestor) else {
+        return false;
+    };
+    real_ancestor == real_root || real_ancestor.starts_with(real_root)
 }
 
 fn normalize_path(path: &Path) -> PathBuf {

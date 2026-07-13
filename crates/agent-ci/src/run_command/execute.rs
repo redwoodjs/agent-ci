@@ -444,6 +444,7 @@ fn execute_all_workflows_parallel_shared(
     github_repo: &str,
     dtu_url: &str,
     dtu_container_url: &str,
+    dtu_control_token: &str,
     dtu_port: &str,
     docker_api_url: &str,
     repo_url: &str,
@@ -491,6 +492,7 @@ fn execute_all_workflows_parallel_shared(
     let github_repo = github_repo.to_owned();
     let dtu_url = dtu_url.to_owned();
     let dtu_container_url = dtu_container_url.to_owned();
+    let dtu_control_token = dtu_control_token.to_owned();
     let dtu_port = dtu_port.to_owned();
     let docker_api_url = docker_api_url.to_owned();
     let repo_url = repo_url.to_owned();
@@ -511,6 +513,7 @@ fn execute_all_workflows_parallel_shared(
                 github_repo: github_repo.clone(),
                 dtu_url: dtu_url.clone(),
                 dtu_container_url: dtu_container_url.clone(),
+                dtu_control_token: dtu_control_token.clone(),
                 dtu_port: dtu_port.clone(),
                 docker_api_url: docker_api_url.clone(),
                 repo_url: repo_url.clone(),
@@ -590,6 +593,7 @@ pub(super) fn execute_run_plan_inner(
     let dtu_ref = dtu.as_ref().expect("DTU just started");
     let dtu_url = dtu_ref.url.clone();
     let dtu_container_url = dtu_ref.container_url.clone();
+    let dtu_control_token = dtu_ref.control_token.clone();
     let dtu_port = dtu_ref.port.to_string();
     let docker_api_url = resolve_docker_api_url(&dtu_url, &dtu_host);
 
@@ -619,6 +623,7 @@ pub(super) fn execute_run_plan_inner(
             &github_repo,
             &dtu_url,
             &dtu_container_url,
+            &dtu_control_token,
             &dtu_port,
             &docker_api_url,
             &repo_url,
@@ -745,6 +750,7 @@ pub(super) fn execute_run_plan_inner(
                 github_repo: github_repo.clone(),
                 dtu_url: dtu_url.clone(),
                 dtu_container_url: dtu_container_url.clone(),
+                dtu_control_token: dtu_control_token.clone(),
                 dtu_port: dtu_port.clone(),
                 docker_api_url: docker_api_url.clone(),
                 repo_url: repo_url.clone(),

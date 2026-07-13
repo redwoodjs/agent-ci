@@ -21,11 +21,16 @@ pub(super) struct DtuState {
     pub(super) artifacts: Mutex<BTreeMap<String, Artifact>>,
     pub(super) artifact_blocks: Mutex<BTreeMap<u64, BTreeMap<String, Vec<u8>>>>,
     pub(super) repo_root: Mutex<Option<String>>,
+    pub(super) control_token: String,
     pub(super) next_id: AtomicU64,
 }
 
 impl DtuState {
-    pub(super) fn new(cache_dir: PathBuf, allowed_log_root: PathBuf) -> Self {
+    pub(super) fn new(
+        cache_dir: PathBuf,
+        allowed_log_root: PathBuf,
+        control_token: String,
+    ) -> Self {
         let caches = load_caches_from_disk(&cache_dir);
         Self {
             cache_dir,
@@ -47,6 +52,7 @@ impl DtuState {
             artifacts: Mutex::new(BTreeMap::new()),
             artifact_blocks: Mutex::new(BTreeMap::new()),
             repo_root: Mutex::new(None),
+            control_token,
             next_id: AtomicU64::new(now_ms() as u64),
         }
     }

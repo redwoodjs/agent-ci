@@ -1,5 +1,25 @@
 # @redwoodjs/agent-ci
 
+## 0.17.0
+
+### Minor Changes
+
+- 7a349fd: Add the Rust Agent CI runner implementation for source-checkout parity testing while keeping the published npm package on the TypeScript runner path. From a repository checkout, `AGENT_CI_FORCE_RUST=1 pnpm agent-ci-dev ...` builds and runs the Rust binary; published npm installs do not include a native runner yet. The Rust runner now honors `--jobs` for concurrent dependency-wave execution, macOS VM execution honors `AGENT_CI_MACOS_VM_CONCURRENCY`, nested local runs avoid container-name collisions, smoke benchmarks compare TypeScript and Rust orchestration overhead, shared TypeScript/Rust fixture contracts cover scheduler, event, run-result, Docker socket, and default job-limit parity, pure workflow planning plus reusable workflow expansion and event/result contracts now live in `agent-ci-core`, the generic job-wave pool and execution-plan adapters live in `agent-ci-runtime`, `--all` has Rust smoke coverage and workflow fan-out, and the Rust implementation is split into core and runtime crates with focused run, DTU, expression, Docker, runner, and macOS VM modules.
+
+  Native npm platform-package publishing and npm-launcher native opt-in are intentionally deferred until the release workflow builds, stages, and verifies real target binaries in the same artifact-staging style used by `redwoodjs/machinen`.
+
+### Patch Changes
+
+- 928fb44: Refs #370. Add `agent-ci run --prewarm-through <workflow:job:step-id>` and `AGENT_CI_PREWARM_THROUGH` so a disposable job can warm shared `node_modules` through an explicit workflow step before parallel jobs begin. Agent CI now warns with an actionable prewarm command when cold parallel install jobs look likely, including a structured `diagnostic` event in `--json` mode.
+- 06fa6e6: Harden the ephemeral DTU control plane: require a cryptographically secure, in-process control token for seed/start-runner/dump endpoints (including trailing-slash routes), fail closed when secure randomness is unavailable, and reject runner log paths that escape the run log root through symlinks. Also remove shell execution from compare handling and update vulnerable dependencies, including the unpatched `decompress` transitive dependency.
+- c331673: Harden the opt-in Rust runner orchestration for matrix needs, reusable workflow expansion and outputs, partial wave failures, cyclic dependency planning errors, pull request branch filters, detached pause handling, nested ephemeral DTU host/network resolution, cleanup of nested containers attached to Rust job networks, and the expanded Rust smoke parity gate with per-workflow diagnostics, heartbeats, status ledgers, and timeout cleanup.
+
+  Refs #367.
+
+- Updated dependencies [37a094e]
+- Updated dependencies [06fa6e6]
+  - dtu-github-actions@0.17.0
+
 ## 0.16.2
 
 ### Patch Changes

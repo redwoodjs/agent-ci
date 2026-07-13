@@ -83,7 +83,6 @@ pub struct ContainerBindsOpts {
     pub bun_cache_dir: Option<String>,
     pub playwright_cache_dir: String,
     pub cypress_cache_dir: Option<String>,
-    pub warm_modules_dir: String,
     pub host_runner_dir: String,
     pub use_direct_container: bool,
     pub github_repo: String,

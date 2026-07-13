@@ -1,10 +1,13 @@
 import path from "path";
 import fs from "fs";
 import { getWorkingDirectory } from "../output/working-directory.ts";
-import { computeLockfileHash, detectPackageManager, repairWarmCache } from "../output/cleanup.ts";
+import { computeLockfileHash, detectPackageManager } from "../output/cleanup.ts";
 import type { PackageManager } from "../output/cleanup.ts";
 import { findRepoRoot } from "./metadata.ts";
-import { debugRunner } from "../output/debug.ts";
+import {
+  pruneAbandonedDependencyCacheEntries,
+  resolveDependencyCacheDir,
+} from "./node-modules-cache.ts";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -16,9 +19,11 @@ export interface RunDirectories {
   toolCacheDir: string;
   pnpmStoreDir?: string;
   npmCacheDir?: string;
+  yarnCacheDir?: string;
   bunCacheDir?: string;
   playwrightCacheDir: string;
-  warmModulesDir: string;
+  dependencyCacheDir?: string;
+  lockfileHash: string;
   workspaceDir: string;
   repoSlug: string;
   detectedPM: PackageManager | null;
@@ -35,8 +40,9 @@ export interface CreateRunDirectoriesOpts {
 /**
  * Create all per-run and shared-cache directories, returning the paths.
  *
- * Also verifies warm-cache integrity and ensures world-writable permissions
- * for DinD scenarios.
+ * Shared package-manager caches are scoped to the detected manager. Writable
+ * job directories remain private; immutable dependency snapshots live outside
+ * the run directory and are restored by the job executor.
  */
 export function createRunDirectories(opts: CreateRunDirectoriesOpts): RunDirectories {
   const { runDir, githubRepo, workflowPath } = opts;
@@ -69,12 +75,16 @@ export function createRunDirectories(opts: CreateRunDirectoriesOpts): RunDirecto
     !detectedPM || detectedPM === "npm"
       ? path.resolve(workDir, "cache", "npm-cache", repoSlug)
       : undefined;
+  const yarnCacheDir =
+    !detectedPM || detectedPM === "yarn"
+      ? path.resolve(workDir, "cache", "yarn-cache", repoSlug)
+      : undefined;
   const bunCacheDir =
     !detectedPM || detectedPM === "bun"
       ? path.resolve(workDir, "cache", "bun-cache", repoSlug)
       : undefined;
 
-  // Warm node_modules: keyed by the lockfile hash (any supported PM)
+  // Immutable dependency snapshots are keyed by package manager + lockfile.
   let lockfileHash = "no-lockfile";
   try {
     if (repoRoot) {
@@ -83,7 +93,15 @@ export function createRunDirectories(opts: CreateRunDirectoriesOpts): RunDirecto
   } catch {
     // Best-effort; fall back to "no-lockfile"
   }
-  const warmModulesDir = path.resolve(workDir, "cache", "warm-modules", repoSlug, lockfileHash);
+  const dependencyCacheDir = detectedPM
+    ? resolveDependencyCacheDir(workDir, repoSlug, {
+        packageManager: detectedPM,
+        lockfileHash,
+      })
+    : undefined;
+  if (dependencyCacheDir) {
+    pruneAbandonedDependencyCacheEntries(path.dirname(dependencyCacheDir), 24 * 60 * 60 * 1000);
+  }
 
   // Workspace path
   const repoName = githubRepo.split("/").pop() || "repo";
@@ -99,18 +117,12 @@ export function createRunDirectories(opts: CreateRunDirectoriesOpts): RunDirecto
     toolCacheDir,
     pnpmStoreDir,
     npmCacheDir,
+    yarnCacheDir,
     bunCacheDir,
     playwrightCacheDir,
-    warmModulesDir,
   ].filter((d): d is string => d !== undefined);
   for (const dir of allDirs) {
     fs.mkdirSync(dir, { recursive: true, mode: 0o777 });
-  }
-
-  // Verify warm cache integrity
-  const cacheStatus = repairWarmCache(warmModulesDir);
-  if (cacheStatus === "repaired") {
-    debugRunner(`Repaired corrupted warm cache: ${warmModulesDir}`);
   }
 
   // Ensure world-writable for DinD scenarios
@@ -124,9 +136,11 @@ export function createRunDirectories(opts: CreateRunDirectoriesOpts): RunDirecto
     toolCacheDir,
     pnpmStoreDir,
     npmCacheDir,
+    yarnCacheDir,
     bunCacheDir,
     playwrightCacheDir,
-    warmModulesDir,
+    dependencyCacheDir,
+    lockfileHash,
     workspaceDir,
     repoSlug,
     detectedPM,

@@ -56,7 +56,11 @@ import {
 import { resolveJobOutputs } from "../runner/result-builder.ts";
 import type { Job } from "../types.ts";
 import { createConcurrencyLimiter, getDefaultMaxConcurrentJobs } from "../output/concurrency.ts";
-import { isWarmNodeModules, computeLockfileHash } from "../output/cleanup.ts";
+import { computeLockfileHash, detectPackageManager } from "../output/cleanup.ts";
+import {
+  isDependencyCacheComplete,
+  resolveDependencyCacheDir,
+} from "../runner/node-modules-cache.ts";
 import {
   pruneOrphanedDockerResources,
   killOrphanedContainers,
@@ -205,10 +209,10 @@ export function formatPrewarmWarning(candidates: PrewarmInstallCandidate[]): str
     ? ""
     : "\nAdd a stable `id: install` to the install step you want Agent CI to prewarm through.\n";
   return [
-    `[Agent CI] Warning: cold node_modules may be shared by ${candidates.length} parallel install jobs.`,
-    "If more than one job writes node_modules at the same time, package managers can race and fail.",
+    `[Agent CI] Notice: ${candidates.length} parallel jobs will start with a cold dependency cache.`,
+    "Each job has private node_modules, but prewarming can avoid duplicate installation work.",
     stepIdHint.trim(),
-    "To prewarm the shared dependency tree explicitly, run:",
+    "To prewarm dependencies explicitly, run:",
     "",
     `  agent-ci run --all --prewarm-through ${selector}`,
     "",
@@ -590,29 +594,31 @@ export default async function runCmd(args: string[]): Promise<void> {
 }
 
 // ─── runPrewarmThrough ──────────────────────────────────────────────────────
-// Optional warm-cache primer. Runs one disposable copy of a real workflow job
+// Optional dependency-cache primer. Runs one disposable copy of a real workflow job
 // from the beginning through a user-selected step id, so setup actions and the
 // install command are exactly the repo's own workflow steps.
-async function isWarmNodeModulesForWorkflow(workflowPath: string): Promise<boolean> {
+async function isDependencyCacheReadyForWorkflow(workflowPath: string): Promise<boolean> {
   const repoRoot = resolveRepoRootFromWorkflow(workflowPath);
+  const packageManager = detectPackageManager(repoRoot);
+  if (!packageManager) {
+    return false;
+  }
   config.GITHUB_REPO ??= await resolveRepoSlug(repoRoot);
   const repoSlug = config.GITHUB_REPO.replace("/", "-");
   let lockfileHash = "no-lockfile";
   try {
     lockfileHash = computeLockfileHash(repoRoot);
   } catch {}
-  const warmModulesDir = path.resolve(
-    getWorkingDirectory(),
-    "cache",
-    "warm-modules",
-    repoSlug,
-    lockfileHash,
+  return isDependencyCacheComplete(
+    resolveDependencyCacheDir(getWorkingDirectory(), repoSlug, {
+      packageManager,
+      lockfileHash,
+    }),
   );
-  return isWarmNodeModules(warmModulesDir);
 }
 
 async function warnIfPrewarmLikelyNeeded(workflowPaths: string[]): Promise<void> {
-  if (workflowPaths.length === 0 || (await isWarmNodeModulesForWorkflow(workflowPaths[0]))) {
+  if (workflowPaths.length === 0 || (await isDependencyCacheReadyForWorkflow(workflowPaths[0]))) {
     return;
   }
   const candidates = workflowPaths.flatMap(findPrewarmInstallCandidates);
@@ -644,8 +650,8 @@ async function runPrewarmThrough(options: {
 
   const repoRoot = resolveRepoRootFromWorkflow(workflowPath);
   config.GITHUB_REPO ??= await resolveRepoSlug(repoRoot);
-  if (await isWarmNodeModulesForWorkflow(workflowPath)) {
-    debugCli("[Agent CI] Prewarm skipped — warm node_modules already exists.");
+  if (await isDependencyCacheReadyForWorkflow(workflowPath)) {
+    debugCli("[Agent CI] Prewarm skipped — dependency cache is already complete.");
     return;
   }
 
@@ -1220,7 +1226,7 @@ async function runWorkflows(options: {
     const allResults: JobResult[] = [];
 
     if (workflowPaths.length === 1) {
-      // Single workflow — no cross-workflow warm-cache serialization needed
+      // A single workflow still uses the shared global concurrency limiter.
       const results = await handleWorkflow({
         workflowPath: workflowPaths[0],
         sha,
@@ -1233,89 +1239,30 @@ async function runWorkflows(options: {
       });
       allResults.push(...results);
     } else {
-      // Multiple workflows (--all mode)
-      // Determine warm-cache status from the first workflow's repo root
-      const firstRepoRoot = resolveRepoRootFromWorkflow(workflowPaths[0]);
-      config.GITHUB_REPO ??= await resolveRepoSlug(firstRepoRoot);
-      const repoSlug = config.GITHUB_REPO.replace("/", "-");
-      let lockfileHash = "no-lockfile";
-      try {
-        lockfileHash = computeLockfileHash(firstRepoRoot);
-      } catch {}
-      const warmModulesDir = path.resolve(
-        getWorkingDirectory(),
-        "cache",
-        "warm-modules",
-        repoSlug,
-        lockfileHash,
-      );
-      const warm = isWarmNodeModules(warmModulesDir);
-
-      // Pre-allocate unique run numbers so parallel workflows don't collide.
-      // Each workflow gets its own baseRunNum (e.g. 306, 307, 308) so their
-      // job suffixes (-j1, -j2, -j3) never produce duplicate container names.
+      // Every workflow gets private node_modules, so cold workflows are safe to
+      // launch together. Pre-allocate run numbers to avoid container collisions.
       const baseRunNum = getNextLogNum("agent-ci");
       const runNums = workflowPaths.map((_, i) => baseRunNum + i);
-
-      if (!warm && workflowPaths.length > 1) {
-        // Cold cache — run first workflow serially to populate warm modules,
-        // then launch the rest in parallel.
-        const firstResults = await handleWorkflow({
-          workflowPath: workflowPaths[0],
-          sha,
-          pauseOnFailure,
-          noMatrix,
-          store,
-          baseRunNum: runNums[0],
-          githubToken,
-          globalLimiter,
-        });
-        allResults.push(...firstResults);
-
-        const settled = await Promise.allSettled(
-          workflowPaths.slice(1).map((wf, i) =>
-            handleWorkflow({
-              workflowPath: wf,
-              sha,
-              pauseOnFailure,
-              noMatrix,
-              store,
-              baseRunNum: runNums[i + 1],
-              githubToken,
-              globalLimiter,
-              vars,
-            }),
-          ),
-        );
-        for (const s of settled) {
-          if (s.status === "fulfilled") {
-            allResults.push(...s.value);
-          } else {
-            console.error(`\n[Agent CI] Workflow failed: ${s.reason?.message || String(s.reason)}`);
-          }
-        }
-      } else {
-        const settled = await Promise.allSettled(
-          workflowPaths.map((wf, i) =>
-            handleWorkflow({
-              workflowPath: wf,
-              sha,
-              pauseOnFailure,
-              noMatrix,
-              store,
-              baseRunNum: runNums[i],
-              githubToken,
-              globalLimiter,
-              vars,
-            }),
-          ),
-        );
-        for (const s of settled) {
-          if (s.status === "fulfilled") {
-            allResults.push(...s.value);
-          } else {
-            console.error(`\n[Agent CI] Workflow failed: ${s.reason?.message || String(s.reason)}`);
-          }
+      const settled = await Promise.allSettled(
+        workflowPaths.map((wf, i) =>
+          handleWorkflow({
+            workflowPath: wf,
+            sha,
+            pauseOnFailure,
+            noMatrix,
+            store,
+            baseRunNum: runNums[i],
+            githubToken,
+            globalLimiter,
+            vars,
+          }),
+        ),
+      );
+      for (const s of settled) {
+        if (s.status === "fulfilled") {
+          allResults.push(...s.value);
+        } else {
+          console.error(`\n[Agent CI] Workflow failed: ${s.reason?.message || String(s.reason)}`);
         }
       }
     }
@@ -1488,7 +1435,7 @@ async function runWaveJobs(
 
 // ─── handleWorkflow ───────────────────────────────────────────────────────────
 // Processes a single workflow file: parses jobs, handles matrix expansion,
-// wave scheduling, warm-cache serialization, and concurrency limiting.
+// dependency-aware wave scheduling, and concurrency limiting.
 
 async function handleWorkflow(options: {
   workflowPath: string;
@@ -1728,21 +1675,6 @@ async function handleWorkflow(options: {
     const result = await limiter.run(() => runJobExecutor(ej, job));
     return [result];
   }
-
-  // ── Warm-cache check ───────────────────────────────────────────────────────
-  const repoSlug = githubRepo.replace("/", "-");
-  let lockfileHash = "no-lockfile";
-  try {
-    lockfileHash = computeLockfileHash(repoRoot);
-  } catch {}
-  const warmModulesDir = path.resolve(
-    getWorkingDirectory(),
-    "cache",
-    "warm-modules",
-    repoSlug,
-    lockfileHash,
-  );
-  let warm = isWarmNodeModules(warmModulesDir);
 
   const buildJob = (ej: ExpandedJob): Job => {
     const actualTaskName = ej.sourceTaskName ?? ej.taskName;
@@ -2040,30 +1972,14 @@ async function handleWorkflow(options: {
       continue;
     }
 
-    // ── Warm-cache serialization for the first wave ────────────────────────
-    if (!warm && wi === 0 && waveJobs.length > 1) {
-      debugCli("Cold cache — running first job to populate warm modules...");
-      const firstResult = await limiter.run(() => runOrSkipJob(waveJobs[0]));
-      allResults.push(firstResult);
-      const rest = await runWaveJobs(
-        waveJobs.slice(1),
-        limiter,
-        runOrSkipJob,
-        workflowPath,
-        seenErrorMessages,
-      );
-      allResults.push(...rest);
-      warm = true;
-    } else {
-      const results = await runWaveJobs(
-        waveJobs,
-        limiter,
-        runOrSkipJob,
-        workflowPath,
-        seenErrorMessages,
-      );
-      allResults.push(...results);
-    }
+    const results = await runWaveJobs(
+      waveJobs,
+      limiter,
+      runOrSkipJob,
+      workflowPath,
+      seenErrorMessages,
+    );
+    allResults.push(...results);
 
     // After each wave, resolve workflow_call outputs for completed caller jobs
     resolveWorkflowCallOutputs();

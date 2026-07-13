@@ -271,7 +271,6 @@ fn builds_container_binds_with_optional_caches() {
         bun_cache_dir: Some("/bun".to_owned()),
         playwright_cache_dir: "/pw".to_owned(),
         cypress_cache_dir: Some("/cypress".to_owned()),
-        warm_modules_dir: "/warm".to_owned(),
         host_runner_dir: "/runner".to_owned(),
         use_direct_container: true,
         github_repo: "owner/repo".to_owned(),

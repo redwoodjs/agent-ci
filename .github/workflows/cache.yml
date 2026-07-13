@@ -1,9 +1,9 @@
 name: Cache Tests
 
-# Exercises the warm node_modules bind-mount on the local (agent-ci) runner.
-# Three parallel jobs all run pnpm install simultaneously. Without the warm cache:
-#   - First run: one job warms node_modules alone, then the other two run in parallel
-#   - Subsequent runs: all three start in parallel immediately (node_modules already warm)
+# Exercises private node_modules plus the immutable dependency snapshot cache.
+# Three parallel jobs all run pnpm install without sharing a writable tree:
+#   - First run: all jobs install privately; the first success atomically publishes a snapshot.
+#   - Subsequent runs: each job starts from its own copy-on-write clone of that snapshot.
 
 on:
   pull_request_target:
@@ -24,7 +24,8 @@ jobs:
         with:
           node-version: 22
           cache: "pnpm"
-      - run: pnpm install
+      - id: install
+        run: pnpm install
       - run: echo "✅ install-a complete — node_modules present $(ls node_modules | wc -l | tr -d ' ') packages"
 
   install-b:

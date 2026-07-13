@@ -108,7 +108,8 @@ describe("formatPrewarmWarning", () => {
   it("gives an actionable prewarm command and env setting", () => {
     const warning = formatPrewarmWarning(warningCandidates);
 
-    expect(warning).toContain("cold node_modules may be shared by 2 parallel install jobs");
+    expect(warning).toContain("2 parallel jobs will start with a cold dependency cache");
+    expect(warning).toContain("Each job has private node_modules");
     expect(warning).toContain(
       "agent-ci run --all --prewarm-through .github/workflows/ci.yml:test:install",
     );

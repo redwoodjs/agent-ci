@@ -54,13 +54,14 @@ export interface ContainerBindsOpts {
   toolCacheDir: string;
   pnpmStoreDir?: string;
   npmCacheDir?: string;
+  yarnCacheDir?: string;
   bunCacheDir?: string;
   playwrightCacheDir: string;
-  warmModulesDir: string;
   hostRunnerDir: string;
   useDirectContainer: boolean;
-  /** GitHub repository slug (e.g. "org/repo"), used to compute workspace node_modules mount. */
-  githubRepo: string;
+  /** Legacy inputs accepted for callers compiled against the old bind API. They are intentionally ignored. */
+  warmModulesDir?: string;
+  githubRepo?: string;
   /** Host-side Docker socket path to use as the bind-mount source (use DockerSocket.bindMountPath, not socketPath). */
   dockerSocketPath?: string;
 }
@@ -129,16 +130,14 @@ export function buildContainerBinds(opts: ContainerBindsOpts): string[] {
     toolCacheDir,
     pnpmStoreDir,
     npmCacheDir,
+    yarnCacheDir,
     bunCacheDir,
     playwrightCacheDir,
-    warmModulesDir,
     hostRunnerDir,
     useDirectContainer,
-    githubRepo,
     dockerSocketPath = "/var/run/docker.sock",
   } = opts;
 
-  const repoName = githubRepo.split("/").pop() || "repo";
   const h = toHostPath;
   return [
     // When using a custom container, bind-mount the extracted runner
@@ -153,13 +152,9 @@ export function buildContainerBinds(opts: ContainerBindsOpts): string[] {
     // Package manager caches (persist across runs, only for detected PM)
     ...(pnpmStoreDir ? [`${h(pnpmStoreDir)}:/home/runner/_work/.pnpm-store`] : []),
     ...(npmCacheDir ? [`${h(npmCacheDir)}:/home/runner/.npm`] : []),
+    ...(yarnCacheDir ? [`${h(yarnCacheDir)}:/home/runner/.cache/yarn`] : []),
     ...(bunCacheDir ? [`${h(bunCacheDir)}:/home/runner/.bun`] : []),
     `${h(playwrightCacheDir)}:/home/runner/.cache/ms-playwright`,
-    // Warm node_modules: mounted directly at the workspace node_modules path
-    // so pnpm/esbuild path resolution sees a real directory (not a symlink).
-    // The git shim blocks `git clean` and checkout is patched with clean:false,
-    // so EBUSY on this bind mount is not a concern.
-    `${h(warmModulesDir)}:/home/runner/_work/${repoName}/${repoName}/node_modules`,
   ];
 }
 

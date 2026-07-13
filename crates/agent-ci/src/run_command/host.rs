@@ -13,7 +13,6 @@ pub(super) struct RustRunDirectories {
     pub(super) bun_cache_dir: PathBuf,
     pub(super) playwright_cache_dir: PathBuf,
     pub(super) cypress_cache_dir: PathBuf,
-    pub(super) warm_modules_dir: PathBuf,
     pub(super) host_runner_dir: PathBuf,
     pub(super) workspace_dir: PathBuf,
 }
@@ -125,10 +124,6 @@ pub(super) fn create_rust_run_directories(
     let bun_cache_dir = working_dir.join("cache/bun-cache").join(&repo_slug);
     let playwright_cache_dir = working_dir.join("cache/playwright").join(&repo_slug);
     let cypress_cache_dir = working_dir.join("cache/cypress").join(&repo_slug);
-    let warm_modules_dir = working_dir
-        .join("cache/warm-modules")
-        .join(&repo_slug)
-        .join("no-lockfile");
     let host_runner_dir = run_dir.join("runner");
     let workspace_dir = container_work_dir.join(repo_name).join(repo_name);
 
@@ -144,7 +139,6 @@ pub(super) fn create_rust_run_directories(
         bun_cache_dir,
         playwright_cache_dir,
         cypress_cache_dir,
-        warm_modules_dir,
         host_runner_dir,
         workspace_dir,
     };
@@ -170,7 +164,6 @@ pub(super) fn create_rust_run_directories(
         &dirs.bun_cache_dir,
         &dirs.playwright_cache_dir,
         &dirs.cypress_cache_dir,
-        &dirs.warm_modules_dir,
         &dirs.host_runner_dir,
         &dirs.workspace_dir,
     ] {

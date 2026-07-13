@@ -25,6 +25,7 @@ import { writeJobMetadata } from "./metadata.ts";
 import { writeGitShim } from "./git-shim.ts";
 import { prepareWorkspace } from "./workspace.ts";
 import { createRunDirectories } from "./directory-setup.ts";
+import { publishDependencyCache, restoreDependencyCache } from "./node-modules-cache.ts";
 import { writeDetachedMarker } from "../launcher.ts";
 import {
   buildContainerEnv,
@@ -802,6 +803,20 @@ export async function executeLocalJob(
         debugRunner(`Failed to prepare workspace: ${err}. Using host fallback.`);
       }
 
+      if (dirs.dependencyCacheDir) {
+        const restored = restoreDependencyCache(
+          dirs.dependencyCacheDir,
+          path.join(dirs.workspaceDir, "node_modules"),
+        );
+        if (restored.restored) {
+          debugRunner(
+            `Restored private node_modules snapshot via ${restored.strategy} in ${restored.durationMs}ms`,
+          );
+        } else if (restored.mode === "download-only") {
+          debugRunner("Using private node_modules with the shared package-manager download cache");
+        }
+      }
+
       try {
         const execAsync = promisify(exec);
         await execAsync(`chmod -R 777 "${dirs.containerWorkDir}" "${dirs.diagDir}"`);
@@ -903,12 +918,11 @@ export async function executeLocalJob(
       toolCacheDir: dirs.toolCacheDir,
       pnpmStoreDir: dirs.pnpmStoreDir,
       npmCacheDir: dirs.npmCacheDir,
+      yarnCacheDir: dirs.yarnCacheDir,
       bunCacheDir: dirs.bunCacheDir,
       playwrightCacheDir: dirs.playwrightCacheDir,
-      warmModulesDir: dirs.warmModulesDir,
       hostRunnerDir,
       useDirectContainer,
-      githubRepo,
       dockerSocketPath: getDockerSocket().bindMountPath || undefined,
     });
 
@@ -1082,6 +1096,22 @@ export async function executeLocalJob(
         }
       } catch {
         /* best-effort */
+      }
+    }
+
+    if (jobSucceeded && dirs.detectedPM && dirs.dependencyCacheDir) {
+      const published = await publishDependencyCache({
+        cacheDir: dirs.dependencyCacheDir,
+        sourceNodeModules: path.join(dirs.workspaceDir, "node_modules"),
+        identity: {
+          packageManager: dirs.detectedPM,
+          lockfileHash: dirs.lockfileHash,
+        },
+      });
+      if (published.published) {
+        debugRunner(
+          `Published ${published.mode} dependency cache${published.strategy ? ` via ${published.strategy}` : ""} in ${published.durationMs}ms`,
+        );
       }
     }
 

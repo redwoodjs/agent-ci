@@ -59,6 +59,7 @@ cat > "$PROJECT/slow-dependency/package.json" <<'JSON'
 JSON
 
 cat > "$PROJECT/slow-dependency/postinstall.cjs" <<'JS'
+const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
 
@@ -95,7 +96,10 @@ if (mode === "warmup") {
 }
 
 fs.mkdirSync(identitiesDir, { recursive: true });
-fs.writeFileSync(path.join(identitiesDir, String(process.pid)), `${mountIdentity}\n`);
+// Separate containers often assign the same process ID to their lifecycle
+// scripts. Use a random report name so one job cannot overwrite another's
+// mount identity in the shared tool cache.
+fs.writeFileSync(path.join(identitiesDir, crypto.randomUUID()), `${mountIdentity}\n`);
 
 try {
   fs.mkdirSync(activeDir);

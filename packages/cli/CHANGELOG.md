@@ -1,5 +1,13 @@
 # @redwoodjs/agent-ci
 
+## 0.17.1
+
+### Patch Changes
+
+- 9ec9d45: Refs #378. Give every job private writable `node_modules`, keep npm installs private while sharing npm's download cache, and atomically publish completed pnpm, Yarn, and Bun dependency trees as lockfile-keyed snapshots that are copied into each job with copy-on-write when available.
+- Updated dependencies [9ec9d45]
+  - dtu-github-actions@0.17.1
+
 ## 0.17.0
 
 ### Minor Changes
